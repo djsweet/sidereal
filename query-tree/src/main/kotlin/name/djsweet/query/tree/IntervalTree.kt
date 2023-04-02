@@ -578,7 +578,7 @@ private class InOrderIterator<T: Comparable<T>, V>(tree: IntervalTree<T, V>): It
 }
 
 class IntervalTree<T: Comparable<T>, V> private constructor(
-    private val internalSize: Long,
+    val size: Long,
     internal val root: TreeNode<T, V>?
 ): Iterable<Triple<Pair<T, T>, V, Int>> {
     constructor(): this(0, null)
@@ -611,7 +611,7 @@ class IntervalTree<T: Comparable<T>, V> private constructor(
             return this
         }
         return IntervalTree(
-            if (preexisting == null) { this.internalSize + 1 } else { this.internalSize },
+            if (preexisting == null) { this.size + 1 } else { this.size },
             this.root.put(enforcedRange.first, enforcedRange.second, value)
         )
     }
@@ -622,7 +622,7 @@ class IntervalTree<T: Comparable<T>, V> private constructor(
         }
         val enforcedRange = enforceRangeInvariants(range)
         this.lookupExactRange(enforcedRange) ?: return this
-        return IntervalTree(this.internalSize - 1, this.root.remove(enforcedRange.first, enforcedRange.second))
+        return IntervalTree(this.size - 1, this.root.remove(enforcedRange.first, enforcedRange.second))
     }
 
     fun update(maybeRange: Pair<T, T>, updater: (value: V?) -> V?): IntervalTree<T, V> {
@@ -637,10 +637,6 @@ class IntervalTree<T: Comparable<T>, V> private constructor(
         } else {
             removed.put(maybeRange, repl)
         }
-    }
-
-    fun size(): Long {
-        return this.internalSize
     }
 
     override fun iterator(): Iterator<Triple<Pair<T, T>, V, Int>> {

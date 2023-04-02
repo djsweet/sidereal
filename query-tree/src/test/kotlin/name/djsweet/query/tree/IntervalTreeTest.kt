@@ -72,7 +72,7 @@ class IntervalTreeTest {
 
     @Test fun emptyIntervalTreeConstructor() {
         val tree = IntervalTree<String, String>()
-        assertEquals(tree.size(), 0)
+        assertEquals(tree.size, 0)
         for (ent in tree) {
             fail<String>("This should not have happened!")
         }
@@ -88,7 +88,7 @@ class IntervalTreeTest {
 
     @Test fun singleInsertIntervalTree() {
         val tree = IntervalTree<Int, String>().put(Pair(0, 2), "only entry")
-        assertEquals(tree.size(), 1)
+        assertEquals(tree.size, 1)
 
         var seenIterators = 0
         for (ent in tree) {
@@ -251,7 +251,7 @@ class IntervalTreeTest {
         var tree = IntervalTree(basis)
         // /*
         tree = tree.put(basis[0].first, "f")
-        assertEquals(5, tree.size())
+        assertEquals(5, tree.size)
         val firstTreeIterator = tree.iterator()
 
         assertTrue(firstTreeIterator.hasNext())
@@ -285,7 +285,7 @@ class IntervalTreeTest {
 
         try {
             tree = tree.remove(basis[1].first)
-            assertEquals(4, tree.size())
+            assertEquals(4, tree.size)
             val secondTreeIterator = tree.iterator()
 
             assertTrue(secondTreeIterator.hasNext())
@@ -322,7 +322,7 @@ class IntervalTreeTest {
         }
 
         tree = tree.remove(basis[2].first)
-        assertEquals(3, tree.size())
+        assertEquals(3, tree.size)
         val thirdTreeIterator = tree.iterator()
 
         assertTrue(thirdTreeIterator.hasNext())
