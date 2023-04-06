@@ -219,8 +219,7 @@ internal data class TreeNode<T : Comparable<T>, V>(
             // We'll have to replace ourselves. Since the keys are equal
             // no re-balancing is necessary.
             return newInstance(rangeLow, rangeHigh, value, this.leftNode, this.rightNode)
-        }
-        if (rangeCompare > 0) {
+        } else if (rangeCompare > 0) {
             // Range is less than us, look left.
             val newLeft = if (this.leftNode == null) {
                 newInstance(rangeLow, rangeHigh, value, null, null)
@@ -491,11 +490,11 @@ internal fun <T: Comparable<T>>enforceRangeInvariants(range: Pair<T, T>): Pair<T
 
 private fun <T: Comparable<T>, V> sizeTreePairFromIterable(entries: Iterable<Pair<Pair<T, T>, V>>): Pair<Long, TreeNode<T, V>?> {
     val it = entries.iterator()
-    var newRoot: TreeNode<T, V>
-    var newSize: Long = 1
+    var root: TreeNode<T, V>
+    var size: Long = 1
     if (it.hasNext()) {
         val entry = it.next()
-        newRoot = TreeNode.newInstance(
+        root = TreeNode.newInstance(
             enforceRangeInvariants(entry.first),
             entry.second,
             null,
@@ -505,11 +504,14 @@ private fun <T: Comparable<T>, V> sizeTreePairFromIterable(entries: Iterable<Pai
         return Pair(0, null)
     }
     for (entry in it) {
-        newSize += 1
         val enforcedRange = enforceRangeInvariants(entry.first)
-        newRoot = newRoot.put(enforcedRange.first, enforcedRange.second, entry.second)
+        val prior = root.lookupExactRange(enforcedRange.first, enforcedRange.second)
+        root = root.put(enforcedRange.first, enforcedRange.second, entry.second)
+        if (prior == null) {
+            size += 1
+        }
     }
-    return Pair(newSize, newRoot)
+    return Pair(size, root)
 }
 
 
@@ -645,5 +647,29 @@ class IntervalTree<T: Comparable<T>, V> private constructor(
 
     internal fun inOrderIterator(): Iterator<Triple<Pair<T, T>, V, Pair<Int, String>>> {
         return InOrderIterator(this)
+    }
+
+    fun minRange(): Pair<T, T>? {
+        var cur = this.root
+        while (cur != null) {
+            if (cur.leftNode != null) {
+                cur = cur.leftNode
+            } else {
+                return Pair(cur.leftKey, cur.rightKey)
+            }
+        }
+        return null
+    }
+
+    fun maxRange(): Pair<T, T>? {
+        var cur = this.root
+        while (cur != null) {
+            if (cur.rightNode != null) {
+                cur = cur.rightNode
+            } else {
+                return Pair(cur.leftKey, cur.rightKey)
+            }
+        }
+        return null
     }
 }

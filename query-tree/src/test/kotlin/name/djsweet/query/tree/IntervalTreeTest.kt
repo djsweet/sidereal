@@ -5,7 +5,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.*
 import net.jqwik.api.*
 
-
 private fun <T: Comparable<T>>rangeOverlapsPairs(left: Pair<T, T>, right: Pair<T, T>): Boolean {
     return rangeOverlaps(left.first, left.second, right.first, right.second)
 }
@@ -343,6 +342,29 @@ class IntervalTreeTest {
         assertFalse(thirdTreeIterator.hasNext())
     }
 
+    @Test fun intervalTreeWithSameValueOnlyHasDistinctSize() {
+        val tree = IntervalTree(listOf(
+            Pair(Pair(0, 1), "thing"),
+            Pair(Pair(1, 2), "stuff"),
+            Pair(Pair(0, 1), "other stuff")
+        ))
+        assertEquals(2, tree.size)
+        assertEquals("other stuff", tree.lookupExactRange(Pair(0, 1)))
+        assertEquals("stuff", tree.lookupExactRange(Pair(1, 2)))
+
+        val resultingList = mutableListOf<Pair<Pair<Int, Int>, String>>()
+        for (item in tree) {
+            resultingList.add(Pair(item.first, item.second))
+        }
+        assertArrayEquals(
+            arrayOf(
+                Pair(Pair(0, 1), "other stuff"),
+                Pair(Pair(1, 2), "stuff")
+            ),
+            resultingList.toTypedArray()
+        )
+    }
+
     @Provide
     fun pairsWithUpdates(p: Pair<Int, Int>): Arbitrary<Pair<Pair<Int, Int>, ArrayList<String>>> {
         return Arbitraries.strings().list().ofMinSize(1).ofMaxSize(5) .map { Pair(p, ArrayList(it)) }
@@ -408,6 +430,7 @@ class IntervalTreeTest {
             // Second, run through all the entries in the tree.
             // Make sure that the weight is always -1 <= w <= 1, and that
             // the values match up.
+            var maxRange: Pair<Int, Int>? = null
             for (info in tree) {
                 // Note that we can generate pairs that don't have the order invariant enforced,
                 // but the order invariant will implicitly be enforced by the tree code.
@@ -420,9 +443,23 @@ class IntervalTreeTest {
                 assertEquals(entryFromMap[i], info.second)
                 assertTrue(-1 <= info.third)
                 assertTrue(info.third <= 1)
+                maxRange = info.first
             }
 
-            // Third, test that all point lookups function as intended
+            // Third, test min/max keys
+            val firstItemIt = tree.iterator()
+            if (firstItemIt.hasNext()) {
+                assertEquals(firstItemIt.next().first, tree.minRange())
+            } else {
+                assertNull(tree.minRange())
+            }
+            if (maxRange != null) {
+                assertEquals(maxRange, tree.maxRange())
+            } else {
+                assertNull(tree.maxRange())
+            }
+
+            // Fourth, test that all point lookups function as intended
             for (range in ranges) {
                 val expectedRangeSet = HashSet<Pair<Pair<Int, Int>, String>>()
                 val enforcedInvariantRange = enforceRangeInvariants(range)
@@ -443,7 +480,7 @@ class IntervalTreeTest {
                 assertEquals(expectedRangeSet, receivedRangeSet)
             }
 
-            // Fourth, test that all range lookups function as intended
+            // Fifth, test that all range lookups function as intended
             for (point in points) {
                 val expectedRangeSet = HashSet<Pair<Pair<Int, Int>, String>>()
                 val pointRange = Pair(point, point)
