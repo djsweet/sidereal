@@ -311,6 +311,35 @@ class QPTrieTest {
         )
     }
 
+    @Test fun removingNonexistentResultsInSameInstance() {
+        val shortEntry = byteArrayOf(-128)
+        val longEntry = byteArrayOf(-128, 12, 13)
+        var trie = QPTrie(listOf(
+            shortEntry to "short",
+            longEntry to "long"
+        ))
+        val removedTop = trie.remove(byteArrayOf())
+        assertTrue(removedTop === trie)
+
+        val removedMid = trie.remove(byteArrayOf(-128, 12))
+        assertTrue(removedMid === trie)
+
+        val removedBottom = trie.remove(byteArrayOf(-128, 12, 13, 14))
+        assertTrue(removedBottom === trie)
+    }
+
+    @Test fun updatingToSameResultsInSameInstance() {
+        val shortEntry = byteArrayOf(-128)
+        val longEntry = byteArrayOf(-128, 12, 13)
+        val longString = "long"
+        var trie = QPTrie(listOf(
+            shortEntry to "short",
+            longEntry to longString,
+        ))
+        val updatedTrie = trie.update(longEntry) { longString }
+        assert(updatedTrie === trie)
+    }
+
     @Test fun sanityCheckByteArrayPairs() {
         // We can't actually use a Map here; it uses hashing semantics for
         // equality that aren't well documented.

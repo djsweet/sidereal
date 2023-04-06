@@ -630,7 +630,7 @@ class IntervalTree<T: Comparable<T>, V> private constructor(
     fun update(maybeRange: Pair<T, T>, updater: (value: V?) -> V?): IntervalTree<T, V> {
         val prev = this.lookupExactRange(maybeRange)
         val repl = updater(prev)
-        if ((prev == null && repl == null) || (prev === repl)) {
+        if (prev === repl) {
             return this
         }
         val removed = this.remove(maybeRange)

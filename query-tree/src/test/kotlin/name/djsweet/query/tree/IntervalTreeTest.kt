@@ -365,6 +365,35 @@ class IntervalTreeTest {
         )
     }
 
+    @Test fun removalOfNonexistentResultsInSameInstance() {
+        val tree = IntervalTree(listOf(
+            Pair(0,1) to "thing",
+            Pair(1, 2) to "stuff"
+        ))
+        val removedTree = tree.remove(Pair(2, 3))
+
+        assertEquals(2, removedTree.size)
+        assertEquals("thing", removedTree.lookupExactRange(Pair(0, 1)))
+        assertEquals("stuff", removedTree.lookupExactRange(Pair(1, 2)))
+        assertNull(removedTree.lookupExactRange(Pair(2, 3)))
+        assertTrue(tree === removedTree)
+    }
+
+    @Test fun updatingTreeEntryToSameValueResultsInSameInstance() {
+        val stuffString = "stuff"
+        val tree = IntervalTree(listOf(
+            Pair(0,1) to "thing",
+            Pair(1, 2) to stuffString
+        ))
+        val updatedTree = tree.update(Pair(1, 2)) { stuffString }
+
+        assertEquals(2, updatedTree.size)
+        assertEquals("thing", updatedTree.lookupExactRange(Pair(0, 1)))
+        assertEquals("stuff", updatedTree.lookupExactRange(Pair(1, 2)))
+        assertNull(updatedTree.lookupExactRange(Pair(2, 3)))
+        assertTrue(tree === updatedTree)
+    }
+
     @Provide
     fun pairsWithUpdates(p: Pair<Int, Int>): Arbitrary<Pair<Pair<Int, Int>, ArrayList<String>>> {
         return Arbitraries.strings().list().ofMinSize(1).ofMaxSize(5) .map { Pair(p, ArrayList(it)) }
