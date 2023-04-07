@@ -379,7 +379,7 @@ class QPTrieTest {
     }
 
     @Property
-    fun trieLifecycle(
+    fun trieLifecycleWithoutPrefixes(
         @ForAll @From("testTrieSpecsWithRemovalOffset") spec: Pair<List<Pair<ByteArrayButComparable, String>>, Int>
     ) {
         val initialEntries = spec.first.toTypedArray()
@@ -419,5 +419,71 @@ class QPTrieTest {
             assertNull(trie.get(item.first.array))
         }
         verifyIteratorInvariants(trie, distinct)
+    }
+
+    @Provide fun prefixLookupsSchedule(): Arbitrary<List<Pair<ByteArray, String>>> {
+        val runLengths = Arbitraries.integers().between(1, 10)
+            .array(IntArray::class.java).ofMinSize(1).ofMaxSize(5)
+        val keys = runLengths.list().ofMinSize(1).ofMaxSize(16).map { lookupSchedule ->
+            val byteArrays = mutableListOf<ByteArray>()
+            for (i in 0 until lookupSchedule.size) {
+                val workingByteList = mutableListOf<Byte>()
+                var curByte = i
+                for (runLength in lookupSchedule[i]) {
+                    for (j in 0 until runLength) {
+                        workingByteList.add(curByte.toByte())
+                        curByte += 1
+                    }
+                    byteArrays.add(workingByteList.toByteArray())
+                }
+            }
+            byteArrays.toList()
+        }
+        return keys.flatMap { reifiedKeys ->
+            Arbitraries.strings().list().ofMinSize(reifiedKeys.size).ofMaxSize(reifiedKeys.size).map { values ->
+                reifiedKeys.zip(values)
+            }
+        }
+    }
+
+    private fun groupPrefixLookupSchedule(schedule: List<Pair<ByteArray, String>>): Map<Byte, List<Pair<ByteArray, String>>> {
+        val withSortOrder = schedule.sortedBy { ByteArrayButComparable(it.first) }
+        val workingMap = mutableMapOf<Byte, MutableList<Pair<ByteArray, String>>>()
+        for (item in withSortOrder) {
+            val firstByte = item.first[0]
+            var prior = workingMap[firstByte]
+            if (prior == null) {
+                prior = mutableListOf()
+                workingMap[firstByte] = prior
+            }
+            prior.add(item)
+        }
+        val resultingMap = mutableMapOf<Byte, List<Pair<ByteArray, String>>>()
+        for (kvp in workingMap) {
+            resultingMap[kvp.key] = kvp.value.toList()
+        }
+        return resultingMap.toMap()
+    }
+
+    @Property
+    fun prefixComparisons(
+        @ForAll @From("prefixLookupsSchedule") schedule: List<Pair<ByteArray, String>>
+    ) {
+        val trie = QPTrie(schedule.shuffled())
+        val grouped = this.groupPrefixLookupSchedule(schedule)
+        for (kvp in grouped) {
+            val targets = kvp.value
+            for (i in targets.indices) {
+                val lookupKey = targets[i].first
+                // First, everything that starts with this current entry.
+                val expectedStartsWith = fixIteratorForInvariants(targets.subList(i, targets.size).iterator())
+                val receivedStartsWith = fixIteratorForInvariants(trie.iteratorStartsWith(lookupKey))
+                assertListOfByteArrayValuePairsEquals(expectedStartsWith, receivedStartsWith)
+                // Second, everything this current entry starts with.
+                val expectedPrefixOf = fixIteratorForInvariants(targets.subList(0, i+1).iterator())
+                val receivedPrefixOf = fixIteratorForInvariants(trie.iteratorPrefixOfOrGreaterThan(lookupKey))
+                assertListOfByteArrayValuePairsEquals(expectedPrefixOf, receivedPrefixOf)
+            }
+        }
     }
 }

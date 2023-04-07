@@ -609,7 +609,7 @@ internal data class OddNybble<V>(
             val target = compareTo[endCompareOffset]
             val evenNode = this.dispatchByte(target) ?: return EmptyIterator()
             evenNode.iteratorForStartsWith(
-                precedingPrefixes,
+                precedingPrefixes.add(0, this.prefix),
                 target,
                 compareTo,
                 endCompareOffset
@@ -1064,21 +1064,26 @@ private class LookupPrefixOfOrGreaterThanIterator<V>(
     private val compareTo: ByteArray,
     private var currentNode: OddNybble<V>?
 ) : Iterator<Pair<ByteArray, V>> {
+    var currentValue: V? = null
     var reversePrefixList = persistentListOf<ByteArray>()
     var compareOffset = 0
+    var lastTarget: Byte? = null
 
     private fun skipCurrentNodeToValue() {
-        while (this.currentNode != null && this.currentNode?.value == null) {
+        while (this.currentValue == null && this.currentNode != null) {
             val currentNode = this.currentNode!!
             val comparison = currentNode.compareLookupSliceToCurrentPrefix(this.compareTo, compareOffset)
             if (comparison != 0) {
                 this.currentNode = null
                 break
             }
-            this.reversePrefixList.add(0, currentNode.prefix)
+            if (this.lastTarget != null) {
+                this.reversePrefixList = this.reversePrefixList.add(0, byteArrayOf(this.lastTarget!!))
+            }
+            this.reversePrefixList = this.reversePrefixList.add(0, currentNode.prefix)
             this.compareOffset += currentNode.prefix.size
             if (currentNode.value != null) {
-                break
+                this.currentValue = currentNode.value
             }
             if (this.compareOffset >= this.compareTo.size) {
                 this.currentNode = null
@@ -1086,19 +1091,20 @@ private class LookupPrefixOfOrGreaterThanIterator<V>(
             }
             val target = this.compareTo[this.compareOffset]
             this.compareOffset += 1
-            this.reversePrefixList.add(0, byteArrayOf(target))
+            this.lastTarget = target
             this.currentNode = currentNode.dispatchByte(target)?.dispatchByte(target)
         }
     }
 
     override fun hasNext(): Boolean {
         this.skipCurrentNodeToValue()
-        return this.currentNode != null
+        return this.currentValue != null
     }
 
     override fun next(): Pair<ByteArray, V> {
         this.skipCurrentNodeToValue()
-        val value = this.currentNode?.value ?: throw NoSuchElementException()
+        val value = this.currentValue ?: throw NoSuchElementException()
+        this.currentValue = null
         return Pair(concatByteArraysFromReverseList(this.reversePrefixList), value)
     }
 }
