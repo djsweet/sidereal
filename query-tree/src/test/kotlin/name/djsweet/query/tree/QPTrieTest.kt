@@ -38,17 +38,6 @@ private fun <T> fixIteratorForInvariants(it: Iterator<Pair<ByteArray, T>>): List
     }.toList()
 }
 
-private fun <T> assertListOfByteArrayValuePairsEquals(left: List<Pair<ByteArrayButComparable, T>>, right: List<Pair<ByteArrayButComparable, T>>) {
-    assertEquals(left.size, right.size)
-    for (i in left.indices) {
-        val leftItem = left[i]
-        val rightItem = right[i]
-        if (leftItem.first.compareTo(rightItem.first) != 0 || leftItem.second != rightItem.second) {
-            fail<String>("Lists differ at index [$i]; expected $left but was $right")
-        }
-    }
-}
-
 private fun <V> verifyIteratorInvariants(t: QPTrie<V>, spec: IntervalTree<ByteArrayButComparable, V>) {
     val expectedAscending = spec.iterator().asSequence().map { Pair(it.first.first, it.second) }.toList()
     val expectedDescending = expectedAscending.reversed()

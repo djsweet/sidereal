@@ -104,4 +104,16 @@ class ByteArrayButComparable(internal val array: ByteArray): Comparable<ByteArra
     override fun toString(): String {
         return this.array.toList().toString()
     }
+
+    override fun equals(other: Any?): Boolean {
+        return if (ByteArrayButComparable::class.isInstance(other)) {
+            this.compareTo(other as ByteArrayButComparable) == 0
+        } else {
+            super.equals(other)
+        }
+    }
+
+    override fun hashCode(): Int {
+        return array.contentHashCode()
+    }
 }
