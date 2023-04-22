@@ -53,4 +53,28 @@ class IteratorUtilsTest {
         }
         assertArrayEquals(expectedItems, seenItems.toTypedArray())
     }
+
+    @Property
+    fun flattenedIterators(
+        @ForAll numbers: List<List<Int>>
+    ) {
+        val fullList = ArrayList<Int>()
+        for (sublist in numbers) {
+            for (entry in sublist) {
+                fullList.add(entry)
+            }
+        }
+
+        val iteratorList = ArrayList<Iterator<Int>>()
+        for (sublist in numbers) {
+            iteratorList.add(sublist.iterator())
+        }
+
+        val flattened = FlattenIterator(iteratorList.iterator())
+        val flattenedList = ArrayList<Int>()
+        for (entry in flattened) {
+            flattenedList.add(entry)
+        }
+        assertArrayEquals(fullList.toTypedArray(), flattenedList.toTypedArray())
+    }
 }

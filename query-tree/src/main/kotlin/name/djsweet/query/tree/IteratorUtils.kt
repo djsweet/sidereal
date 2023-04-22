@@ -71,3 +71,39 @@ internal class EmptyIterator<T>: Iterator<T> {
         throw NoSuchElementException()
     }
 }
+
+internal class FlattenIterator<T>(
+    private val iterators: Iterator<Iterator<T>>
+): Iterator<T> {
+    private var cur: Iterator<T>? = null
+
+    private fun possiblySetupNextIterator() {
+        var cur = this.cur
+        if (cur != null && cur.hasNext()) {
+            return
+        }
+        while (this.iterators.hasNext()) {
+            cur = this.iterators.next()
+            this.cur = cur
+            if (cur.hasNext()) {
+                return
+            }
+        }
+        this.cur = null
+    }
+
+    override fun hasNext(): Boolean {
+        this.possiblySetupNextIterator()
+        val cur = this.cur
+        return cur != null && cur.hasNext()
+    }
+
+    override fun next(): T {
+        this.possiblySetupNextIterator()
+        val cur = this.cur
+        if (cur == null || !cur.hasNext()) {
+            throw NoSuchElementException()
+        }
+        return cur.next()
+    }
+}
