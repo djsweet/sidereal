@@ -28,18 +28,8 @@ private fun <V> trieIsEmpty(trie: QPTrie<V>) {
     val startsWithIt = trie.iteratorStartsWith(byteArrayOf(0x1))
     assertFalse(startsWithIt.hasNext())
 
-    val nodesStartIt = trie.iteratorPrefixOfOrGreaterThan(byteArrayOf(0x1, 0x2, 0x3, 0x4))
+    val nodesStartIt = trie.iteratorPrefixOfOrEqualTo(byteArrayOf(0x1, 0x2, 0x3, 0x4))
     assertFalse(nodesStartIt.hasNext())
-}
-
-class ByteArrayButComparable(val array: ByteArray): Comparable<ByteArrayButComparable> {
-    override fun compareTo(other: ByteArrayButComparable): Int {
-        return Arrays.compare(this.array, other.array)
-    }
-
-    override fun toString(): String {
-        return this.array.toList().toString()
-    }
 }
 
 private fun <T> fixIteratorForInvariants(it: Iterator<Pair<ByteArray, T>>): List<Pair<ByteArrayButComparable, T>> {
@@ -314,7 +304,7 @@ class QPTrieTest {
     @Test fun removingNonexistentResultsInSameInstance() {
         val shortEntry = byteArrayOf(-128)
         val longEntry = byteArrayOf(-128, 12, 13)
-        var trie = QPTrie(listOf(
+        val trie = QPTrie(listOf(
             shortEntry to "short",
             longEntry to "long"
         ))
@@ -332,7 +322,7 @@ class QPTrieTest {
         val shortEntry = byteArrayOf(-128)
         val longEntry = byteArrayOf(-128, 12, 13)
         val longString = "long"
-        var trie = QPTrie(listOf(
+        val trie = QPTrie(listOf(
             shortEntry to "short",
             longEntry to longString,
         ))
@@ -348,7 +338,7 @@ class QPTrieTest {
         val map = IntervalTree(listOf(
             Pair(arr1, arr1) to "bad",
             Pair(arr2, arr2) to "good",
-        ));
+        ))
         assertEquals(
             "good",
             map.lookupExactRange(
@@ -481,7 +471,7 @@ class QPTrieTest {
                 assertListOfByteArrayValuePairsEquals(expectedStartsWith, receivedStartsWith)
                 // Second, everything this current entry starts with.
                 val expectedPrefixOf = fixIteratorForInvariants(targets.subList(0, i+1).iterator())
-                val receivedPrefixOf = fixIteratorForInvariants(trie.iteratorPrefixOfOrGreaterThan(lookupKey))
+                val receivedPrefixOf = fixIteratorForInvariants(trie.iteratorPrefixOfOrEqualTo(lookupKey))
                 assertListOfByteArrayValuePairsEquals(expectedPrefixOf, receivedPrefixOf)
             }
         }

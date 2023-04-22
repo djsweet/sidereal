@@ -1051,16 +1051,16 @@ class QPTrie<V>: Iterable<Pair<ByteArray, V>> {
         }
     }
 
-    fun iteratorPrefixOfOrGreaterThan(key: ByteArray): Iterator<Pair<ByteArray, V>> {
+    fun iteratorPrefixOfOrEqualTo(key: ByteArray): Iterator<Pair<ByteArray, V>> {
         return if (this.root == null) {
             EmptyIterator()
         } else {
-            LookupPrefixOfOrGreaterThanIterator(key, this.root)
+            LookupPrefixOfOrEqualToIterator(key, this.root)
         }
     }
 }
 
-private class LookupPrefixOfOrGreaterThanIterator<V>(
+private class LookupPrefixOfOrEqualToIterator<V>(
     private val compareTo: ByteArray,
     private var currentNode: OddNybble<V>?
 ) : Iterator<Pair<ByteArray, V>> {
