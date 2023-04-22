@@ -84,7 +84,7 @@ internal fun concatByteArraysWithMiddleByte(left: ByteArray, mid: Byte, right: B
 }
 
 internal fun concatByteArraysFromReverseList(arrays: PersistentList<ByteArray>): ByteArray {
-    var newSize = arrays.sumOf { it.size }
+    val newSize = arrays.sumOf { it.size }
     var offset = newSize
     val newArray = ByteArray(newSize)
     for (arr in arrays) {
@@ -93,4 +93,15 @@ internal fun concatByteArraysFromReverseList(arrays: PersistentList<ByteArray>):
         offset = nextOffset
     }
     return newArray
+}
+
+// This is unfortunately public due to jqwik requiring that.
+class ByteArrayButComparable(internal val array: ByteArray): Comparable<ByteArrayButComparable> {
+    override fun compareTo(other: ByteArrayButComparable): Int {
+        return Arrays.compare(this.array, other.array)
+    }
+
+    override fun toString(): String {
+        return this.array.toList().toString()
+    }
 }
