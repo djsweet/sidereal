@@ -77,16 +77,6 @@ private fun <V> verifyIteratorInvariants(t: QPTrie<V>, spec: IntervalTree<ByteAr
 }
 
 class QPTrieTest {
-    companion object {
-        internal fun launderByteArrayButComparableToPublic(array: ByteArrayButComparable): PublicByteArrayButComparable {
-            return PublicByteArrayButComparable(array)
-        }
-
-        internal fun unLaunderByteArrayButComparableFromPublic(container: PublicByteArrayButComparable): ByteArrayButComparable {
-            return container.actual
-        }
-    }
-
     class PublicByteArrayButComparable internal constructor(internal val actual: ByteArrayButComparable)
 
     @Test fun emptyTrie() {
