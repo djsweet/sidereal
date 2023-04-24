@@ -72,7 +72,7 @@ internal data class OddNybble<V>(
     }
 
     fun compareLookupSliceToCurrentPrefix(compareTo: ByteArray, compareOffset: Int): Int {
-        return Arrays.compare(
+        return Arrays.compareUnsigned(
             this.prefix,
             0,
             this.prefix.size,
@@ -516,10 +516,10 @@ internal data class OddNybble<V>(
             var equalNybbleOffset = this.nybbleValues.size
             val targetUpperNybble = evenNybbleFromByte(compareTo[endCompareOffset])
             for (i in 0 until this.nybbleValues.size) {
-                val element = this.nybbleValues[i]
-                if (element < targetUpperNybble) {
+                val elementComparison = compareBytesUnsigned(this.nybbleValues[i], targetUpperNybble)
+                if (elementComparison < 0) {
                     greaterNybbleOffset += 1
-                } else if (element == targetUpperNybble) {
+                } else if (elementComparison == 0) {
                     equalNybbleOffset = i
                     greaterNybbleOffset += 1
                     break
@@ -557,27 +557,20 @@ internal data class OddNybble<V>(
             // and all the children will necessarily be greater than the lookup key.
             this.fullIteratorAscending(precedingPrefixes)
         } else if (this.nybbleValues == null || this.nybbleDispatch == null) {
-            // We didn't have anything to dispatch, so we can possibly just return ourselves.
-            return if (this.value != null) {
-                SingleElementIterator(
-                    Pair(
-                        concatByteArraysFromReverseList(precedingPrefixes.add(0, this.prefix)),
-                        this.value
-                    )
-                )
-            } else {
-                EmptyIterator()
-            }
+            // We didn't have anything to dispatch. At this point we know that our path
+            // was actually less than the lookup, so we're completely less than the lookup
+            // and shouldn't be reported.
+            EmptyIterator()
         } else {
             var greaterEqualOffset = 0
             var equalOffset = this.nybbleValues.size
             val targetUpperNybble = evenNybbleFromByte(compareTo[endCompareOffset])
             for (i in 0 until this.nybbleValues.size) {
-                val element = this.nybbleValues[i]
-                if (element < targetUpperNybble) {
+                val elementComparison = compareBytesUnsigned(this.nybbleValues[i], targetUpperNybble)
+                if (elementComparison < 0) {
                     greaterEqualOffset += 1
                 } else {
-                    if (element == targetUpperNybble) {
+                    if (elementComparison == 0) {
                         equalOffset = i
                     }
                     break
@@ -601,10 +594,10 @@ internal data class OddNybble<V>(
     ): Iterator<Pair<ByteArray, V>> {
         val comparison = this.compareLookupSliceToCurrentPrefix(compareTo, compareOffset)
         val endCompareOffset = compareOffset + this.prefix.size
-        return if (comparison != 0) {
-            EmptyIterator()
-        } else if (endCompareOffset >= compareTo.size) {
+        return if (comparison >= 0 && endCompareOffset >= compareTo.size) {
             this.fullIteratorAscending(precedingPrefixes)
+        } else if (comparison != 0) {
+            EmptyIterator()
         } else {
             val target = compareTo[endCompareOffset]
             val evenNode = this.dispatchByte(target) ?: return EmptyIterator()
@@ -818,11 +811,11 @@ internal data class EvenNybble<V>(
         var greaterOrEqualNybbleOffset = 0
         var equalNybbleOffset = this.nybbleValues.size
         for (i in 0 until this.nybbleValues.size) {
-            val element = this.nybbleValues[i]
-            if (element < targetNybble) {
+            val elementComparison = compareBytesUnsigned(this.nybbleValues[i], targetNybble)
+            if (elementComparison < 0) {
                 greaterOrEqualNybbleOffset += 1
             } else {
-                if (element == targetNybble) {
+                if (elementComparison == 0) {
                     equalNybbleOffset = i
                 }
                 break
@@ -893,7 +886,7 @@ private class LessThanOrEqualEvenNybbleIterator<V>(
     private val node: EvenNybble<V>,
     private val precedingPrefixes: PersistentList<ByteArray>,
     private val upperNybble: Int,
-    compareBottom: Byte,
+    private val compareBottom: Byte,
     private val compareTo: ByteArray,
     private val nextCompareOffset: Int
 ) : ConcatenatedIterator<Pair<ByteArray, V>>() {
@@ -903,7 +896,7 @@ private class LessThanOrEqualEvenNybbleIterator<V>(
         var currentGreaterThanOffset = 0
         val nybbleValues = node.nybbleValues
         for (element in nybbleValues) {
-            if (element <= compareBottom) {
+            if (compareBytesUnsigned(element, compareBottom) <= 0) {
                 currentGreaterThanOffset += 1
             } else {
                 break
@@ -918,11 +911,14 @@ private class LessThanOrEqualEvenNybbleIterator<V>(
         if (reverseOffset < 0) {
             return null
         }
+        val nybbleValue = node.nybbleValues[reverseOffset]
         val nextPrecedingPrefixes = this.precedingPrefixes.add(
             0,
-            byteArrayOf(nybblesToBytesPreShifted(this.upperNybble, node.nybbleValues[reverseOffset]))
+            byteArrayOf(nybblesToBytesPreShifted(this.upperNybble, nybbleValue))
         )
-        return if (offset == 0) {
+        return if (offset == 0 && compareBytesUnsigned(nybbleValue, this.compareBottom) >= 0) {
+            // Note that even at the zero offset, if the nybble value is actually less than or equal to
+            // the comparison, we can perform a full iteration.
             node.nybbleDispatch[reverseOffset].iteratorForLessThanOrEqual(
                 nextPrecedingPrefixes,
                 this.compareTo,

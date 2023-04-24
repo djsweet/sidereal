@@ -3,6 +3,9 @@ package name.djsweet.query.tree
 import org.junit.jupiter.api.Assertions.*
 import net.jqwik.api.*
 import net.jqwik.api.arbitraries.ListArbitrary
+import org.junit.jupiter.api.Test
+import java.util.*
+import kotlin.collections.ArrayList
 
 class DataUtilsTest {
     companion object {
@@ -104,5 +107,28 @@ class DataUtilsTest {
         val sharedList = qpTrieToPairList(shared)
         val resultingList = qpTrieToPairList(resulting)
         assertListOfByteArrayValuePairsEquals(sharedList, resultingList)
+    }
+
+    @Test
+    fun comparingBytesButUnsigned() {
+        assertEquals(0, compareBytesUnsigned(0, 0))
+        assertEquals(0, compareBytesUnsigned(-1, -1))
+        assertEquals(0, compareBytesUnsigned(-2, -2))
+        assertEquals(0, compareBytesUnsigned(1, 1))
+        assertEquals(-1, compareBytesUnsigned(0, -1))
+        assertEquals(1, compareBytesUnsigned(-1, 0))
+        assertEquals(-1, compareBytesUnsigned(1, -1))
+        assertEquals(1, compareBytesUnsigned(-1, 1))
+        assertEquals(1, compareBytesUnsigned(-1, -2))
+        assertEquals(-1, compareBytesUnsigned(-2, -1))
+        assertEquals(-1, compareBytesUnsigned(0, 1))
+        assertEquals(1, compareBytesUnsigned(1, 0))
+        assertEquals(-1, compareBytesUnsigned(1, 2))
+        assertEquals(1, compareBytesUnsigned(2, 1))
+        assertEquals(1, compareBytesUnsigned(-1, -72))
+        assertEquals(-1, compareBytesUnsigned(-72, -1))
+        // Sanity check for the internals of compareBytesUnsigned
+        assertTrue(Arrays.compareUnsigned(byteArrayOf(-1), byteArrayOf(-72)) >= 1)
+        assertTrue(Arrays.compareUnsigned(byteArrayOf(-2), byteArrayOf()) >= 1)
     }
 }

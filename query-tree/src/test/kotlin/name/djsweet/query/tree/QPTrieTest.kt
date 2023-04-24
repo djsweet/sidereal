@@ -465,4 +465,61 @@ class QPTrieTest {
             }
         }
     }
+
+    @Test
+    fun emptyPrefixComparisons() {
+        val trie = QPTrie(listOf(byteArrayOf(12) to byteArrayOf(13)))
+
+        val lookupStartingWith = trie.iteratorPrefixOfOrEqualTo(byteArrayOf()).asSequence().toList()
+        assertEquals(0, lookupStartingWith.size)
+
+        val lookupStartsWith = trie.iteratorStartsWith(byteArrayOf()).asSequence().toList()
+        assertEquals(1, lookupStartsWith.size)
+        assertArrayEquals(byteArrayOf(12), lookupStartsWith.first().first)
+        assertArrayEquals(byteArrayOf(13), lookupStartsWith.first().second)
+    }
+
+    @Test
+    fun emptyPrefixLessThanIterator() {
+        val trie = QPTrie(listOf(byteArrayOf(12) to byteArrayOf(13)))
+        val lookupLessThan = trie.iteratorLessThanOrEqual(byteArrayOf()).asSequence().toList()
+        assertEquals(0, lookupLessThan.size)
+    }
+
+    @Test
+    fun emptyPrefixGreaterThanIterator() {
+        val trie = QPTrie(listOf(byteArrayOf() to byteArrayOf(13)))
+        val lookupGreaterThan = trie.iteratorGreaterThanOrEqual(byteArrayOf(12)).asSequence().toList()
+        assertEquals(0, lookupGreaterThan.size)
+
+        val trieAgain = trie.put(byteArrayOf(12), byteArrayOf(14))
+        val lookupGreaterThanAgain = trieAgain.iteratorGreaterThanOrEqual(byteArrayOf(12)).asSequence().toList()
+        assertEquals(1, lookupGreaterThanAgain.size)
+        assertArrayEquals(byteArrayOf(12), lookupGreaterThanAgain.first().first)
+        assertArrayEquals(byteArrayOf(14), lookupGreaterThanAgain.first().second)
+
+        val lookupWithEmpty = trieAgain.iteratorGreaterThanOrEqual(byteArrayOf()).asSequence().toList()
+        assertEquals(2, lookupWithEmpty.size)
+
+        val trieNonEmpty = QPTrie(listOf(byteArrayOf(12) to byteArrayOf(14)))
+        val lookupNonEmptyWithEmpty = trieNonEmpty.iteratorGreaterThanOrEqual(byteArrayOf()).asSequence().toList()
+        assertEquals(1, lookupNonEmptyWithEmpty.size)
+    }
+
+    @Test
+    fun lessThanIteratorTwoCases() {
+        // Keep in mind that iteratorLessThanOrEqual is descending.
+        val targetPairs = listOf(
+            byteArrayOf(-13, 24, 19, 46, -1, 17) to 2,
+            byteArrayOf(-16, 64, -2, -14) to 1,
+        )
+        val trie = QPTrie(targetPairs)
+        val lookupLess = trie.iteratorLessThanOrEqual(
+            byteArrayOf(-1, 5, -80, 11, -50, 45, -16, 117, 13, 2, -5, -79)
+        ).asSequence().toList()
+        assertListOfByteArrayValuePairsEquals(
+            targetPairs.map { (key, value) -> ByteArrayButComparable(key) to value },
+            lookupLess.map { (key, value) -> ByteArrayButComparable(key) to value }
+        )
+    }
 }

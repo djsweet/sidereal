@@ -132,11 +132,8 @@ class ArrayUtilsTest {
         @ForAll @From("byteArraysForFindInsertRemove") spec: Pair<ByteArray, Int>,
         @ForAll lowByte: Byte
     ) {
-        var negByte = (-lowByte).toByte()
-        if (negByte >= 0.toByte()) {
-            negByte = -1
-        }
-        assertEquals(-1, findByteInSortedArray(spec.first, negByte))
+        val shiftBytes = spec.first.map { (it + 1).toByte() }.toByteArray()
+        assertEquals(-1, findByteInSortedArray(shiftBytes, 0))
     }
 
     @Provide

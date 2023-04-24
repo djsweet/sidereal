@@ -16,10 +16,11 @@ internal fun byteArraysEqualUpTo(left: ByteArray, right: ByteArray, rightFrom: I
 
 internal fun findByteInSortedArray(r: ByteArray, b: Byte): Int {
     for (i in r.indices) {
-        if (r[i] == b) {
+        val indexCompare = compareBytesUnsigned(r[i], b)
+        if (indexCompare == 0) {
             return i
         }
-        if (r[i] > b) {
+        if (indexCompare > 0) {
             return -(i + 1)
         }
     }
@@ -98,7 +99,7 @@ internal fun concatByteArraysFromReverseList(arrays: PersistentList<ByteArray>):
 // This is unfortunately public due to jqwik requiring that.
 class ByteArrayButComparable(internal val array: ByteArray): Comparable<ByteArrayButComparable> {
     override fun compareTo(other: ByteArrayButComparable): Int {
-        return Arrays.compare(this.array, other.array)
+        return Arrays.compareUnsigned(this.array, other.array)
     }
 
     override fun toString(): String {
