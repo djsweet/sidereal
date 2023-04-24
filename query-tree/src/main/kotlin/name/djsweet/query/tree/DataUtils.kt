@@ -6,10 +6,10 @@ fun <T>workingDataForAvailableKeys(fullData: QPTrie<ByteArray>, keyDispatch: QPT
     }
     val keyBasis = if (fullData.size < keyDispatch.size) { fullData } else { keyDispatch }
     var result = QPTrie<ByteArray>()
-    for (kvp in keyBasis) {
-        val fromFullData = fullData.get(kvp.first) ?: continue
-        if (keyDispatch.get(kvp.first) != null) {
-            result = result.put(kvp.first, fromFullData)
+    for ((key) in keyBasis) {
+        val fromFullData = fullData.get(key) ?: continue
+        if (keyDispatch.get(key) != null) {
+            result = result.put(key, fromFullData)
         }
     }
     return result
