@@ -39,7 +39,7 @@ private fun <T> fixIteratorForInvariants(it: Iterator<QPTrieKeyValue<T>>): List<
 }
 
 private fun <V> verifyIteratorInvariants(t: QPTrie<V>, spec: IntervalTree<ByteArrayButComparable, V>) {
-    val expectedAscending = spec.iterator().asSequence().map { Pair(it.first.first, it.second) }.toList()
+    val expectedAscending = spec.iterator().asSequence().map { Pair(it.first.lowerBound, it.second) }.toList()
     val expectedDescending = expectedAscending.reversed()
 
     val givenAscendingImplicit = fixIteratorForInvariants(t.iterator())
@@ -59,8 +59,8 @@ private fun <V> verifyIteratorInvariants(t: QPTrie<V>, spec: IntervalTree<ByteAr
 
     // Less than or equal checks
     for (element in expectedAscending) {
-        val expectedUpTo = spec.lookupRange(Pair(minItem.first, element.first)).asSequence().map {
-            Pair(it.first.first, it.second)
+        val expectedUpTo = spec.lookupRange(Pair(minItem.lowerBound, element.first)).asSequence().map { (key, value) ->
+            Pair(key.lowerBound, value)
         }.toList().reversed()
         val minRanges = fixIteratorForInvariants(t.iteratorLessThanOrEqual(element.first.array))
         assertListOfByteArrayValuePairsEquals(expectedUpTo, minRanges)
@@ -68,8 +68,8 @@ private fun <V> verifyIteratorInvariants(t: QPTrie<V>, spec: IntervalTree<ByteAr
 
     // Greater than or equal checks
     for (element in expectedAscending) {
-        val expectedDownTo = spec.lookupRange(Pair(element.first, maxItem.first)).asSequence().map {
-            Pair(it.first.first, it.second)
+        val expectedDownTo = spec.lookupRange(Pair(element.first, maxItem.lowerBound)).asSequence().map { (key, value) ->
+            Pair(key.lowerBound, value)
         }.toList()
         val maxRanges = fixIteratorForInvariants(t.iteratorGreaterThanOrEqual(element.first.array))
         assertListOfByteArrayValuePairsEquals(expectedDownTo, maxRanges)
@@ -384,14 +384,14 @@ class QPTrieTest {
         }
         var trie = QPTrie<String>()
         var expectedSize = 0
-        for (item in distinct) {
-            trie = trie.put(item.first.first.array, item.second)
+        for ((key, value) in distinct) {
+            trie = trie.put(key.lowerBound.array, value)
             expectedSize += 1
         }
         assertEquals(expectedSize.toLong(), trie.size)
-        for (item in distinct) {
-            val found = trie.get(item.first.first.array)
-            assertEquals(item.second, found)
+        for ((key, value) in distinct) {
+            val found = trie.get(key.lowerBound.array)
+            assertEquals(value, found)
         }
         verifyIteratorInvariants(trie, distinct)
         var distinctRemoved = IntervalTree<ByteArrayButComparable, String>()
@@ -405,9 +405,9 @@ class QPTrieTest {
         expectedSize -= distinctRemoved.size.toInt()
         assertEquals(expectedSize.toLong(), trie.size)
 
-        for (item in distinct) {
-            val found = trie.get(item.first.first.array)
-            assertEquals(item.second, found)
+        for ((key, value) in distinct) {
+            val found = trie.get(key.lowerBound.array)
+            assertEquals(value, found)
         }
         for (i in 0 until spec.second) {
             val (publicArray) = initialEntries[initialEntries.size - i - 1]

@@ -11,7 +11,32 @@ internal fun <T : Comparable<T>>compareRanges(leftLeft: T, leftRight: T, rightLe
     return leftRight.compareTo(rightRight)
 }
 
-internal data class TreeNode<T : Comparable<T>, V>(
+// Our ranges are closed on both ends, so first == second is perfectly acceptable.
+internal fun <T: Comparable<T>>enforceRangeInvariants(range: Pair<T, T>): Pair<T, T> {
+    val rangeCompare = range.first.compareTo(range.second)
+    return if (rangeCompare > 0) {
+        Pair(range.second, range.first)
+    } else {
+        range
+    }
+}
+
+data class IntervalRange<T: Comparable<T>> internal constructor(val lowerBound: T, val upperBound: T) {
+    companion object {
+        internal fun <T: Comparable<T>> fromPair(p: Pair<T, T>): IntervalRange<T> {
+            val (lowerBound, upperBound) = enforceRangeInvariants(p)
+            return IntervalRange(lowerBound, upperBound)
+        }
+    }
+
+    fun toPair(): Pair<T, T> {
+        return Pair(this.lowerBound, this.upperBound)
+    }
+}
+
+data class IntervalTreeKeyValue<T: Comparable<T>, V> internal constructor(val key: IntervalRange<T>, val value: V)
+
+internal class TreeNode<T : Comparable<T>, V>(
     val leftKey: T,
     val rightKey: T,
     val maxRightKey: T,
@@ -22,13 +47,12 @@ internal data class TreeNode<T : Comparable<T>, V>(
 ) {
     companion object {
         fun <T : Comparable<T>, V>newInstance(
-            keys: Pair<T, T>,
+            keys: IntervalRange<T>,
             value: V,
             leftNode: TreeNode<T, V>?,
             rightNode: TreeNode<T, V>?
         ): TreeNode<T, V> {
-            val leftKey = keys.first
-            val rightKey =  keys.second
+            val (leftKey, rightKey) = keys
             return newInstance(leftKey, rightKey, value, leftNode, rightNode)
         }
 
@@ -413,10 +437,10 @@ private abstract class IntervalTreeCommonIterator<T : Comparable<T>, V, R>(priva
 }
 
 private abstract class IntervalTreePairIterator<T : Comparable<T>, V>(t: IntervalTree<T, V>) :
-    IntervalTreeCommonIterator<T, V, Pair<Pair<T, T>, V>>(t) {
+    IntervalTreeCommonIterator<T, V, IntervalTreeKeyValue<T, V>>(t) {
 
-    override fun transformNode(n: TreeNode<T, V>): Pair<Pair<T, T>, V> {
-        return Pair(Pair(n.leftKey, n.rightKey), n.value)
+    override fun transformNode(n: TreeNode<T, V>): IntervalTreeKeyValue<T, V> {
+        return IntervalTreeKeyValue(IntervalRange(n.leftKey, n.rightKey), n.value)
     }
 }
 
@@ -464,7 +488,7 @@ private class IntervalTreeRangeLookupIterator<T: Comparable<T>, V>(t: IntervalTr
     }
 }
 
-private class IntervalTreeIterator<T : Comparable<T>, V>(t: IntervalTree<T, V>) : IntervalTreeCommonIterator<T, V, Triple<Pair<T, T>, V, Int>>(t) {
+private class IntervalTreeIterator<T : Comparable<T>, V>(t: IntervalTree<T, V>) : IntervalTreeCommonIterator<T, V, Triple<IntervalRange<T>, V, Int>>(t) {
     override fun iterateRight(n: TreeNode<T ,V>): Boolean {
         return true
     }
@@ -473,40 +497,31 @@ private class IntervalTreeIterator<T : Comparable<T>, V>(t: IntervalTree<T, V>) 
         return true
     }
 
-    override fun transformNode(n: TreeNode<T, V>): Triple<Pair<T, T>, V, Int> {
-        return Triple(Pair(n.leftKey, n.rightKey), n.value, n.weight())
+    override fun transformNode(n: TreeNode<T, V>): Triple<IntervalRange<T>, V, Int> {
+        return Triple(IntervalRange(n.leftKey, n.rightKey), n.value, n.weight())
     }
 }
 
-// Our ranges are closed on both ends, so first == second is perfectly acceptable.
-internal fun <T: Comparable<T>>enforceRangeInvariants(range: Pair<T, T>): Pair<T, T> {
-    val rangeCompare = range.first.compareTo(range.second)
-    return if (rangeCompare > 0) {
-        Pair(range.second, range.first)
-    } else {
-        range
-    }
-}
 
 private fun <T: Comparable<T>, V> sizeTreePairFromIterable(entries: Iterable<Pair<Pair<T, T>, V>>): Pair<Long, TreeNode<T, V>?> {
     val it = entries.iterator()
     var root: TreeNode<T, V>
     var size: Long = 1
     if (it.hasNext()) {
-        val entry = it.next()
+        val (key, value) = it.next()
         root = TreeNode.newInstance(
-            enforceRangeInvariants(entry.first),
-            entry.second,
+            IntervalRange.fromPair(key),
+            value,
             null,
             null
         )
     } else {
         return Pair(0, null)
     }
-    for (entry in it) {
-        val enforcedRange = enforceRangeInvariants(entry.first)
+    for ((key, value) in it) {
+        val enforcedRange = enforceRangeInvariants(key)
         val prior = root.lookupExactRange(enforcedRange.first, enforcedRange.second)
-        root = root.put(enforcedRange.first, enforcedRange.second, entry.second)
+        root = root.put(enforcedRange.first, enforcedRange.second, value)
         if (prior == null) {
             size += 1
         }
@@ -524,10 +539,10 @@ private data class IntervalTreeInOrderIteratorState<T: Comparable<T>, V> (
     val fromDirection: String
 )
 
-private class InOrderIterator<T: Comparable<T>, V>(tree: IntervalTree<T, V>): Iterator<Triple<Pair<T, T>, V, Pair<Int, String>>> {
+private class InOrderIterator<T: Comparable<T>, V>(tree: IntervalTree<T, V>): Iterator<Triple<IntervalRange<T>, V, Pair<Int, String>>> {
     private val iterationStack: Stack<IntervalTreeInOrderIteratorState<T, V>> = Stack()
 
-    private var nextUp: Triple<Pair<T, T>, V, Pair<Int, String>>? = null
+    private var nextUp: Triple<IntervalRange<T>, V, Pair<Int, String>>? = null
 
     init {
         if (tree.root != null) {
@@ -549,7 +564,7 @@ private class InOrderIterator<T: Comparable<T>, V>(tree: IntervalTree<T, V>): It
                 continue
             }
             if (cur.nextStep == IntervalTreeInOrderIteratorNextStep.SELF) {
-                this.nextUp = Triple(Pair(curNode.leftKey, curNode.rightKey), curNode.value, Pair(this.iterationStack.size, cur.fromDirection))
+                this.nextUp = Triple(IntervalRange(curNode.leftKey, curNode.rightKey), curNode.value, Pair(this.iterationStack.size, cur.fromDirection))
                 this.iterationStack.push(IntervalTreeInOrderIteratorState(curNode, IntervalTreeInOrderIteratorNextStep.LEFT, cur.fromDirection))
                 return
             }
@@ -572,7 +587,7 @@ private class InOrderIterator<T: Comparable<T>, V>(tree: IntervalTree<T, V>): It
         return this.nextUp != null
     }
 
-    override fun next(): Triple<Pair<T, T>, V, Pair<Int, String>> {
+    override fun next(): Triple<IntervalRange<T>, V, Pair<Int, String>> {
         val ret = this.nextUp ?: throw NoSuchElementException()
         this.computeNextUp()
         return ret
@@ -582,18 +597,18 @@ private class InOrderIterator<T: Comparable<T>, V>(tree: IntervalTree<T, V>): It
 class IntervalTree<T: Comparable<T>, V> private constructor(
     val size: Long,
     internal val root: TreeNode<T, V>?
-): Iterable<Triple<Pair<T, T>, V, Int>> {
+): Iterable<Triple<IntervalRange<T>, V, Int>> {
     constructor(): this(0, null)
 
     private constructor(treeSizePair: Pair<Long, TreeNode<T, V>?>): this(treeSizePair.first, treeSizePair.second)
 
     constructor(entries: Iterable<Pair<Pair<T, T>, V>>) : this(sizeTreePairFromIterable(entries))
 
-    fun lookupPoint(at: T): Iterator<Pair<Pair<T, T>, V>> {
+    fun lookupPoint(at: T): Iterator<IntervalTreeKeyValue<T, V>> {
         return IntervalTreePointLookupIterator(this, at)
     }
 
-    fun lookupRange(maybeRange: Pair<T, T>): Iterator<Pair<Pair<T, T>, V>> {
+    fun lookupRange(maybeRange: Pair<T, T>): Iterator<IntervalTreeKeyValue<T, V>> {
         val enforced = enforceRangeInvariants(maybeRange)
         return IntervalTreeRangeLookupIterator(this, enforced.first, enforced.second)
     }
@@ -603,8 +618,12 @@ class IntervalTree<T: Comparable<T>, V> private constructor(
         return this.root?.lookupExactRange(enforcedRange.first, enforcedRange.second)
     }
 
+    fun lookupExactRange(maybeRange: IntervalRange<T>): V? {
+        return this.root?.lookupExactRange(maybeRange.lowerBound, maybeRange.upperBound)
+    }
+
     fun put(range: Pair<T, T>, value: V): IntervalTree<T, V> {
-        val enforcedRange = enforceRangeInvariants(range)
+        val enforcedRange = IntervalRange.fromPair(range)
         if (this.root == null) {
             return IntervalTree(1, TreeNode.newInstance(enforcedRange, value, null, null))
         }
@@ -614,7 +633,7 @@ class IntervalTree<T: Comparable<T>, V> private constructor(
         }
         return IntervalTree(
             if (preexisting == null) { this.size + 1 } else { this.size },
-            this.root.put(enforcedRange.first, enforcedRange.second, value)
+            this.root.put(enforcedRange.lowerBound, enforcedRange.upperBound, value)
         )
     }
 
@@ -641,33 +660,33 @@ class IntervalTree<T: Comparable<T>, V> private constructor(
         }
     }
 
-    override fun iterator(): Iterator<Triple<Pair<T, T>, V, Int>> {
+    override fun iterator(): Iterator<Triple<IntervalRange<T>, V, Int>> {
         return IntervalTreeIterator(this)
     }
 
-    internal fun inOrderIterator(): Iterator<Triple<Pair<T, T>, V, Pair<Int, String>>> {
+    internal fun inOrderIterator(): Iterator<Triple<IntervalRange<T>, V, Pair<Int, String>>> {
         return InOrderIterator(this)
     }
 
-    fun minRange(): Pair<T, T>? {
+    fun minRange(): IntervalRange<T>? {
         var cur = this.root
         while (cur != null) {
             if (cur.leftNode != null) {
                 cur = cur.leftNode
             } else {
-                return Pair(cur.leftKey, cur.rightKey)
+                return IntervalRange(cur.leftKey, cur.rightKey)
             }
         }
         return null
     }
 
-    fun maxRange(): Pair<T, T>? {
+    fun maxRange(): IntervalRange<T>? {
         var cur = this.root
         while (cur != null) {
             if (cur.rightNode != null) {
                 cur = cur.rightNode
             } else {
-                return Pair(cur.leftKey, cur.rightKey)
+                return IntervalRange(cur.leftKey, cur.rightKey)
             }
         }
         return null

@@ -92,7 +92,7 @@ class IntervalTreeTest {
         var seenIterators = 0
         for (ent in tree) {
             seenIterators++
-            assertEquals(Pair(0, 2), ent.first)
+            assertEquals(IntervalRange(0, 2), ent.first)
             assertEquals("only entry", ent.second)
             assertEquals(0, ent.third)
         }
@@ -116,17 +116,17 @@ class IntervalTreeTest {
         for (ent in tree) {
             when (seenIterators) {
                 0 -> {
-                    assertEquals(Pair(-1, 4), ent.first)
+                    assertEquals(IntervalRange(-1, 4), ent.first)
                     assertEquals("leftmost entry", ent.second)
                     assertEquals(0, ent.third)
                 }
                 1 -> {
-                    assertEquals(Pair(0, 2), ent.first)
+                    assertEquals(IntervalRange(0, 2), ent.first)
                     assertEquals("middle entry", ent.second)
                     assertEquals(0, ent.third)
                 }
                 2 -> {
-                    assertEquals(Pair(1, 3), ent.first)
+                    assertEquals(IntervalRange(1, 3), ent.first)
                     assertEquals("right entry", ent.second)
                     assertEquals(0, ent.third)
                 }
@@ -149,17 +149,17 @@ class IntervalTreeTest {
         for (ent in tree) {
             when (seenIterators) {
                 0 -> {
-                    assertEquals(Pair(-1, 4), ent.first)
+                    assertEquals(IntervalRange(-1, 4), ent.first)
                     assertEquals("leftmost entry", ent.second)
                     assertEquals(0, ent.third)
                 }
                 1 -> {
-                    assertEquals(Pair(0, 2), ent.first)
+                    assertEquals(IntervalRange(0, 2), ent.first)
                     assertEquals("middle entry", ent.second)
                     assertEquals(0 ,ent.third)
                 }
                 2 -> {
-                    assertEquals(Pair(1, 3), ent.first)
+                    assertEquals(IntervalRange(1, 3), ent.first)
                     assertEquals("ok", ent.second)
                     assertEquals(0, ent.third)
                 }
@@ -179,12 +179,12 @@ class IntervalTreeTest {
         for (ent in tree) {
             when (seenIterators) {
                 0 -> {
-                    assertEquals(Pair(-1, 4), ent.first)
+                    assertEquals(IntervalRange(-1, 4), ent.first)
                     assertEquals("leftmost entry", ent.second)
                     assertEquals(1, ent.third)
                 }
                 1 -> {
-                    assertEquals(Pair(1, 3), ent.first)
+                    assertEquals(IntervalRange(1, 3), ent.first)
                     assertEquals("ok", ent.second)
                     assertEquals(0, ent.third)
                 }
@@ -206,8 +206,8 @@ class IntervalTreeTest {
         ))
         val results = tree.lookupRange(Pair(0, 0)).asSequence().toList()
         assertEquals(1, results.size)
-        assertEquals(Pair(-188, 0), results[0].first)
-        assertEquals("", results[0].second)
+        assertEquals(IntervalRange(-188, 0), results[0].key)
+        assertEquals("", results[0].value)
     }
 
     @Test fun doubleReplacementViaUpdateKeepsResults() {
@@ -217,26 +217,26 @@ class IntervalTreeTest {
         ))
         val results1 = tree.lookupRange(Pair(0, -69)).asSequence().toList()
         assertEquals(1, results1.size)
-        assertEquals(Pair(-69, 0), results1[0].first)
-        assertEquals("", results1[0].second)
+        assertEquals(IntervalRange(-69, 0), results1[0].key)
+        assertEquals("", results1[0].value)
 
         tree = tree.remove(Pair(0, -69)).put(Pair(0, -69), someEmptyString)
         val results2 = tree.lookupRange(Pair(0, -69)).asSequence().toList()
         assertEquals(1, results2.size)
-        assertEquals(Pair(-69, 0), results2[0].first)
-        assertEquals("", results2[0].second)
+        assertEquals(IntervalRange(-69, 0), results2[0].key)
+        assertEquals("", results2[0].value)
 
         tree = tree.update(Pair(0, -69)) { someEmptyString }
         val results3 = tree.lookupRange(Pair(0, -69)).asSequence().toList()
         assertEquals(1, results3.size)
-        assertEquals(Pair(-69, 0), results3[0].first)
-        assertEquals("", results3[0].second)
+        assertEquals(IntervalRange(-69, 0), results3[0].key)
+        assertEquals("", results3[0].value)
 
         tree = tree.put(Pair(0, -69), someEmptyString)
         val results4 = tree.lookupRange(Pair(0, -69)).asSequence().toList()
         assertEquals(1, results4.size)
-        assertEquals(Pair(-69, 0), results4[0].first)
-        assertEquals("", results4[0].second)
+        assertEquals(IntervalRange(-69, 0), results4[0].key)
+        assertEquals("", results4[0].value)
     }
 
     @Test fun removalsDoNotResultInDoubleEntries() {
@@ -255,27 +255,27 @@ class IntervalTreeTest {
 
         assertTrue(firstTreeIterator.hasNext())
         val firstFirstEntry = firstTreeIterator.next()
-        assertEquals(Pair(-2655710, -0), firstFirstEntry.first)
+        assertEquals(IntervalRange(-2655710, -0), firstFirstEntry.first)
         assertEquals(basis[4].second, firstFirstEntry.second)
 
         assertTrue(firstTreeIterator.hasNext())
         val secondFirstEntry = firstTreeIterator.next()
-        assertEquals(Pair(-374, 0), secondFirstEntry.first)
+        assertEquals(IntervalRange(-374, 0), secondFirstEntry.first)
         assertEquals("f", secondFirstEntry.second)
 
         assertTrue(firstTreeIterator.hasNext())
         val thirdFirstEntry = firstTreeIterator.next()
-        assertEquals(basis[1].first, thirdFirstEntry.first)
+        assertEquals(IntervalRange.fromPair(basis[1].first), thirdFirstEntry.first)
         assertEquals(basis[1].second, thirdFirstEntry.second)
 
         assertTrue(firstTreeIterator.hasNext())
         val fourthFirstEntry = firstTreeIterator.next()
-        assertEquals(basis[2].first, fourthFirstEntry.first)
+        assertEquals(IntervalRange.fromPair(basis[2].first), fourthFirstEntry.first)
         assertEquals(basis[2].second, fourthFirstEntry.second)
 
         assertTrue(firstTreeIterator.hasNext())
         val fifthFirstEntry = firstTreeIterator.next()
-        assertEquals(basis[3].first, fifthFirstEntry.first)
+        assertEquals(IntervalRange.fromPair(basis[3].first), fifthFirstEntry.first)
         assertEquals(basis[3].second, fifthFirstEntry.second)
 
         assertFalse(firstTreeIterator.hasNext())
@@ -289,22 +289,22 @@ class IntervalTreeTest {
 
             assertTrue(secondTreeIterator.hasNext())
             val firstSecondEntry = secondTreeIterator.next()
-            assertEquals(Pair(-2655710, -0), firstSecondEntry.first)
+            assertEquals(IntervalRange(-2655710, -0), firstSecondEntry.first)
             assertEquals(basis[4].second, firstSecondEntry.second)
 
             assertTrue(secondTreeIterator.hasNext())
             val secondSecondEntry = secondTreeIterator.next()
-            assertEquals(Pair(-374, 0), secondSecondEntry.first)
+            assertEquals(IntervalRange(-374, 0), secondSecondEntry.first)
             assertEquals("f", secondSecondEntry.second)
 
             assertTrue(secondTreeIterator.hasNext())
             val thirdSecondEntry = secondTreeIterator.next()
-            assertEquals(basis[2].first, thirdSecondEntry.first)
+            assertEquals(IntervalRange.fromPair(basis[2].first), thirdSecondEntry.first)
             assertEquals(basis[2].second, thirdSecondEntry.second)
 
             assertTrue(secondTreeIterator.hasNext())
             val fourthSecondEntry = secondTreeIterator.next()
-            assertEquals(basis[3].first, fourthSecondEntry.first)
+            assertEquals(IntervalRange.fromPair(basis[3].first), fourthSecondEntry.first)
             assertEquals(basis[3].second, fourthSecondEntry.second)
 
             assertFalse(secondTreeIterator.hasNext())
@@ -326,17 +326,17 @@ class IntervalTreeTest {
 
         assertTrue(thirdTreeIterator.hasNext())
         val firstThirdEntry = thirdTreeIterator.next()
-        assertEquals(Pair(-2655710, -0), firstThirdEntry.first)
+        assertEquals(IntervalRange(-2655710, -0), firstThirdEntry.first)
         assertEquals(basis[4].second, firstThirdEntry.second)
 
         assertTrue(thirdTreeIterator.hasNext())
         val secondThirdEntry = thirdTreeIterator.next()
-        assertEquals(Pair(-374, 0), secondThirdEntry.first)
+        assertEquals(IntervalRange(-374, 0), secondThirdEntry.first)
         assertEquals("f", secondThirdEntry.second)
 
         assertTrue(thirdTreeIterator.hasNext())
         val thirdThirdEntry = thirdTreeIterator.next()
-        assertEquals(basis[3].first, thirdThirdEntry.first)
+        assertEquals(IntervalRange.fromPair(basis[3].first), thirdThirdEntry.first)
         assertEquals(basis[3].second, thirdThirdEntry.second)
 
         assertFalse(thirdTreeIterator.hasNext())
@@ -353,8 +353,8 @@ class IntervalTreeTest {
         assertEquals("stuff", tree.lookupExactRange(Pair(1, 2)))
 
         val resultingList = mutableListOf<Pair<Pair<Int, Int>, String>>()
-        for (item in tree) {
-            resultingList.add(Pair(item.first, item.second))
+        for ((key, value) in tree) {
+            resultingList.add(Pair(key.toPair(), value))
         }
         assertArrayEquals(
             arrayOf(
@@ -390,6 +390,7 @@ class IntervalTreeTest {
         assertEquals(2, updatedTree.size)
         assertEquals("thing", updatedTree.lookupExactRange(Pair(0, 1)))
         assertEquals("stuff", updatedTree.lookupExactRange(Pair(1, 2)))
+        assertEquals("stuff", updatedTree.lookupExactRange(IntervalRange(1, 2)))
         assertNull(updatedTree.lookupExactRange(Pair(2, 3)))
         assertTrue(tree === updatedTree)
     }
@@ -459,20 +460,20 @@ class IntervalTreeTest {
             // Second, run through all the entries in the tree.
             // Make sure that the weight is always -1 <= w <= 1, and that
             // the values match up.
-            var maxRange: Pair<Int, Int>? = null
-            for (info in tree) {
+            var maxRange: IntervalRange<Int>? = null
+            for ((range, value, depth) in tree) {
                 // Note that we can generate pairs that don't have the order invariant enforced,
                 // but the order invariant will implicitly be enforced by the tree code.
-                val entryFromMap = entryMap[info.first] ?: entryMap[Pair(info.first.second, info.first.first)]
+                val entryFromMap = entryMap[range.toPair()] ?: entryMap[Pair(range.upperBound, range.lowerBound)]
                 assertNotNull(entryFromMap)
                 if (entryFromMap == null) {
                     throw Exception("The assertion above should have been good enough")
                 }
                 assertTrue(entryFromMap.size > i)
-                assertEquals(entryFromMap[i], info.second)
-                assertTrue(-1 <= info.third)
-                assertTrue(info.third <= 1)
-                maxRange = info.first
+                assertEquals(entryFromMap[i], value)
+                assertTrue(-1 <= depth)
+                assertTrue(depth <= 1)
+                maxRange = range
             }
 
             // Third, test min/max keys
@@ -490,7 +491,7 @@ class IntervalTreeTest {
 
             // Fourth, test that all point lookups function as intended
             for (range in ranges) {
-                val expectedRangeSet = HashSet<Pair<Pair<Int, Int>, String>>()
+                val expectedRangeSet = HashSet<IntervalTreeKeyValue<Int, String>>()
                 val enforcedInvariantRange = enforceRangeInvariants(range)
                 for (entry in entryMap.entries) {
                     if (entry.value.size <= i) {
@@ -500,9 +501,9 @@ class IntervalTreeTest {
                     if (!rangeOverlapsPairs(enforcedInvariantRange, enforcedInvariantEntry)) {
                         continue
                     }
-                    expectedRangeSet.add(Pair(enforcedInvariantEntry, entry.value[i]))
+                    expectedRangeSet.add(IntervalTreeKeyValue(IntervalRange.fromPair(enforcedInvariantEntry), entry.value[i]))
                 }
-                val receivedRangeSet = HashSet<Pair<Pair<Int, Int>, String>>()
+                val receivedRangeSet = HashSet<IntervalTreeKeyValue<Int, String>>()
                 for (received in tree.lookupRange(range)) {
                     receivedRangeSet.add(received)
                 }
@@ -511,7 +512,7 @@ class IntervalTreeTest {
 
             // Fifth, test that all range lookups function as intended
             for (point in points) {
-                val expectedRangeSet = HashSet<Pair<Pair<Int, Int>, String>>()
+                val expectedRangeSet = HashSet<IntervalTreeKeyValue<Int, String>>()
                 val pointRange = Pair(point, point)
                 for (entry in entryMap.entries) {
                     if (entry.value.size <= i) {
@@ -521,9 +522,9 @@ class IntervalTreeTest {
                     if (!rangeOverlapsPairs(enforcedInvariantEntry, pointRange)) {
                         continue
                     }
-                    expectedRangeSet.add(Pair(enforcedInvariantEntry, entry.value[i]))
+                    expectedRangeSet.add(IntervalTreeKeyValue(IntervalRange.fromPair(enforcedInvariantEntry), entry.value[i]))
                 }
-                val receivedRangeSet = HashSet<Pair<Pair<Int, Int>, String>>()
+                val receivedRangeSet = HashSet<IntervalTreeKeyValue<Int, String>>()
                 for (received in tree.lookupPoint(point)) {
                     receivedRangeSet.add(received)
                 }
@@ -545,9 +546,9 @@ class IntervalTreeTest {
                     assertEquals(entry.value[nextI], tree.lookupExactRange(entry.key))
                     val allPossibleEntries = tree.lookupRange(entry.key)
                     var foundIt = false
-                    val enforcedInvariantEntryKey = enforceRangeInvariants(entry.key)
-                    for (treeEntry in allPossibleEntries) {
-                        if (treeEntry.first != enforcedInvariantEntryKey) {
+                    val enforcedInvariantEntryKey = IntervalRange.fromPair(entry.key)
+                    for ((key) in allPossibleEntries) {
+                        if (key != enforcedInvariantEntryKey) {
                             continue
                         }
                         if (foundIt) {
