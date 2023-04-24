@@ -96,8 +96,7 @@ internal fun concatByteArraysFromReverseList(arrays: PersistentList<ByteArray>):
     return newArray
 }
 
-// This is unfortunately public due to jqwik requiring that.
-class ByteArrayButComparable(internal val array: ByteArray): Comparable<ByteArrayButComparable> {
+internal class ByteArrayButComparable(val array: ByteArray): Comparable<ByteArrayButComparable> {
     override fun compareTo(other: ByteArrayButComparable): Int {
         return Arrays.compareUnsigned(this.array, other.array)
     }

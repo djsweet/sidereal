@@ -77,6 +77,18 @@ private fun <V> verifyIteratorInvariants(t: QPTrie<V>, spec: IntervalTree<ByteAr
 }
 
 class QPTrieTest {
+    companion object {
+        internal fun launderByteArrayButComparableToPublic(array: ByteArrayButComparable): PublicByteArrayButComparable {
+            return PublicByteArrayButComparable(array)
+        }
+
+        internal fun unLaunderByteArrayButComparableFromPublic(container: PublicByteArrayButComparable): ByteArrayButComparable {
+            return container.actual
+        }
+    }
+
+    class PublicByteArrayButComparable internal constructor(internal val actual: ByteArrayButComparable)
+
     @Test fun emptyTrie() {
         val trie = QPTrie<String>()
         trieIsEmpty(trie)
@@ -343,16 +355,16 @@ class QPTrieTest {
     }
 
     @Provide
-    fun trieTestSpecs(): Arbitrary<List<Pair<ByteArrayButComparable, String>>> {
+    fun trieTestSpecs(): Arbitrary<List<Pair<PublicByteArrayButComparable, String>>> {
         return Arbitraries.integers().between(0, 256).flatMap { specSize ->
             Arbitraries.bytes().list().ofMaxSize(64).flatMap { byteList ->
-                Arbitraries.strings().map { Pair(ByteArrayButComparable(byteList.toByteArray()), it) }
+                Arbitraries.strings().map { Pair(PublicByteArrayButComparable(ByteArrayButComparable(byteList.toByteArray())), it) }
             }.list().ofMaxSize(specSize)
         }
     }
 
     @Provide
-    fun testTrieSpecsWithRemovalOffset(): Arbitrary<Pair<List<Pair<ByteArrayButComparable, String>>, Int>> {
+    fun testTrieSpecsWithRemovalOffset(): Arbitrary<Pair<List<Pair<PublicByteArrayButComparable, String>>, Int>> {
         return this.trieTestSpecs().flatMap { spec ->
             Arbitraries.integers().between(0, spec.size / 2).map { reverseSplitPoint ->
                 Pair(spec, reverseSplitPoint)
@@ -362,13 +374,13 @@ class QPTrieTest {
 
     @Property
     fun trieLifecycleWithoutPrefixes(
-        @ForAll @From("testTrieSpecsWithRemovalOffset") spec: Pair<List<Pair<ByteArrayButComparable, String>>, Int>
+        @ForAll @From("testTrieSpecsWithRemovalOffset") spec: Pair<List<Pair<PublicByteArrayButComparable, String>>, Int>
     ) {
         val initialEntries = spec.first.toTypedArray()
 
         var distinct = IntervalTree<ByteArrayButComparable, String>()
-        for (item in initialEntries) {
-            distinct = distinct.put(Pair(item.first, item.first), item.second)
+        for ((publicByteArray, value) in initialEntries) {
+            distinct = distinct.put(Pair(publicByteArray.actual, publicByteArray.actual), value)
         }
         var trie = QPTrie<String>()
         var expectedSize = 0
@@ -384,10 +396,11 @@ class QPTrieTest {
         verifyIteratorInvariants(trie, distinct)
         var distinctRemoved = IntervalTree<ByteArrayButComparable, String>()
         for (i in 0 until spec.second) {
-            val item = initialEntries[initialEntries.size - i - 1]
-            distinct = distinct.remove(Pair(item.first, item.first))
-            distinctRemoved = distinctRemoved.put(Pair(item.first, item.first), item.second)
-            trie = trie.remove(item.first.array)
+            val (publicArray, value) = initialEntries[initialEntries.size - i - 1]
+            val actual = publicArray.actual
+            distinct = distinct.remove(Pair(actual, actual))
+            distinctRemoved = distinctRemoved.put(Pair(actual, actual), value)
+            trie = trie.remove(actual.array)
         }
         expectedSize -= distinctRemoved.size.toInt()
         assertEquals(expectedSize.toLong(), trie.size)
@@ -397,8 +410,8 @@ class QPTrieTest {
             assertEquals(item.second, found)
         }
         for (i in 0 until spec.second) {
-            val item = initialEntries[initialEntries.size - i - 1]
-            assertNull(trie.get(item.first.array))
+            val (publicArray) = initialEntries[initialEntries.size - i - 1]
+            assertNull(trie.get(publicArray.actual.array))
         }
         verifyIteratorInvariants(trie, distinct)
     }
