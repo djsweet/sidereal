@@ -130,7 +130,6 @@ class ArrayUtilsTest {
     @Property
     fun notFindingBytesLessThanAvailableBytes(
         @ForAll @From("byteArraysForFindInsertRemove") spec: Pair<ByteArray, Int>,
-        @ForAll lowByte: Byte
     ) {
         val shiftBytes = spec.first.map { (it + 1).toByte() }.toByteArray()
         assertEquals(-1, findByteInSortedArray(shiftBytes, 0))
