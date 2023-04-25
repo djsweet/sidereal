@@ -1,12 +1,35 @@
 package name.djsweet.query.tree
 
+import java.util.*
+import kotlin.NoSuchElementException
+
 internal abstract class ConcatenatedIterator<T>: Iterator<T> {
     private var nextValue: T? = null
     private var currentOffset: Int = 0
     private var currentIterator: Iterator<T>? = null
     private var ended: Boolean = false
 
+    private var childStack: Stack<ConcatenatedIterator<T>>? = null
+    private var ownsChildStack = false
+
     protected abstract fun iteratorForOffset(offset: Int): Iterator<T>?
+
+    protected fun <S : ConcatenatedIterator<T>>registerChild(child: S): S {
+        val workingStack = (this.childStack ?: Stack())
+        if (this.childStack == null) {
+            this.childStack = workingStack
+            this.ownsChildStack = true
+        }
+        child.childStack = workingStack
+        child.ownsChildStack = false
+        workingStack.push(child)
+        return child
+    }
+
+    internal fun copyChildStack(): List<ConcatenatedIterator<T>> {
+        val currentStack = this.childStack ?: return listOf()
+        return currentStack.toList()
+    }
 
     private fun computeNextValueIfNecessary() {
         if (this.nextValue != null) {
@@ -15,6 +38,18 @@ internal abstract class ConcatenatedIterator<T>: Iterator<T> {
         if (this.ended) {
             return
         }
+
+        // Optimization for composed ConcatenatedIterators: we keep a separate call stack, one that elides
+        // multiple .next() call chains and skips directly to the top ConcatenatedIterator.
+        val workingStackBeforeDispatch = this.childStack
+        if (this.ownsChildStack && workingStackBeforeDispatch != null) {
+            val maybeTop = if (workingStackBeforeDispatch.isEmpty()) { null } else { workingStackBeforeDispatch.peek() }
+            if (maybeTop != null && maybeTop !== this && maybeTop.hasNext()) {
+                this.nextValue = maybeTop.next()
+                return
+            }
+        }
+
         var current = this.currentIterator
         if (current == null) {
             current = this.iteratorForOffset(this.currentOffset)
@@ -31,6 +66,13 @@ internal abstract class ConcatenatedIterator<T>: Iterator<T> {
             this.currentIterator = current
         }
         this.ended = true
+        val workingStackAfterEnd = this.childStack
+        if (workingStackAfterEnd != null && !this.ownsChildStack) {
+            val currentTop = if (workingStackAfterEnd.isEmpty()) { null } else { workingStackAfterEnd.peek() }
+            if (currentTop === this) {
+                workingStackAfterEnd.pop()
+            }
+        }
     }
 
     override fun hasNext(): Boolean {

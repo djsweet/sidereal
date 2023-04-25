@@ -817,7 +817,7 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
                             0,
                             IntermediateQueryTerm.equalityTerm(key, value)
                         )
-                        return GetByDataIterator(subNode, this.fullData.remove(key), newReversePath)
+                        return this.registerChild(GetByDataIterator(subNode, this.fullData.remove(key), newReversePath))
                     }
                 }
 
@@ -932,7 +932,13 @@ internal class FullTreeIterator<V: SizeComputable> private constructor(
                         return FlattenIterator(mapSequence(this.node.equalityTerms) { (key, values) ->
                             FlattenIterator(mapSequence(values) { (value, child) ->
                                 val term = IntermediateQueryTerm.equalityTerm(key, value)
-                                FullTreeIterator(child, this.reversePath.add(0, term), GetByDataIteratorState.VALUE)
+                                this.registerChild(
+                                    FullTreeIterator(
+                                        child,
+                                        this.reversePath.add(0, term),
+                                        GetByDataIteratorState.VALUE
+                                    )
+                                )
                             })
                         })
                     }

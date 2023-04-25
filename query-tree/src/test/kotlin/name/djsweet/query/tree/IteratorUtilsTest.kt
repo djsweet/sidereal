@@ -77,4 +77,94 @@ class IteratorUtilsTest {
         }
         assertArrayEquals(fullList.toTypedArray(), flattenedList.toTypedArray())
     }
+
+    private data class OffsetIterator(val baseOffset: Int, val size: Int): ConcatenatedIterator<Int>() {
+        override fun iteratorForOffset(offset: Int): Iterator<Int>? {
+            return if (offset >= this.size) {
+                null
+            } else {
+                SingleElementIterator(this.baseOffset + offset)
+            }
+        }
+    }
+
+    private data class DirectFanoutIterator(
+        val baseOffset: Int,
+        val chunkSize: Int,
+        val chunks: Int,
+    ): ConcatenatedIterator<Int>() {
+        override fun iteratorForOffset(offset: Int): Iterator<Int>? {
+            return if (offset >= this.chunks) {
+                 null
+            } else {
+                this.registerChild(OffsetIterator(this.baseOffset + this.chunkSize * offset, this.chunkSize))
+            }
+        }
+    }
+
+    private data class IndirectFanoutIterator(
+        val topChunks: Int,
+        val middleChunks: Int,
+        val bottomChunks: Int,
+        val chunkSize: Int
+    ): ConcatenatedIterator<Int>() {
+        override fun iteratorForOffset(offset: Int): Iterator<Int>? {
+            return if (offset >= this.topChunks) {
+                null
+            } else {
+                val topOffset = offset * this.chunkSize * this.middleChunks * this.bottomChunks
+                val lowestOffsets = (0 until this.middleChunks).asSequence().map { bottomOffset ->
+                    val baseOffset = topOffset + this.chunkSize * bottomOffset
+                    this.registerChild(DirectFanoutIterator(baseOffset, this.chunkSize, this.bottomChunks))
+                }.iterator()
+                return FlattenIterator(lowestOffsets)
+            }
+        }
+    }
+
+    @Test
+    fun concatenatedIteratorChildStackWithoutIntermediaries() {
+        val noIntermediariesIt = DirectFanoutIterator(0,4, 4)
+        for (i in 0 until 4) {
+            var lastStack: ConcatenatedIterator<Int>? = null
+            for (j in 0 until 4) {
+                assertTrue(noIntermediariesIt.hasNext())
+                assertEquals(i * 4 + j, noIntermediariesIt.next())
+                val curStack = noIntermediariesIt.copyChildStack()
+                assertEquals(1, curStack.size)
+                if (lastStack != null) {
+                    assertTrue(curStack.last() === lastStack)
+                } else {
+                    lastStack = curStack.last()
+                }
+            }
+        }
+        assertFalse(noIntermediariesIt.hasNext())
+        val finalStack = noIntermediariesIt.copyChildStack()
+        assertEquals(0, finalStack.size)
+    }
+
+    @Test
+    fun concatenatedIteratorChildStackWithIntermediaries() {
+        val intermediariesIt = IndirectFanoutIterator(4, 4, 1, 4)
+        for (i in 0 until 4) {
+            for (j in 0 until 4) {
+                var lastStack: ConcatenatedIterator<Int>? = null
+                for (k in 0 until 4) {
+                    assertTrue(intermediariesIt.hasNext())
+                    val curStack = intermediariesIt.copyChildStack()
+                    assertEquals(i * 16 + j * 4 + k, intermediariesIt.next())
+                    assertEquals(2, curStack.size)
+                    if (lastStack != null) {
+                        assertTrue(curStack.last() === lastStack)
+                    } else {
+                        lastStack = curStack.last()
+                    }
+                }
+            }
+        }
+        assertFalse((intermediariesIt.hasNext()))
+        val finalStack = intermediariesIt.copyChildStack()
+        assertEquals(0, finalStack.size)
+    }
 }

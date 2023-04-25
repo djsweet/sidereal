@@ -37,9 +37,7 @@ data class QPTrieKeyValue<V> internal constructor(
         other as QPTrieKeyValue<*>
 
         if (!key.contentEquals(other.key)) return false
-        if (value != other.value) return false
-
-        return true
+        return value == other.value
     }
 
     override fun hashCode(): Int {
@@ -48,6 +46,8 @@ data class QPTrieKeyValue<V> internal constructor(
         return result
     }
 }
+
+internal typealias RegisterChildIterator<V> = (it: ConcatenatedIterator<QPTrieKeyValue<V>>) -> ConcatenatedIterator<QPTrieKeyValue<V>>
 
 internal class OddNybble<V>(
     val prefix: ByteArray,
@@ -465,35 +465,52 @@ internal class OddNybble<V>(
         }
     }
 
-    fun fullIteratorAscending(precedingPrefixes: PersistentList<ByteArray>): Iterator<QPTrieKeyValue<V>> {
-        return FullAscendingOddNybbleIterator(this, precedingPrefixes.add(0, this.prefix))
+    fun fullIteratorAscending(
+        precedingPrefixes: PersistentList<ByteArray>,
+        registerIteratorAsChild: RegisterChildIterator<V>?
+    ): Iterator<QPTrieKeyValue<V>> {
+        val it = FullAscendingOddNybbleIterator(this, precedingPrefixes.add(0, this.prefix))
+        return if (registerIteratorAsChild != null) {
+            registerIteratorAsChild(it)
+        } else {
+            it
+        }
     }
 
-    fun fullIteratorDescending(precedingPrefixes: PersistentList<ByteArray>): Iterator<QPTrieKeyValue<V>> {
-        return FullDescendingOddNybbleIterator(this, precedingPrefixes.add(0, this.prefix))
+    fun fullIteratorDescending(
+        precedingPrefixes: PersistentList<ByteArray>,
+        registerIteratorAsChild: RegisterChildIterator<V>?
+    ): Iterator<QPTrieKeyValue<V>> {
+        val it = FullDescendingOddNybbleIterator(this, precedingPrefixes.add(0, this.prefix))
+        return if (registerIteratorAsChild != null) {
+            registerIteratorAsChild(it)
+        } else {
+            it
+        }
     }
 
     fun iteratorForLessThanOrEqual(
         precedingPrefixes: PersistentList<ByteArray>,
         compareTo: ByteArray,
-        compareOffset: Int
+        compareOffset: Int,
+        registerIteratorAsChild: RegisterChildIterator<V>?
     ): Iterator<QPTrieKeyValue<V>> {
         val comparison = this.compareLookupSliceToCurrentPrefix(compareTo, compareOffset)
         val endCompareOffset = compareOffset + this.prefix.size
         return if (comparison < 0) {
             // Our prefix was fully less than the comparison slice, so all members are less than the
             // comparison, and we can just iterate descending.
-            return this.fullIteratorDescending(precedingPrefixes)
+            this.fullIteratorDescending(precedingPrefixes, registerIteratorAsChild)
         } else if (comparison > 0) {
             // Our prefix was fully greater than the comparison slice, and all of our members
             // are greater than us and thus greater than the comparison slice, so we're not
             // returning anything.
-            return EmptyIterator()
+            EmptyIterator()
         } else if (this.nybbleValues == null || this.nybbleDispatch == null || compareTo.size <= endCompareOffset) {
             // We didn't have anything to dispatch, so we can possibly just return ourselves.
             // OR The compared value was fully identified by our prefix, so all of our members
             // are greater and should be skipped.
-            return if (this.value !== null) {
+            if (this.value !== null) {
                 SingleElementIterator(
                     QPTrieKeyValue(
                         concatByteArraysFromReverseList(precedingPrefixes.add(0, this.prefix)),
@@ -521,7 +538,7 @@ internal class OddNybble<V>(
                 }
             }
 
-            LessThanOrEqualOddNybbleIterator(
+            val it = LessThanOrEqualOddNybbleIterator(
                 this,
                 precedingPrefixes.add(0, this.prefix),
                 compareTo,
@@ -529,13 +546,19 @@ internal class OddNybble<V>(
                 greaterNybbleOffset,
                 equalNybbleOffset
             )
+            if (registerIteratorAsChild != null) {
+                registerIteratorAsChild(it)
+            } else {
+                it
+            }
         }
     }
 
     fun iteratorForGreaterThanOrEqual(
         precedingPrefixes: PersistentList<ByteArray>,
         compareTo: ByteArray,
-        compareOffset: Int
+        compareOffset: Int,
+        registerIteratorAsChild: RegisterChildIterator<V>?
     ): Iterator<QPTrieKeyValue<V>> {
         val comparison = this.compareLookupSliceToCurrentPrefix(compareTo, compareOffset)
         val endCompareOffset = compareOffset + this.prefix.size
@@ -548,7 +571,7 @@ internal class OddNybble<V>(
             // also be greater than the full comparison
             // OR the lookup key was fully equal to all the prefixes up until this node's point,
             // and all the children will necessarily be greater than the lookup key.
-            this.fullIteratorAscending(precedingPrefixes)
+            this.fullIteratorAscending(precedingPrefixes, registerIteratorAsChild)
         } else if (this.nybbleValues == null || this.nybbleDispatch == null) {
             // We didn't have anything to dispatch. At this point we know that our path
             // was actually less than the lookup, so we're completely less than the lookup
@@ -569,7 +592,7 @@ internal class OddNybble<V>(
                     break
                 }
             }
-            GreaterThanOrEqualOddNybbleIterator(
+            val it = GreaterThanOrEqualOddNybbleIterator(
                 this,
                 precedingPrefixes.add(0, this.prefix),
                 compareTo,
@@ -577,18 +600,24 @@ internal class OddNybble<V>(
                 greaterEqualOffset,
                 equalOffset
             )
+            return if (registerIteratorAsChild != null) {
+                registerIteratorAsChild(it)
+            } else {
+                it
+            }
         }
     }
 
     fun iteratorForStartsWith(
         precedingPrefixes: PersistentList<ByteArray>,
         compareTo: ByteArray,
-        compareOffset: Int
+        compareOffset: Int,
+        registerIteratorAsChild: RegisterChildIterator<V>?
     ): Iterator<QPTrieKeyValue<V>> {
         val comparison = this.compareLookupSliceToCurrentPrefix(compareTo, compareOffset)
         val endCompareOffset = compareOffset + this.prefix.size
         return if (comparison >= 0 && endCompareOffset >= compareTo.size) {
-            this.fullIteratorAscending(precedingPrefixes)
+            this.fullIteratorAscending(precedingPrefixes, registerIteratorAsChild)
         } else if (comparison != 0) {
             EmptyIterator()
         } else {
@@ -598,7 +627,8 @@ internal class OddNybble<V>(
                 precedingPrefixes.add(0, this.prefix),
                 target,
                 compareTo,
-                endCompareOffset
+                endCompareOffset,
+                registerIteratorAsChild
             )
         }
     }
@@ -627,7 +657,9 @@ internal class FullAscendingOddNybbleIterator<V>(
             dispatch[evenOffset].fullIteratorAscending(
                 this.precedingPrefixes,
                 nybbleValues[evenOffset]
-            )
+            ) {
+                this.registerChild(it)
+            }
         }
     }
 }
@@ -647,7 +679,9 @@ internal class FullDescendingOddNybbleIterator<V>(
                 return dispatch[reverseOffset].fullIteratorDescending(
                     this.precedingPrefixes,
                     nybbleValues[reverseOffset]
-                )
+                ) {
+                    this.registerChild(it)
+                }
             }
         }
 
@@ -678,10 +712,14 @@ internal class LessThanOrEqualOddNybbleIterator<V>(
                 nybbleValues[reverseOffset],
                 this.compareTo,
                 this.compareOffset,
-            )
+            ) {
+                this.registerChild(it)
+            }
         }
         return if (reverseOffset >= 0) {
-            nybbleDispatch[reverseOffset].fullIteratorDescending(this.precedingPrefixes, nybbleValues[reverseOffset])
+            nybbleDispatch[reverseOffset].fullIteratorDescending(this.precedingPrefixes, nybbleValues[reverseOffset]) {
+                this.registerChild(it)
+            }
         } else if (reverseOffset == -1 && value != null) {
             SingleElementIterator(QPTrieKeyValue(concatByteArraysFromReverseList(this.precedingPrefixes), value))
         } else {
@@ -725,9 +763,13 @@ internal class GreaterThanOrEqualOddNybbleIterator<V>(
                 nybbleValues[nodeOffset],
                 this.compareTo,
                 this.compareOffset
-            )
+            ) {
+                this.registerChild(it)
+            }
         } else {
-            nybbleDispatch[nodeOffset].fullIteratorAscending(this.precedingPrefixes, nybbleValues[nodeOffset])
+            nybbleDispatch[nodeOffset].fullIteratorAscending(this.precedingPrefixes, nybbleValues[nodeOffset]) {
+                this.registerChild(it)
+            }
         }
     }
 }
@@ -743,16 +785,28 @@ internal class EvenNybble<V>(
 
     fun fullIteratorAscending(
         precedingPrefixes: PersistentList<ByteArray>,
-        upperNybble: Byte
+        upperNybble: Byte,
+        registerChildIterator: RegisterChildIterator<V>?
     ): Iterator<QPTrieKeyValue<V>> {
-        return FullAscendingEvenIterator(this, precedingPrefixes, evenNybbleToInt(upperNybble))
+        val it = FullAscendingEvenIterator(this, precedingPrefixes, evenNybbleToInt(upperNybble))
+        return if (registerChildIterator != null) {
+            registerChildIterator(it)
+        } else {
+            it
+        }
     }
 
     fun fullIteratorDescending(
         precedingPrefixes: PersistentList<ByteArray>,
-        upperNybble: Byte
+        upperNybble: Byte,
+        registerChildIterator: RegisterChildIterator<V>?
     ): Iterator<QPTrieKeyValue<V>> {
-        return FullDescendingEvenIterator(this, precedingPrefixes, evenNybbleToInt(upperNybble))
+        val it = FullDescendingEvenIterator(this, precedingPrefixes, evenNybbleToInt(upperNybble))
+        return if (registerChildIterator != null) {
+            registerChildIterator(it)
+        } else {
+            it
+        }
     }
 
     fun iteratorForLessThanOrEqual(
@@ -760,8 +814,9 @@ internal class EvenNybble<V>(
         upperNybble: Byte,
         compareTo: ByteArray,
         compareByteOffset: Int,
+        registerChildIterator: RegisterChildIterator<V>?
     ): Iterator<QPTrieKeyValue<V>> {
-        return LessThanOrEqualEvenNybbleIterator(
+        val it = LessThanOrEqualEvenNybbleIterator(
             this,
             precedingPrefixes,
             evenNybbleToInt(upperNybble),
@@ -769,18 +824,24 @@ internal class EvenNybble<V>(
             compareTo,
             compareByteOffset + 1
         )
+        return if (registerChildIterator != null) {
+            registerChildIterator(it)
+        } else {
+            it
+        }
     }
 
     fun iteratorForGreaterThanOrEqual(
         precedingPrefixes: PersistentList<ByteArray>,
         upperNybble: Byte,
         compareTo: ByteArray,
-        compareByteOffset: Int
+        compareByteOffset: Int,
+        registerChildIterator: RegisterChildIterator<V>?
     ): Iterator<QPTrieKeyValue<V>> {
         if (compareByteOffset >= compareTo.size) {
             // We are necessarily greater than compareTo if the comparison byte offset
             // is beyond the size of the actual lookup key.
-            return this.fullIteratorAscending(precedingPrefixes, upperNybble)
+            return this.fullIteratorAscending(precedingPrefixes, upperNybble, registerChildIterator)
         }
         val targetNybble = oddNybbleFromByte(compareTo[compareByteOffset])
         var greaterOrEqualNybbleOffset = 0
@@ -797,7 +858,7 @@ internal class EvenNybble<V>(
             }
         }
 
-        return GreaterThanOrEqualToEvenNybbleIterator(
+        val it = GreaterThanOrEqualToEvenNybbleIterator(
             this,
             precedingPrefixes,
             evenNybbleToInt(upperNybble),
@@ -806,20 +867,26 @@ internal class EvenNybble<V>(
             greaterOrEqualNybbleOffset,
             equalNybbleOffset
         )
+        return if (registerChildIterator != null) {
+            registerChildIterator(it)
+        } else {
+            it
+        }
     }
-
 
     fun iteratorForStartsWith(
         precedingPrefixes: PersistentList<ByteArray>,
         target: Byte,
         compareTo: ByteArray,
-        compareOffset: Int
+        compareOffset: Int,
+        registerChildIterator: RegisterChildIterator<V>?
     ): Iterator<QPTrieKeyValue<V>> {
         val oddNode = this.dispatchByte(target) ?: return EmptyIterator()
         return oddNode.iteratorForStartsWith(
             precedingPrefixes.add(0, byteArrayOf(target)),
             compareTo,
-            compareOffset + 1
+            compareOffset + 1,
+            registerChildIterator
         )
     }
 }
@@ -836,7 +903,9 @@ private class FullAscendingEvenIterator<V>(
             return null
         }
         val nextBytes = byteArrayOf(nybblesToBytesPreShifted(this.upperNybble, nybbleValues[offset]))
-        return dispatch[offset].fullIteratorAscending(this.precedingPrefixes.add(0, nextBytes))
+        return dispatch[offset].fullIteratorAscending(
+            this.precedingPrefixes.add(0, nextBytes)
+        ) { this.registerChild(it) }
     }
 }
 
@@ -853,7 +922,9 @@ private class FullDescendingEvenIterator<V>(
         }
         val reverseOffset = dispatch.size - offset - 1
         val nextBytes = byteArrayOf(nybblesToBytesPreShifted(this.upperNybble,nybbleValues[reverseOffset]))
-        return dispatch[reverseOffset].fullIteratorDescending(this.precedingPrefixes.add(0, nextBytes))
+        return dispatch[reverseOffset].fullIteratorDescending(this.precedingPrefixes.add(0, nextBytes)) {
+            this.registerChild(it)
+        }
     }
 }
 
@@ -898,9 +969,13 @@ private class LessThanOrEqualEvenNybbleIterator<V>(
                 nextPrecedingPrefixes,
                 this.compareTo,
                 this.nextCompareOffset
-            )
+            ) {
+                this.registerChild(it)
+            }
         } else {
-            node.nybbleDispatch[reverseOffset].fullIteratorDescending(nextPrecedingPrefixes)
+            node.nybbleDispatch[reverseOffset].fullIteratorDescending(nextPrecedingPrefixes) {
+                this.registerChild(it)
+            }
         }
     }
 }
@@ -928,9 +1003,11 @@ private class GreaterThanOrEqualToEvenNybbleIterator<V>(
                 newPrecedingPrefixes,
                 this.compareTo,
                 this.compareOffset
-            )
+            ) {
+                this.registerChild(it)
+            }
         } else {
-            nybbleDispatch[nodeOffset].fullIteratorAscending(newPrecedingPrefixes)
+            nybbleDispatch[nodeOffset].fullIteratorAscending(newPrecedingPrefixes) { this.registerChild(it) }
         }
     }
 }
@@ -986,7 +1063,7 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
         return if (this.root == null) {
             EmptyIterator()
         } else {
-            this.root.fullIteratorAscending(persistentListOf())
+            this.root.fullIteratorAscending(persistentListOf(), null)
         }
     }
 
@@ -994,7 +1071,7 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
         return if (this.root == null) {
             EmptyIterator()
         } else {
-            this.root.fullIteratorDescending(persistentListOf())
+            this.root.fullIteratorDescending(persistentListOf(), null)
         }
     }
 
@@ -1002,7 +1079,7 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
         return if (this.root == null) {
             EmptyIterator()
         } else {
-            this.root.iteratorForLessThanOrEqual(persistentListOf(), key, 0)
+            this.root.iteratorForLessThanOrEqual(persistentListOf(), key, 0, null)
         }
     }
 
@@ -1010,7 +1087,7 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
         return if (this.root == null) {
             EmptyIterator()
         } else {
-            this.root.iteratorForGreaterThanOrEqual(persistentListOf(), key, 0)
+            this.root.iteratorForGreaterThanOrEqual(persistentListOf(), key, 0, null)
         }
     }
 
@@ -1018,7 +1095,7 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
         return if (this.root == null) {
             EmptyIterator()
         } else {
-            this.root.iteratorForStartsWith(persistentListOf(), key, 0)
+            this.root.iteratorForStartsWith(persistentListOf(), key, 0, null)
         }
     }
 
