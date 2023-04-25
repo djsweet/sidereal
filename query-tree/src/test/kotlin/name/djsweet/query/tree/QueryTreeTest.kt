@@ -673,8 +673,8 @@ class QueryTreeTest {
             assertEquals(handle, resultForPath)
             assertEquals((querySerial * weight).toLong(), queryTree.size)
         }
-        val finalTreeSize = (querySerial * weight).toLong()
-        assertEquals(finalTreeSize, queryTree.size)
+        val fullTreeSize = (querySerial * weight).toLong()
+        assertEquals(fullTreeSize, queryTree.size)
 
         assertEquals(queries.size, paths.size)
         for (i in queries.indices) {
@@ -699,7 +699,7 @@ class QueryTreeTest {
 
             val resultForPath = queryTree.getByPath(path)
             assertEquals(handles[i], resultForPath)
-            assertEquals(finalTreeSize, queryTree.size)
+            assertEquals(fullTreeSize, queryTree.size)
         }
 
 
@@ -715,7 +715,7 @@ class QueryTreeTest {
             assertEquals(handle, resultForPath)
         }
 
-        assertEquals(finalTreeSize, queryTreeFilledByPath.size)
+        assertEquals(fullTreeSize, queryTreeFilledByPath.size)
 
         this.verifyQueries(data, queries, handles, paths, queryTreeFilledByPath)
 
@@ -728,6 +728,60 @@ class QueryTreeTest {
             val newTree = queryTree.updateByPath(path) { handle }
             assertTrue(newTree === queryTree)
         }
+
+        val firstAttemptRemovalSize = Arbitraries.integers().between(1, handles.size).sample()
+        for (i in 0 until firstAttemptRemovalSize) {
+            val path = paths[i]
+            val handle = handles[i]
+            var priorHandle: SizeComputableInteger? = null
+            // println("ok, remove $path ${queries[i]} for first run")
+            queryTree = queryTree.updateByPath(path) {
+                priorHandle = it
+                null
+            }
+
+            val resultForPath = queryTree.getByPath(path)
+            assertNull(resultForPath)
+            assertEquals(handle, priorHandle)
+            assertEquals(fullTreeSize - (i+1) * weight, queryTree.size)
+        }
+        for (i in firstAttemptRemovalSize until handles.size) {
+            val path = paths[i]
+            val handle = handles[i]
+            val resultForPath = queryTree.getByPath(path)
+            assertEquals(handle, resultForPath)
+        }
+        val afterFirstRemovalSize = fullTreeSize - firstAttemptRemovalSize * weight
+        assertEquals(afterFirstRemovalSize, queryTree.size)
+
+        this.verifyQueries(
+            data,
+            queries.subList(firstAttemptRemovalSize, queries.size),
+            ArrayList(handles.subList(firstAttemptRemovalSize, handles.size)),
+            ArrayList(paths.subList(firstAttemptRemovalSize, paths.size)),
+            queryTree
+        )
+
+        for (i in firstAttemptRemovalSize until handles.size) {
+            val path = paths[i]
+            val handle = handles[i]
+            var priorHandle: SizeComputableInteger? = null
+            queryTree = queryTree.updateByPath(path) {
+                priorHandle = it
+                null
+            }
+
+            val resultForPath = queryTree.getByPath(path)
+            assertNull(resultForPath)
+            assertEquals(handle, priorHandle)
+            assertEquals(afterFirstRemovalSize - (i -firstAttemptRemovalSize + 1) * weight, queryTree.size)
+        }
+        for (i in 0 until handles.size) {
+            val path = paths[i]
+            val resultForPath = queryTree.getByPath(path)
+            assertNull(resultForPath)
+        }
+        assertEquals(0L, queryTree.size)
     }
 
     @Test
