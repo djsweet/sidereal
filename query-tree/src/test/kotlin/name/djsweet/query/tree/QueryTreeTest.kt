@@ -599,7 +599,7 @@ class QueryTreeTest {
         }
     }
 
-    private fun verifyQueries(
+    private fun verifyQueriesNonSet(
         data: List<QPTrie<ByteArray>>,
         queries: List<QuerySpec>,
         handles: ArrayList<SizeComputableInteger>,
@@ -693,7 +693,7 @@ class QueryTreeTest {
             assertEquals(handles[i], resultForPath)
         }
 
-        this.verifyQueries(data, queries, handles, paths, queryTree)
+        this.verifyQueriesNonSet(data, queries, handles, paths, queryTree)
 
         for (i in handles.indices) {
             val path = paths[i]
@@ -706,7 +706,7 @@ class QueryTreeTest {
         }
 
 
-        this.verifyQueries(data, queries, handles, paths, queryTree)
+        this.verifyQueriesNonSet(data, queries, handles, paths, queryTree)
 
         var queryTreeFilledByPath = QueryTree<SizeComputableInteger>()
         for (i in paths.indices) {
@@ -720,7 +720,7 @@ class QueryTreeTest {
 
         assertEquals(fullTreeSize, queryTreeFilledByPath.size)
 
-        this.verifyQueries(data, queries, handles, paths, queryTreeFilledByPath)
+        this.verifyQueriesNonSet(data, queries, handles, paths, queryTreeFilledByPath)
 
         // This is a bit silly, but we should make sure that updating in such a way that
         // nothing changes results in the exact same value.
@@ -757,7 +757,7 @@ class QueryTreeTest {
         val afterFirstRemovalSize = fullTreeSize - firstAttemptRemovalSize * weight
         assertEquals(afterFirstRemovalSize, queryTree.size)
 
-        this.verifyQueries(
+        this.verifyQueriesNonSet(
             data,
             queries.subList(firstAttemptRemovalSize, queries.size),
             ArrayList(handles.subList(firstAttemptRemovalSize, handles.size)),
@@ -825,5 +825,188 @@ class QueryTreeTest {
         val byData = tree.getByData(QPTrie(listOf(byteArrayOf(12) to byteArrayOf(14)))).asSequence().toList()
         assertEquals(1, byData.size)
         assertEquals(handle, byData.first().value)
+    }
+
+    data class QuerySetTreeTestData(val queries: List<Pair<QuerySpec, Int>>, val data: List<QPTrie<ByteArray>>)
+
+    @Provide
+    fun queryTreeTestDataForSetOperations(): Arbitrary<QuerySetTreeTestData> {
+        return this.queryTreeTestData().flatMap { (queries, data) ->
+            Arbitraries.just(
+                QuerySetTreeTestData(
+                    queries.map { it to Arbitraries.integers().between(1, 6).sample() },
+                    data
+                )
+            )
+        }
+    }
+
+    private fun verifyQueriesSet(
+        data: List<QPTrie<ByteArray>>,
+        queries: List<QuerySpec>,
+        handles: ArrayList<Int>,
+        paths: ArrayList<QueryPath>,
+        queryTree: QuerySetTree<Int>
+    ) {
+        for (dataEntry in data) {
+            val expectedResults = queries.mapIndexed { idx, q ->
+                Pair(idx, q)
+            }.filter { (_, q) ->
+                querySpecMatchesData(q, dataEntry)
+            }.map { (idx) ->
+                handles[idx]
+            }.toSet()
+            val givenResults = mutableSetOf<Int>()
+            for ((path, result) in queryTree.getByData(dataEntry)) {
+                var pathIdx = findIndex(paths, path)
+                var foundIt = false
+                while (paths[pathIdx] == path) {
+                    if (result == handles[pathIdx]) {
+                        foundIt = true
+                        break
+                    } else {
+                        pathIdx ++
+                    }
+                }
+                if (!foundIt) {
+                    fail<String>("Could not find result for path $path -> $result")
+                }
+                givenResults.add(result)
+            }
+            if (expectedResults.size != givenResults.size) {
+                println(
+                    "data was ${
+                        dataEntry.toList()
+                            .map { (key, value) -> Pair(ByteArrayButComparable(key), ByteArrayButComparable(value)) }
+                    }"
+                )
+                println("Size disparity: ${expectedResults.size} != ${givenResults.size}")
+                for (entry in expectedResults) {
+                    val query = queries[findIndex(handles, entry)]
+                    println("Expected to service query $query")
+                }
+                for (entry in givenResults) {
+                    val query = queries[findIndex(handles, entry)]
+                    println("Actually serviced query $query")
+                }
+                for ((path, value) in queryTree) {
+                    println("$path=$value")
+                }
+            }
+            assertEquals(expectedResults, givenResults)
+        }
+
+        // Needs to be a multi-set
+        val unseenPaths = paths.toMutableList()
+        for ((path, value) in queryTree) {
+            var pathIdx = paths.indexOf(path)
+            var foundIt = false
+            while (paths[pathIdx] == path) {
+                if (value == handles[pathIdx]) {
+                    unseenPaths.remove(path)
+                    foundIt = true
+                    break
+                } else {
+                    pathIdx++
+                }
+            }
+            if (!foundIt) {
+                for (i in 0 until paths.size) {
+                    val knownPath = paths[i]
+                    val handle = handles[i]
+                    println("Known path config $knownPath -> $handle")
+                }
+                fail<String>("Could not find path $path to remove for $value")
+            }
+        }
+        assertEquals(0, unseenPaths.size)
+    }
+
+    @Property(tries=200)
+    fun queryTreeSet(
+        @ForAll @From("queryTreeTestDataForSetOperations") testData: QuerySetTreeTestData
+    ) {
+        val (queriesAndCounts, data) = testData
+        val paths = ArrayList<QueryPath>()
+        val handles = ArrayList<Int>()
+        var querySerial = 0
+        var queryTree = QuerySetTree<Int>()
+        var lastCount = 0
+        val queries = mutableListOf<QuerySpec>()
+        for ((query, count) in queriesAndCounts) {
+            val handlesForQuery = mutableSetOf<Int>()
+            for (i in 0 until count) {
+                val handle = querySerial
+                val (path, nextTree) = queryTree.addElementByQuery(query, handle)
+                paths.add(path)
+                handles.add(handle)
+                handlesForQuery.add(handle)
+                queryTree = nextTree
+                querySerial += 1
+
+                // This is getting handled below, but we want to make sure
+                // that immediate inserts also work.
+                val resultsForPath = queryTree.getByPath(path).asSequence().toSet()
+                assertEquals(handlesForQuery, resultsForPath)
+                assertEquals(querySerial.toLong(), queryTree.size)
+
+                // We're adding the query multiple times so that verifyQueriesSet can use
+                // same-index offsetting to compare paths and handles.
+                queries.add(query)
+            }
+            lastCount += count
+        }
+        assertEquals(querySerial.toLong(), queryTree.size)
+        this.verifyQueriesSet(data, queries, handles, paths, queryTree)
+
+        // The above tests creating the tree in general, now let's test updating it.
+        for (i in 0 until handles.size) {
+            val path = paths[i]
+            val handle = handles[i]
+            val expectedHandles = paths.mapIndexed {
+                idx, p -> Pair(idx, p)
+            }.filter {
+                (idx, p) -> idx != i && p == path
+            }.map { (idx) -> handles[idx] }.toMutableSet()
+            queryTree = queryTree.removeElementByPath(path, handle)
+            val removedResults = queryTree.getByPath(path).asSequence().toSet()
+            assertEquals(expectedHandles, removedResults)
+            assertEquals(querySerial.toLong() - 1, queryTree.size)
+
+            val removedAgain = queryTree.removeElementByPath(path, handle)
+            assertTrue(removedAgain === queryTree)
+
+            queryTree = queryTree.addElementByPath(path, handle)
+            expectedHandles.add(handle)
+            val reAddedResults = queryTree.getByPath(path).asSequence().toSet()
+            assertEquals(expectedHandles, reAddedResults)
+            assertEquals(querySerial.toLong(), queryTree.size)
+
+            val addedAgain = queryTree.addElementByPath(path, handle)
+            assertTrue(addedAgain === queryTree)
+        }
+        this.verifyQueriesSet(data, queries, handles, paths, queryTree)
+
+        var removedUntilIdx = 0
+        while (removedUntilIdx < handles.size) {
+            val removeStartIdx = removedUntilIdx
+            val removePath = paths[removedUntilIdx]
+            while (removedUntilIdx < paths.size && paths[removedUntilIdx] == removePath) {
+                removedUntilIdx++
+            }
+            for (i in removeStartIdx until removedUntilIdx) {
+                val handle = handles[i]
+                queryTree = queryTree.removeElementByPath(removePath, handle)
+            }
+            assertEquals(querySerial.toLong() - removedUntilIdx, queryTree.size)
+            this.verifyQueriesSet(
+                data,
+                queries.subList(removedUntilIdx, queries.size),
+                ArrayList(handles.subList(removedUntilIdx, handles.size)),
+                ArrayList(paths.subList(removedUntilIdx, paths.size)),
+                queryTree
+            )
+        }
+        assertEquals(0, queryTree.size)
     }
 }
