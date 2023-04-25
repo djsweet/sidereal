@@ -323,6 +323,9 @@ class QueryTreeTest {
                 givenEqualityTerms.add(Pair(ByteArrayButComparable(keepKey), ByteArrayButComparable(value)))
             }
             assertListOfByteArrayValuePairsEquals(expectedEqualityTerms, givenEqualityTerms)
+
+            val removedAgain = removingQuerySpec.withoutEqualityTerm(removeKey.array)
+            assertTrue(removedAgain === removingQuerySpec)
         }
     }
 
