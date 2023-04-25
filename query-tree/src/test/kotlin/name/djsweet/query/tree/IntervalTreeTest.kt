@@ -4,6 +4,10 @@ import org.junit.jupiter.api.Test
 
 import org.junit.jupiter.api.Assertions.*
 import net.jqwik.api.*
+import java.util.*
+import kotlin.collections.ArrayList
+import kotlin.collections.HashMap
+import kotlin.collections.HashSet
 
 private fun <T: Comparable<T>>rangeOverlapsPairs(left: Pair<T, T>, right: Pair<T, T>): Boolean {
     return rangeOverlaps(left.first, left.second, right.first, right.second)
@@ -239,6 +243,38 @@ class IntervalTreeTest {
         assertEquals("", results4[0].value)
     }
 
+    private fun testInOrderTraversal(tree: IntervalTree<Int, String>) {
+        val parentStack = Stack<IntervalRange<Int>>()
+        var lastHeight = 0
+        for ((key, _, info) in tree.inOrderIterator()) {
+            val (height, direction) = info
+            var parent = if (parentStack.isEmpty()) { null } else { parentStack.peek() }
+            if (parent == null) {
+                assertEquals(0, height)
+                assertEquals("root", direction)
+                parentStack.push(key)
+                continue
+            }
+            if (height < lastHeight) {
+                for (i in 0 until lastHeight - height) {
+                    parentStack.pop()
+                }
+                lastHeight = height
+                parent = if (parentStack.isEmpty()) { null } else { parentStack.peek() }
+            }
+            if (parent == null) {
+                fail<String>("Parent should not have been null after peeking")
+                break
+            }
+            parentStack.push(key)
+            if (direction == "left") {
+                assertTrue(key <= parent)
+            } else {
+                assertTrue(key >= parent)
+            }
+        }
+    }
+
     @Test fun removalsDoNotResultInDoubleEntries() {
         val basis = arrayListOf(
             Pair(Pair(0, -374), "a"),
@@ -248,9 +284,11 @@ class IntervalTreeTest {
             Pair(Pair(0, -2655710), "e")
         )
         var tree = IntervalTree(basis)
+        this.testInOrderTraversal(tree)
         // /*
         tree = tree.put(basis[0].first, "f")
         assertEquals(5, tree.size)
+        this.testInOrderTraversal(tree)
         val firstTreeIterator = tree.iterator()
 
         assertTrue(firstTreeIterator.hasNext())
@@ -285,6 +323,7 @@ class IntervalTreeTest {
         try {
             tree = tree.remove(basis[1].first)
             assertEquals(4, tree.size)
+            this.testInOrderTraversal(tree)
             val secondTreeIterator = tree.iterator()
 
             assertTrue(secondTreeIterator.hasNext())
@@ -323,6 +362,7 @@ class IntervalTreeTest {
         tree = tree.remove(basis[2].first)
         assertEquals(3, tree.size)
         val thirdTreeIterator = tree.iterator()
+        this.testInOrderTraversal(tree)
 
         assertTrue(thirdTreeIterator.hasNext())
         val firstThirdEntry = thirdTreeIterator.next()

@@ -21,7 +21,7 @@ internal fun <T: Comparable<T>>enforceRangeInvariants(range: Pair<T, T>): Pair<T
     }
 }
 
-data class IntervalRange<T: Comparable<T>> internal constructor(val lowerBound: T, val upperBound: T) {
+data class IntervalRange<T: Comparable<T>> internal constructor(val lowerBound: T, val upperBound: T): Comparable<IntervalRange<T>> {
     companion object {
         internal fun <T: Comparable<T>> fromPair(p: Pair<T, T>): IntervalRange<T> {
             val (lowerBound, upperBound) = enforceRangeInvariants(p)
@@ -31,6 +31,10 @@ data class IntervalRange<T: Comparable<T>> internal constructor(val lowerBound: 
 
     fun toPair(): Pair<T, T> {
         return Pair(this.lowerBound, this.upperBound)
+    }
+
+    override fun compareTo(other: IntervalRange<T>): Int {
+        return compareRanges(this.lowerBound, this.upperBound, other.lowerBound, other.upperBound)
     }
 }
 
