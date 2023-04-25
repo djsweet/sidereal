@@ -19,4 +19,8 @@ tasks.test {
     testLogging {
         events("passed", "skipped", "failed")
     }
+    minHeapSize = "512m"
+    maxHeapSize = "2048m"
+
+    // jvmArgs = listOf("-XX:MaxPermSize=512m")
 }
