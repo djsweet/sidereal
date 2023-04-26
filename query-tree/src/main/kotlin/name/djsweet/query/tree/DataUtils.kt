@@ -23,16 +23,6 @@ internal fun <U, V> mapSequence(iterator: Iterator<U>, functor: (item: U) -> V):
     return iterator.asSequence().map(functor).iterator()
 }
 
-private fun liftByteToUnsignedInt(b: Byte): Int {
-    return if (b >= 0) {
-        b.toInt()
-    } else {
-        256 + b.toInt()
-    }
-}
-
 internal fun compareBytesUnsigned(left: Byte, right: Byte): Int {
-    val leftInt = liftByteToUnsignedInt(left)
-    val rightInt = liftByteToUnsignedInt(right)
-    return leftInt.compareTo(rightInt)
+    return java.lang.Byte.compareUnsigned(left, right)
 }

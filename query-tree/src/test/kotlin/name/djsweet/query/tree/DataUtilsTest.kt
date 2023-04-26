@@ -111,23 +111,23 @@ class DataUtilsTest {
 
     @Test
     fun comparingBytesButUnsigned() {
+        // Sanity check for the internals of compareBytesUnsigned
         assertEquals(0, compareBytesUnsigned(0, 0))
         assertEquals(0, compareBytesUnsigned(-1, -1))
         assertEquals(0, compareBytesUnsigned(-2, -2))
         assertEquals(0, compareBytesUnsigned(1, 1))
-        assertEquals(-1, compareBytesUnsigned(0, -1))
-        assertEquals(1, compareBytesUnsigned(-1, 0))
-        assertEquals(-1, compareBytesUnsigned(1, -1))
-        assertEquals(1, compareBytesUnsigned(-1, 1))
-        assertEquals(1, compareBytesUnsigned(-1, -2))
-        assertEquals(-1, compareBytesUnsigned(-2, -1))
-        assertEquals(-1, compareBytesUnsigned(0, 1))
-        assertEquals(1, compareBytesUnsigned(1, 0))
-        assertEquals(-1, compareBytesUnsigned(1, 2))
-        assertEquals(1, compareBytesUnsigned(2, 1))
-        assertEquals(1, compareBytesUnsigned(-1, -72))
-        assertEquals(-1, compareBytesUnsigned(-72, -1))
-        // Sanity check for the internals of compareBytesUnsigned
+        assertTrue(compareBytesUnsigned(0, -1) < 0)
+        assertTrue(compareBytesUnsigned(-1, 0) > 0)
+        assertTrue(compareBytesUnsigned(1, -1) < 0)
+        assertTrue(compareBytesUnsigned(-1, 1) > 0)
+        assertTrue(compareBytesUnsigned(-1, -2) > 0)
+        assertTrue(compareBytesUnsigned(-2, -1) < 0)
+        assertTrue(compareBytesUnsigned(0, 1) < 0)
+        assertTrue(compareBytesUnsigned(1, 0) > 0)
+        assertTrue(compareBytesUnsigned(1, 2) < 0)
+        assertTrue(compareBytesUnsigned(2, 1) > 0)
+        assertTrue(compareBytesUnsigned(-1, -72) > 0)
+        assertTrue(compareBytesUnsigned(-72, -1) < 0)
         assertTrue(Arrays.compareUnsigned(byteArrayOf(-1), byteArrayOf(-72)) >= 1)
         assertTrue(Arrays.compareUnsigned(byteArrayOf(-2), byteArrayOf()) >= 1)
     }
