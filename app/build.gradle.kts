@@ -7,7 +7,7 @@ plugins {
 }
 
 dependencies {
-    implementation("org.apache.commons:commons-text")
+    implementation("org.apache.commons:commons-text:1.10.0")
     implementation(project(":query-tree"))
 }
 
