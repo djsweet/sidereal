@@ -797,27 +797,21 @@ internal class EvenNybble<V>(
     fun fullIteratorAscending(
         precedingPrefixes: ListNode<ByteArray>?,
         upperNybble: Byte,
-        registerChildIterator: RegisterChildIterator<V>?
+        registerChildIterator: RegisterChildIterator<V>
     ): Iterator<QPTrieKeyValue<V>> {
-        val it = FullAscendingEvenIterator(this, precedingPrefixes, evenNybbleToInt(upperNybble))
-        return if (registerChildIterator != null) {
-            registerChildIterator(it)
-        } else {
-            it
-        }
+        return registerChildIterator(
+            FullAscendingEvenIterator(this, precedingPrefixes, evenNybbleToInt(upperNybble))
+        )
     }
 
     fun fullIteratorDescending(
         precedingPrefixes: ListNode<ByteArray>?,
         upperNybble: Byte,
-        registerChildIterator: RegisterChildIterator<V>?
+        registerChildIterator: RegisterChildIterator<V>
     ): Iterator<QPTrieKeyValue<V>> {
-        val it = FullDescendingEvenIterator(this, precedingPrefixes, evenNybbleToInt(upperNybble))
-        return if (registerChildIterator != null) {
-            registerChildIterator(it)
-        } else {
-            it
-        }
+        return registerChildIterator(
+            FullDescendingEvenIterator(this, precedingPrefixes, evenNybbleToInt(upperNybble))
+        )
     }
 
     fun iteratorForLessThanOrEqual(
@@ -825,21 +819,16 @@ internal class EvenNybble<V>(
         upperNybble: Byte,
         compareTo: ByteArray,
         compareByteOffset: Int,
-        registerChildIterator: RegisterChildIterator<V>?
+        registerChildIterator: RegisterChildIterator<V>
     ): Iterator<QPTrieKeyValue<V>> {
-        val it = LessThanOrEqualEvenNybbleIterator(
+        return registerChildIterator(LessThanOrEqualEvenNybbleIterator(
             this,
             precedingPrefixes,
             evenNybbleToInt(upperNybble),
             oddNybbleFromByte(compareTo[compareByteOffset]),
             compareTo,
             compareByteOffset + 1
-        )
-        return if (registerChildIterator != null) {
-            registerChildIterator(it)
-        } else {
-            it
-        }
+        ))
     }
 
     fun iteratorForGreaterThanOrEqual(
@@ -847,7 +836,7 @@ internal class EvenNybble<V>(
         upperNybble: Byte,
         compareTo: ByteArray,
         compareByteOffset: Int,
-        registerChildIterator: RegisterChildIterator<V>?
+        registerChildIterator: RegisterChildIterator<V>
     ): Iterator<QPTrieKeyValue<V>> {
         if (compareByteOffset >= compareTo.size) {
             // We are necessarily greater than compareTo if the comparison byte offset
@@ -869,7 +858,7 @@ internal class EvenNybble<V>(
             }
         }
 
-        val it = GreaterThanOrEqualToEvenNybbleIterator(
+        return registerChildIterator(GreaterThanOrEqualToEvenNybbleIterator(
             this,
             precedingPrefixes,
             evenNybbleToInt(upperNybble),
@@ -877,12 +866,7 @@ internal class EvenNybble<V>(
             compareByteOffset + 1,
             greaterOrEqualNybbleOffset,
             equalNybbleOffset
-        )
-        return if (registerChildIterator != null) {
-            registerChildIterator(it)
-        } else {
-            it
-        }
+        ))
     }
 
     fun iteratorForStartsWith(
