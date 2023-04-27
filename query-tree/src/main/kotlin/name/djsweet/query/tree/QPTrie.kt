@@ -27,7 +27,7 @@ internal fun nybblesToBytesPreShifted(highNybble: Int, lowNybble: Byte): Byte {
 }
 
 data class QPTrieKeyValue<V> internal constructor(
-    val key: ByteArray,
+    val key: ByteArrayThunk,
     val value: V
 ) {
     override fun equals(other: Any?): Boolean {
@@ -36,12 +36,12 @@ data class QPTrieKeyValue<V> internal constructor(
 
         other as QPTrieKeyValue<*>
 
-        if (!key.contentEquals(other.key)) return false
+        if (key != other.key) return false
         return value == other.value
     }
 
     override fun hashCode(): Int {
-        var result = key.contentHashCode()
+        var result = key.get().contentHashCode()
         result = 31 * result + (value?.hashCode() ?: 0)
         return result
     }
@@ -513,7 +513,7 @@ internal class OddNybble<V>(
             if (this.value !== null) {
                 SingleElementIterator(
                     QPTrieKeyValue(
-                        concatByteArraysFromReverseList(precedingPrefixes.add(0, this.prefix)),
+                        ByteArrayThunk(precedingPrefixes.add(0, this.prefix)),
                         this.value
                     )
                 )
@@ -643,8 +643,7 @@ internal class FullAscendingOddNybbleIterator<V>(
         var evenOffset = offset
         if (value != null) {
             if (offset == 0) {
-                val fullPrefix = concatByteArraysFromReverseList(this.precedingPrefixes)
-                return SingleElementIterator(QPTrieKeyValue(fullPrefix, value))
+                return SingleElementIterator(QPTrieKeyValue(ByteArrayThunk(this.precedingPrefixes), value))
             }
             evenOffset -= 1
         }
@@ -689,7 +688,7 @@ internal class FullDescendingOddNybbleIterator<V>(
             return null
         }
         val value = this.node.value ?: return null
-        return SingleElementIterator(QPTrieKeyValue(concatByteArraysFromReverseList(this.precedingPrefixes), value))
+        return SingleElementIterator(QPTrieKeyValue(ByteArrayThunk(this.precedingPrefixes), value))
     }
 }
 
@@ -721,7 +720,7 @@ internal class LessThanOrEqualOddNybbleIterator<V>(
                 this.registerChild(it)
             }
         } else if (reverseOffset == -1 && value != null) {
-            SingleElementIterator(QPTrieKeyValue(concatByteArraysFromReverseList(this.precedingPrefixes), value))
+            SingleElementIterator(QPTrieKeyValue(ByteArrayThunk(this.precedingPrefixes), value))
         } else {
             null
         }
@@ -743,7 +742,7 @@ internal class GreaterThanOrEqualOddNybbleIterator<V>(
             if (offset == 0) {
                 return SingleElementIterator(
                     QPTrieKeyValue(
-                        concatByteArraysFromReverseList(this.precedingPrefixes),
+                        ByteArrayThunk(this.precedingPrefixes),
                         value
                     )
                 )
@@ -1153,7 +1152,7 @@ private class LookupPrefixOfOrEqualToIterator<V>(
         this.skipCurrentNodeToValue()
         val value = this.currentValue ?: throw NoSuchElementException()
         this.currentValue = null
-        return QPTrieKeyValue(concatByteArraysFromReverseList(this.reversePrefixList), value)
+        return QPTrieKeyValue(ByteArrayThunk(this.reversePrefixList), value)
     }
 }
 

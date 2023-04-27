@@ -1,5 +1,6 @@
 package name.djsweet.query.tree
 
+import kotlinx.collections.immutable.persistentListOf
 import org.junit.jupiter.api.Test
 
 import org.junit.jupiter.api.Assertions.*
@@ -34,7 +35,7 @@ private fun <V> trieIsEmpty(trie: QPTrie<V>) {
 
 private fun <T> fixIteratorForInvariants(it: Iterator<QPTrieKeyValue<T>>): List<Pair<ByteArrayButComparable, T>> {
     return it.asSequence().map { (key, value) ->
-        Pair(ByteArrayButComparable(key), value)
+        Pair(ByteArrayButComparable(key.get()), value)
     }.toList()
 }
 
@@ -246,6 +247,10 @@ class QPTrieTest {
         }
     }
 
+    private fun<V> qpTrieKeyValueForBytes(bytes: ByteArray, value: V): QPTrieKeyValue<V> {
+        return QPTrieKeyValue(ByteArrayThunk(bytes), value)
+    }
+
     @Test fun iteratorForLessThanOrEqualTwoElementTrie() {
         val lowerBytes = byteArrayOf()
         val higherBytes = byteArrayOf(0)
@@ -256,14 +261,16 @@ class QPTrieTest {
 
         val firstResults = fixIteratorForInvariants(trie.iteratorLessThanOrEqual(lowerBytes))
         assertListOfByteArrayValuePairsEquals(
-            fixIteratorForInvariants(arrayOf(QPTrieKeyValue(lowerBytes, "lower")).iterator()),
+            fixIteratorForInvariants(arrayOf(
+                this.qpTrieKeyValueForBytes(lowerBytes, "lower")
+            ).iterator()),
             firstResults
         )
         val secondResults = fixIteratorForInvariants(trie.iteratorLessThanOrEqual(higherBytes))
         assertListOfByteArrayValuePairsEquals(
             fixIteratorForInvariants(arrayOf(
-                QPTrieKeyValue(higherBytes, "higher"),
-                QPTrieKeyValue(lowerBytes, "lower")
+                this.qpTrieKeyValueForBytes(higherBytes, "higher"),
+                this.qpTrieKeyValueForBytes(lowerBytes, "lower")
             ).iterator()),
             secondResults
         )
@@ -280,8 +287,8 @@ class QPTrieTest {
         val firstResults = fixIteratorForInvariants(trie.iteratorGreaterThanOrEqual(lowerBytes))
         assertListOfByteArrayValuePairsEquals(
             fixIteratorForInvariants(listOf(
-                QPTrieKeyValue(lowerBytes, "lower"),
-                QPTrieKeyValue(higherBytes, "higher")
+                this.qpTrieKeyValueForBytes(lowerBytes, "lower"),
+                this.qpTrieKeyValueForBytes(higherBytes, "higher")
             ).iterator()),
             firstResults
         )
@@ -289,7 +296,7 @@ class QPTrieTest {
         val secondResults = fixIteratorForInvariants(trie.iteratorGreaterThanOrEqual(higherBytes))
         assertListOfByteArrayValuePairsEquals(
             fixIteratorForInvariants(listOf(
-                QPTrieKeyValue(higherBytes, "higher")
+                this.qpTrieKeyValueForBytes(higherBytes, "higher")
             ).iterator()),
             secondResults
         )
@@ -462,13 +469,17 @@ class QPTrieTest {
                 val lookupKey = targets[i].first
                 // First, everything that starts with this current entry.
                 val expectedStartsWith = fixIteratorForInvariants(
-                    targets.subList(i, targets.size).map { (key, value) -> QPTrieKeyValue(key, value) } .iterator()
+                    targets.subList(i, targets.size).map {
+                        (key, value) -> this.qpTrieKeyValueForBytes(key, value)
+                    } .iterator()
                 )
                 val receivedStartsWith = fixIteratorForInvariants(trie.iteratorStartsWith(lookupKey))
                 assertListOfByteArrayValuePairsEquals(expectedStartsWith, receivedStartsWith)
                 // Second, everything this current entry starts with.
                 val expectedPrefixOf = fixIteratorForInvariants(
-                    targets.subList(0, i+1).map { (key, value) -> QPTrieKeyValue(key, value) } .iterator()
+                    targets.subList(0, i+1).map {
+                        (key, value) -> this.qpTrieKeyValueForBytes(key, value)
+                    } .iterator()
                 )
                 val receivedPrefixOf = fixIteratorForInvariants(trie.iteratorPrefixOfOrEqualTo(lookupKey))
                 assertListOfByteArrayValuePairsEquals(expectedPrefixOf, receivedPrefixOf)
@@ -485,7 +496,7 @@ class QPTrieTest {
 
         val lookupStartsWith = trie.iteratorStartsWith(byteArrayOf()).asSequence().toList()
         assertEquals(1, lookupStartsWith.size)
-        assertArrayEquals(byteArrayOf(12), lookupStartsWith.first().key)
+        assertArrayEquals(byteArrayOf(12), lookupStartsWith.first().key.get())
         assertArrayEquals(byteArrayOf(13), lookupStartsWith.first().value)
     }
 
@@ -505,7 +516,7 @@ class QPTrieTest {
         val trieAgain = trie.put(byteArrayOf(12), byteArrayOf(14))
         val lookupGreaterThanAgain = trieAgain.iteratorGreaterThanOrEqual(byteArrayOf(12)).asSequence().toList()
         assertEquals(1, lookupGreaterThanAgain.size)
-        assertArrayEquals(byteArrayOf(12), lookupGreaterThanAgain.first().key)
+        assertArrayEquals(byteArrayOf(12), lookupGreaterThanAgain.first().key.get())
         assertArrayEquals(byteArrayOf(14), lookupGreaterThanAgain.first().value)
 
         val lookupWithEmpty = trieAgain.iteratorGreaterThanOrEqual(byteArrayOf()).asSequence().toList()
@@ -529,7 +540,7 @@ class QPTrieTest {
         ).asSequence().toList()
         assertListOfByteArrayValuePairsEquals(
             targetPairs.map { (key, value) -> ByteArrayButComparable(key) to value },
-            lookupLess.map { (key, value) -> ByteArrayButComparable(key) to value }
+            lookupLess.map { (key, value) -> ByteArrayButComparable(key.get()) to value }
         )
     }
 }

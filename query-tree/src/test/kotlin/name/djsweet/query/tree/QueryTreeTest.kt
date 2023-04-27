@@ -75,7 +75,7 @@ class QueryTreeTest {
 
         private fun querySpecMatchesData(querySpec: QuerySpec, data: QPTrie<ByteArray>): Boolean {
             for ((key, value) in querySpec.equalityTerms) {
-                val dataAtKey = data.get(key) ?: return false
+                val dataAtKey = data.get(key.get()) ?: return false
                 if (!value.contentEquals(dataAtKey)) {
                     return false
                 }
@@ -509,7 +509,7 @@ class QueryTreeTest {
         return this.arbitraryDataForKeySpace(keySubSpace).map { subTrie ->
             var result = basisTrie
             for ((key, value) in subTrie) {
-                result = result.put(key, value)
+                result = result.put(key.get(), value)
             }
             result
         }
@@ -553,7 +553,9 @@ class QueryTreeTest {
         querySpec: QuerySpec,
         keySpace: List<ByteArray>
     ): Arbitrary<List<QPTrie<ByteArray>>> {
-        val equalityTerms = querySpec.equalityTerms.map { (key, value) -> IntermediateQueryTerm.equalityTerm(key, value) }
+        val equalityTerms = querySpec.equalityTerms.map {
+            (key, value) -> IntermediateQueryTerm.equalityTerm(key.get(), value)
+        }
         val inequalityPortion = if (querySpec.inequalityTerm == null) {
             listOf()
         } else {

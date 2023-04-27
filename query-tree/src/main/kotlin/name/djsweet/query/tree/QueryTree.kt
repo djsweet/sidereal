@@ -136,7 +136,7 @@ class QuerySpec private constructor(
 
     private fun equalityTermsForComparison(): Array<Pair<ByteArrayButComparable, ByteArrayButComparable>> {
         return this.equalityTerms.toList().map { (key, value) ->
-            Pair(ByteArrayButComparable(key), ByteArrayButComparable(value))
+            Pair(ByteArrayButComparable(key.get()), ByteArrayButComparable(value))
         }.toTypedArray()
     }
 
@@ -157,7 +157,7 @@ class QuerySpec private constructor(
 
     override fun toString(): String {
         val equalityTerms = this.equalityTerms.iterator().asSequence().map {
-            (key, value) -> Pair(ByteArrayButComparable(key), ByteArrayButComparable(value))
+            (key, value) -> Pair(ByteArrayButComparable(key.get()), ByteArrayButComparable(value))
         } .toList()
         return "QuerySpec(equalityTerms=${equalityTerms}, inequalityTerm=${inequalityTerm})"
     }
@@ -558,7 +558,8 @@ internal class QueryTreeNode<V  : SizeComputable>(
         updater: (prior: V?) -> V?,
         querySpec: QuerySpec,
     ): Pair<QueryPath, QueryTreeNode<V>>? {
-        val (bestKey, bestValue) = bestKeyValue
+        val (bestKeyThunk, bestValue) = bestKeyValue
+        val bestKey = bestKeyThunk.get()
         val target = this.equalityTerms?.get(bestKey)?.get(bestValue) ?: emptyInstance()
         val queryTerm = IntermediateQueryTerm.equalityTerm(bestKey, bestValue)
         val replacementSpecs = target.updateByQuery(querySpec.withoutEqualityTerm(bestKey), updater)
@@ -655,7 +656,7 @@ internal class QueryTreeNode<V  : SizeComputable>(
             if (this.equalityTerms == null) {
                 break
             }
-            val valuePairs = this.equalityTerms.get(kvp.key) ?: continue
+            val valuePairs = this.equalityTerms.get(kvp.key.get()) ?: continue
             if (valuePairs.size <= bestKeyOnlySize) {
                 bestKeyOnly = kvp
                 bestKeyOnlySize = valuePairs.size
@@ -810,7 +811,8 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
                         this.state = GetByDataIteratorState.LESS_THAN
                         this.currentData = this.workingDataForKeys(this.node.lessThanTerms)
                     } else {
-                        val (key, value) = this.currentData.first()
+                        val (keyThunk, value) = this.currentData.first()
+                        val key = keyThunk.get()
                         this.currentData = this.currentData.remove(key)
                         val subNode = this.node.equalityTerms?.get(key)?.get(value) ?: continue
                         val newReversePath = this.reversePath.add(
@@ -826,7 +828,8 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
                         this.state = GetByDataIteratorState.RANGE
                         this.currentData = this.workingDataForKeys(this.node.rangeTerms)
                     } else {
-                        val (key, value) = this.currentData.first()
+                        val (keyThunk, value) = this.currentData.first()
+                        val key = keyThunk.get()
                         this.currentData = this.currentData.remove(key)
                         val maybe = this.node.lessThanTerms?.get(
                             key
@@ -835,7 +838,7 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
                         )
                         if (maybe != null) {
                             return mapSequence(maybe) { (predicateValue, result) ->
-                                this.pathForState(GetByDataIteratorState.LESS_THAN, key, predicateValue, result)
+                                this.pathForState(GetByDataIteratorState.LESS_THAN, key, predicateValue.get(), result)
                             }
                         }
                     }
@@ -846,7 +849,8 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
                         this.state = GetByDataIteratorState.GREATER_THAN
                         this.currentData = this.workingDataForKeys(this.node.greaterThanTerms)
                     } else {
-                        val (key, value) = this.currentData.first()
+                        val (keyThunk, value) = this.currentData.first()
+                        val key = keyThunk.get()
                         this.currentData = this.currentData.remove(key)
                         val maybe = this.node.rangeTerms?.get(key)?.lookupPoint(
                             ByteArrayButComparable(value)
@@ -864,7 +868,8 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
                         this.state = GetByDataIteratorState.STARTS_WITH
                         this.currentData = this.workingDataForKeys(this.node.startsWithTerms)
                     } else {
-                        val (key, value) = this.currentData.first()
+                        val (keyThunk, value) = this.currentData.first()
+                        val key = keyThunk.get()
                         this.currentData = this.currentData.remove(key)
                         val maybe = this.node.greaterThanTerms?.get(
                             key
@@ -873,7 +878,7 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
                         )
                         if (maybe != null) {
                             return mapSequence(maybe) { (predicateValue, result) ->
-                                this.pathForState(GetByDataIteratorState.GREATER_THAN, key, predicateValue, result)
+                                this.pathForState(GetByDataIteratorState.GREATER_THAN, key, predicateValue.get(), result)
                             }
                         }
                     }
@@ -883,7 +888,8 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
                     if (currentData.size == 0L) {
                         this.state = GetByDataIteratorState.DONE
                     } else {
-                        val (key, value) = this.currentData.first()
+                        val (keyThunk, value) = this.currentData.first()
+                        val key = keyThunk.get()
                         this.currentData = this.currentData.remove(key)
                         val maybe = this.node.startsWithTerms?.get(
                             key
@@ -892,7 +898,7 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
                         )
                         if (maybe != null) {
                             return mapSequence(maybe) { (predicateValue, result) ->
-                                this.pathForState(GetByDataIteratorState.STARTS_WITH, key, predicateValue, result)
+                                this.pathForState(GetByDataIteratorState.STARTS_WITH, key, predicateValue.get(), result)
                             }
                         }
                     }
@@ -929,9 +935,10 @@ internal class FullTreeIterator<V: SizeComputable> private constructor(
                 GetByDataIteratorState.EQUALITY -> {
                     this.state = GetByDataIteratorState.LESS_THAN
                     if (this.node.equalityTerms != null) {
-                        return FlattenIterator(mapSequence(this.node.equalityTerms) { (key, values) ->
+                        return FlattenIterator(mapSequence(this.node.equalityTerms) { (keyThunk, values) ->
+                            val key = keyThunk.get()
                             FlattenIterator(mapSequence(values) { (value, child) ->
-                                val term = IntermediateQueryTerm.equalityTerm(key, value)
+                                val term = IntermediateQueryTerm.equalityTerm(key, value.get())
                                 this.registerChild(
                                     FullTreeIterator(
                                         child,
@@ -947,9 +954,10 @@ internal class FullTreeIterator<V: SizeComputable> private constructor(
                 GetByDataIteratorState.LESS_THAN -> {
                     this.state = GetByDataIteratorState.RANGE
                     if (this.node.lessThanTerms != null) {
-                        return FlattenIterator(mapSequence(this.node.lessThanTerms) { (key, values) ->
+                        return FlattenIterator(mapSequence(this.node.lessThanTerms) { (keyThunk, values) ->
+                            val key = keyThunk.get()
                             mapSequence(values) { (value, result) ->
-                                val term = IntermediateQueryTerm.greaterOrLessTerm(key, null, value)
+                                val term = IntermediateQueryTerm.greaterOrLessTerm(key, null, value.get())
                                 QueryPathValue(
                                     QueryPath(this.reversePath.add(0, term).reversed()), result
                                 )
@@ -961,7 +969,8 @@ internal class FullTreeIterator<V: SizeComputable> private constructor(
                 GetByDataIteratorState.RANGE -> {
                     this.state = GetByDataIteratorState.GREATER_THAN
                     if (this.node.rangeTerms != null) {
-                        return FlattenIterator(mapSequence(this.node.rangeTerms) { (key, values) ->
+                        return FlattenIterator(mapSequence(this.node.rangeTerms) { (keyThunk, values) ->
+                            val key = keyThunk.get()
                             mapSequence(values) { (bounds, result, _) ->
                                 val (lowerBound, upperBound) = bounds
                                 val term = IntermediateQueryTerm.greaterOrLessTerm(
@@ -980,9 +989,10 @@ internal class FullTreeIterator<V: SizeComputable> private constructor(
                 GetByDataIteratorState.GREATER_THAN -> {
                     this.state = GetByDataIteratorState.STARTS_WITH
                     if (this.node.greaterThanTerms != null) {
-                        return FlattenIterator(mapSequence(this.node.greaterThanTerms) { (key, values) ->
+                        return FlattenIterator(mapSequence(this.node.greaterThanTerms) { (keyThunk, values) ->
+                            val key = keyThunk.get()
                             mapSequence(values) { (value, result) ->
-                                val term = IntermediateQueryTerm.greaterOrLessTerm(key, value, null)
+                                val term = IntermediateQueryTerm.greaterOrLessTerm(key, value.get(), null)
                                 QueryPathValue(
                                     QueryPath(this.reversePath.add(0, term).reversed()), result
                                 )
@@ -994,9 +1004,10 @@ internal class FullTreeIterator<V: SizeComputable> private constructor(
                 GetByDataIteratorState.STARTS_WITH -> {
                     this.state = GetByDataIteratorState.DONE
                     if (this.node.startsWithTerms != null) {
-                        return FlattenIterator(mapSequence(this.node.startsWithTerms) { (key, values) ->
+                        return FlattenIterator(mapSequence(this.node.startsWithTerms) { (keyThunk, values) ->
+                            val key = keyThunk.get()
                             mapSequence(values) { (value, result) ->
-                                val term = IntermediateQueryTerm.startsWithTerm(key, value)
+                                val term = IntermediateQueryTerm.startsWithTerm(key, value.get())
                                 QueryPathValue(
                                     QueryPath(this.reversePath.add(0, term).reversed()), result
                                 )
