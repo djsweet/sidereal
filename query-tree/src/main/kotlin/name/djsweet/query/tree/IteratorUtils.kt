@@ -87,19 +87,15 @@ internal abstract class ConcatenatedIterator<T>: Iterator<T> {
     }
 }
 
-internal class SingleElementIterator<T>(private val item: T): Iterator<T> {
-    private var consumed: Boolean = false
-
+internal class SingleElementIterator<T>(private var item: T?): Iterator<T> {
     override fun hasNext(): Boolean {
-        return !this.consumed
+        return this.item != null
     }
 
     override fun next(): T {
-        if (this.consumed) {
-            throw NoSuchElementException()
-        }
-        this.consumed = true
-        return this.item
+        val result = this.item ?: throw NoSuchElementException()
+        this.item = null
+        return result
     }
 }
 
