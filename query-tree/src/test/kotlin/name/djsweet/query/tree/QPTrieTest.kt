@@ -543,4 +543,23 @@ class QPTrieTest {
             lookupLess.map { (key, value) -> ByteArrayButComparable(key.get()) to value }
         )
     }
+
+    @Test
+    fun mutatingSingleKeyDoesntAffectTrie() {
+        val targetKey = byteArrayOf(0)
+        var trie = QPTrie(listOf(targetKey to 7))
+
+        assertEquals(7, trie.get(byteArrayOf(0)))
+        targetKey[0] = 1
+        assertEquals(7, trie.get(byteArrayOf(0)))
+
+        val updateKey = byteArrayOf(2)
+        trie = trie.put(updateKey, 8)
+        assertEquals(7, trie.get(byteArrayOf(0)))
+        assertEquals(8, trie.get(byteArrayOf(2)))
+
+        updateKey[0] = 3
+        assertEquals(7, trie.get(byteArrayOf(0)))
+        assertEquals(8, trie.get(byteArrayOf(2)))
+    }
 }

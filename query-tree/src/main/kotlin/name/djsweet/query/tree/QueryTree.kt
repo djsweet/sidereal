@@ -112,7 +112,7 @@ class QuerySpec private constructor(
     }
 
     fun withLessThanOrEqualToTerm(key: ByteArray, lessThanOrEqualTo: ByteArray): QuerySpec {
-        val term = IntermediateQueryTerm.greaterOrLessTerm(key, null, lessThanOrEqualTo)
+        val term = IntermediateQueryTerm.greaterOrLessTerm(key.copyOf(), null, lessThanOrEqualTo)
         return QuerySpec(this.equalityTerms.remove(key), term)
     }
 
@@ -120,17 +120,17 @@ class QuerySpec private constructor(
         val swapBounds = Arrays.compareUnsigned(maybeLowerBound, maybeUpperBound) == 1
         val lowerBound = if (swapBounds) { maybeUpperBound } else { maybeLowerBound }
         val upperBound = if (swapBounds) { maybeLowerBound } else { maybeUpperBound }
-        val term = IntermediateQueryTerm.greaterOrLessTerm(key, lowerBound, upperBound)
+        val term = IntermediateQueryTerm.greaterOrLessTerm(key.copyOf(), lowerBound, upperBound)
         return QuerySpec(this.equalityTerms.remove(key), term)
     }
 
     fun withGreaterThanOrEqualToTerm(key: ByteArray, greaterThanOrEqualTo: ByteArray): QuerySpec {
-        val term = IntermediateQueryTerm.greaterOrLessTerm(key, greaterThanOrEqualTo, null)
+        val term = IntermediateQueryTerm.greaterOrLessTerm(key.copyOf(), greaterThanOrEqualTo, null)
         return QuerySpec(this.equalityTerms.remove(key), term)
     }
 
     fun withStartsWithTerm(key: ByteArray, startsWith: ByteArray): QuerySpec {
-        val term = IntermediateQueryTerm.startsWithTerm(key, startsWith)
+        val term = IntermediateQueryTerm.startsWithTerm(key.copyOf(), startsWith)
         return QuerySpec(this.equalityTerms.remove(key), term)
     }
 

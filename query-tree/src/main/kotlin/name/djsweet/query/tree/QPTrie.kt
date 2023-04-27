@@ -1037,7 +1037,7 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     fun update(key: ByteArray, updater: (prev: V?) -> V?): QPTrie<V> {
         if (this.root == null) {
             val value = updater(null) ?: return this
-            return QPTrie(OddNybble(key, value, 1, null, null))
+            return QPTrie(OddNybble(key.copyOf(), value, 1, null, null))
         }
         val newRoot = this.root.update(key, 0, updater)
         if (newRoot === this.root) {
@@ -1161,7 +1161,7 @@ private fun <V> sizeNodeFromIterable(items: Iterable<Pair<ByteArray, V>>): OddNy
     var root: OddNybble<V>
     if (it.hasNext()) {
         val (key, value) = it.next()
-        root = OddNybble(key, value, 1, null, null)
+        root = OddNybble(key.copyOf(), value, 1, null, null)
     } else {
         return null
     }

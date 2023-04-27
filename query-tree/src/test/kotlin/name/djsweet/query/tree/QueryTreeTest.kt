@@ -295,7 +295,7 @@ class QueryTreeTest {
             equalityTrie = equalityTrie.remove(maybeInequalityTerm.key)
             val qsit = querySpec.inequalityTerm
             assertNotNull(qsit)
-            assertEquals(maybeInequalityTerm.key, qsit!!.key)
+            assertArrayEquals(maybeInequalityTerm.key, qsit!!.key)
             assertEquals(maybeInequalityTerm.kind, qsit.kind)
             assertArrayEquals(maybeInequalityTerm.lowerBound, qsit.lowerBound)
             assertArrayEquals(maybeInequalityTerm.upperBound, qsit.upperBound)
