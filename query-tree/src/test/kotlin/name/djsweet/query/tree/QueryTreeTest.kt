@@ -405,7 +405,7 @@ class QueryTreeTest {
             prependPath = prependPath.prepend(term)
         }
 
-        assertArrayEquals(oneShotPath.breadcrumbs.toTypedArray(), prependPath.breadcrumbs.toTypedArray())
+        assertEquals(oneShotPath.breadcrumbs, prependPath.breadcrumbs)
     }
 
     @Property
@@ -414,11 +414,13 @@ class QueryTreeTest {
     ) {
         var queryTerms = publicQueryTerms.map { it.actual }.toPersistentList()
         var queryPath = QueryPath(queryTerms)
-        while (queryTerms.size > 0 && queryPath.breadcrumbs.size > 0) {
-            assertEquals(queryTerms.size, queryPath.breadcrumbs.size)
+        var pathSize = listSize(queryPath.breadcrumbs)
+        while (queryTerms.size > 0 && pathSize > 0) {
+            assertEquals(queryTerms.size, pathSize)
             assertEquals(queryTerms.first(), queryPath.first())
             queryTerms = queryTerms.subList(1, queryTerms.size).toPersistentList()
             queryPath = queryPath.rest()
+            pathSize = listSize(queryPath.breadcrumbs)
         }
     }
 
@@ -519,10 +521,7 @@ class QueryTreeTest {
         queryPath: QueryPath,
         keySpace: List<ByteArray>
     ): Arbitrary<List<QPTrie<ByteArray>>> {
-        val breadcrumbs = queryPath.breadcrumbs
-        if (breadcrumbs.isEmpty()) {
-            return Arbitraries.just(listOf())
-        }
+        val breadcrumbs = queryPath.breadcrumbs ?: return Arbitraries.just(listOf())
 
         val fillTrieLift = { term: IntermediateQueryTerm, workingTrie: QPTrie<ByteArray>, seenKeys: QPTrie<Boolean>, pastList: PersistentList<QPTrie<ByteArray>>  ->
             val (key, value) = this.basedDataForIntermediateQueryTerm(term).sample()
@@ -531,7 +530,7 @@ class QueryTreeTest {
             val filled = this.fillTrieWithArbitraryData(nextWorkingTrie, keySpace, nextSeenKeys).sample()
             Triple(pastList.add(0, filled), nextWorkingTrie, nextSeenKeys)
         }
-        val (firstData, firstTerm) = this.basedDataForIntermediateQueryTerm(breadcrumbs.first()).sample()
+        val (firstData, firstTerm) = this.basedDataForIntermediateQueryTerm(listFirst(breadcrumbs)!!).sample()
         val firstTrie = QPTrie(listOf(firstData to firstTerm))
         val firstFilled = this.fillTrieWithArbitraryData(
             firstTrie,
@@ -539,7 +538,7 @@ class QueryTreeTest {
             QPTrie(listOf(firstData to true)),
         ).sample()
         val basis = Triple(persistentListOf(firstFilled), firstTrie, QPTrie<Boolean>())
-        val (entries) = breadcrumbs.subList(1, breadcrumbs.size).fold(basis) { acc, term ->
+        val (entries) = listIterator(listRest(breadcrumbs)).asSequence().fold(basis) { acc, term ->
             val (pastList, workingTrie, seenKeys) = acc
             Arbitraries.frequency<Triple<PersistentList<QPTrie<ByteArray>>, QPTrie<ByteArray>, QPTrie<Boolean>>>(
                 Tuple.of(4, acc),

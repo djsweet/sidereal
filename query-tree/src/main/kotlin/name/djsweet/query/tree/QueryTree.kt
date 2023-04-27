@@ -169,33 +169,28 @@ class QuerySpec private constructor(
     }
 }
 
-class QueryPath internal constructor(path: Iterable<IntermediateQueryTerm>) {
-    internal val breadcrumbs: PersistentList<IntermediateQueryTerm>
-
-    init {
-        this.breadcrumbs = path.toPersistentList()
-    }
-
-    internal constructor(): this(persistentListOf())
+class QueryPath private constructor(internal val breadcrumbs: ListNode<IntermediateQueryTerm>?) {
+    internal constructor(path: Iterable<IntermediateQueryTerm>): this(listFromIterable(path))
+    internal constructor(): this(null)
 
     internal fun first(): IntermediateQueryTerm? {
-        return if (this.breadcrumbs.size == 0) { null } else { this.breadcrumbs.first() }
+        return listFirst(this.breadcrumbs)
     }
 
     internal fun rest(): QueryPath {
-        return QueryPath(this.breadcrumbs.subList(1, this.breadcrumbs.size))
+        return QueryPath(listRest(this.breadcrumbs))
     }
 
     internal fun prepend(t: IntermediateQueryTerm): QueryPath {
-        return QueryPath(this.breadcrumbs.add(0, t))
+        return QueryPath(listPrepend(t, this.breadcrumbs))
     }
 
     override fun equals(other: Any?): Boolean {
         return if (this === other) {
             true
         } else if (QueryPath::class.java.isInstance(other)) {
-            val otherQueryPath = other as QueryPath
-            this.breadcrumbs.toTypedArray().contentEquals(otherQueryPath.breadcrumbs.toTypedArray())
+            other as QueryPath
+            listEquals(this.breadcrumbs, other.breadcrumbs)
         } else {
             super.equals(other)
         }

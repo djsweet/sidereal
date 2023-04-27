@@ -1,7 +1,5 @@
 package name.djsweet.query.tree
 
-import kotlinx.collections.immutable.PersistentList
-import kotlinx.collections.immutable.persistentListOf
 import java.util.Arrays
 
 internal fun byteArraysEqualUpTo(left: ByteArray, right: ByteArray, rightFrom: Int, rightEntries: Int): Int {
@@ -85,11 +83,11 @@ internal fun concatByteArraysWithMiddleByte(left: ByteArray, mid: Byte, right: B
     return result
 }
 
-internal fun concatByteArraysFromReverseList(arrays: PersistentList<ByteArray>): ByteArray {
-    val newSize = arrays.sumOf { it.size }
+internal fun concatByteArraysFromReverseList(arrays: ListNode<ByteArray>?): ByteArray {
+    val newSize = listIterator(arrays).asSequence().sumOf { it.size }
     var offset = newSize
     val newArray = ByteArray(newSize)
-    for (arr in arrays) {
+    for (arr in listIterator(arrays)) {
         val nextOffset = offset - arr.size
         arr.copyInto(newArray, nextOffset)
         offset = nextOffset
@@ -97,10 +95,10 @@ internal fun concatByteArraysFromReverseList(arrays: PersistentList<ByteArray>):
     return newArray
 }
 
-data class ByteArrayThunk internal constructor(private val reverseSpec: PersistentList<ByteArray>) {
+data class ByteArrayThunk internal constructor(private val reverseSpec: ListNode<ByteArray>?) {
     private var reified: ByteArray? = null
 
-    internal constructor(direct: ByteArray): this (persistentListOf()) {
+    internal constructor(direct: ByteArray): this (null) {
         this.reified = direct
     }
 

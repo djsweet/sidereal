@@ -291,6 +291,6 @@ class ArrayUtilsTest {
             entry.copyInto(fullArray, insertOffset)
             insertOffset += entry.size
         }
-        assertArrayEquals(fullArray, concatByteArraysFromReverseList(reverseEntries.toPersistentList()))
+        assertArrayEquals(fullArray, concatByteArraysFromReverseList(listFromIterable(reverseEntries)))
     }
 }
