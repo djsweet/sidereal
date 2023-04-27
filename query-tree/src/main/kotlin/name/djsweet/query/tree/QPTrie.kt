@@ -467,7 +467,14 @@ internal class OddNybble<V>(
         precedingPrefixes: ListNode<ByteArray>?,
         registerIteratorAsChild: RegisterChildIterator<V>?
     ): Iterator<QPTrieKeyValue<V>> {
-        val it = FullAscendingOddNybbleIterator(this, listPrepend(this.prefix, precedingPrefixes))
+        val currentValue = this.value
+        val newPrefixes = listPrepend(this.prefix, precedingPrefixes)
+        if (this.nybbleDispatch == null && currentValue != null) {
+            // Note that currentValue != null by necessity here, so we don't need
+            // an extra path for EmptyIterator.
+            return SingleElementIterator(QPTrieKeyValue(ByteArrayThunk(newPrefixes), currentValue))
+        }
+        val it = FullAscendingOddNybbleIterator(this, newPrefixes)
         return if (registerIteratorAsChild != null) {
             registerIteratorAsChild(it)
         } else {
@@ -479,7 +486,14 @@ internal class OddNybble<V>(
         precedingPrefixes: ListNode<ByteArray>?,
         registerIteratorAsChild: RegisterChildIterator<V>?
     ): Iterator<QPTrieKeyValue<V>> {
-        val it = FullDescendingOddNybbleIterator(this, listPrepend(this.prefix, precedingPrefixes))
+        val currentValue = this.value
+        val newPrefixes = listPrepend(this.prefix, precedingPrefixes)
+        if (this.nybbleDispatch == null && currentValue != null) {
+            // Note that currentValue != null by necessity here, so we don't need
+            // an extra path for EmptyIterator.
+            return SingleElementIterator(QPTrieKeyValue(ByteArrayThunk(newPrefixes), currentValue))
+        }
+        val it = FullDescendingOddNybbleIterator(this, newPrefixes)
         return if (registerIteratorAsChild != null) {
             registerIteratorAsChild(it)
         } else {
