@@ -1,6 +1,5 @@
 package name.djsweet.query.tree
 
-import java.util.*
 import kotlin.NoSuchElementException
 
 internal abstract class ConcatenatedIterator<T>: Iterator<T> {
@@ -9,13 +8,13 @@ internal abstract class ConcatenatedIterator<T>: Iterator<T> {
     private var currentIterator: Iterator<T>? = null
     private var ended: Boolean = false
 
-    private var childStack: Stack<ConcatenatedIterator<T>>? = null
+    private var childStack: ArrayListStack<ConcatenatedIterator<T>>? = null
     private var ownsChildStack = false
 
     protected abstract fun iteratorForOffset(offset: Int): Iterator<T>?
 
     protected fun <S : ConcatenatedIterator<T>>registerChild(child: S): S {
-        val workingStack = (this.childStack ?: Stack())
+        val workingStack = (this.childStack ?: ArrayListStack())
         if (this.childStack == null) {
             this.childStack = workingStack
             this.ownsChildStack = true
@@ -43,7 +42,7 @@ internal abstract class ConcatenatedIterator<T>: Iterator<T> {
         // multiple .next() call chains and skips directly to the top ConcatenatedIterator.
         val workingStackBeforeDispatch = this.childStack
         if (this.ownsChildStack && workingStackBeforeDispatch != null) {
-            val maybeTop = if (workingStackBeforeDispatch.isEmpty()) { null } else { workingStackBeforeDispatch.peek() }
+            val maybeTop = workingStackBeforeDispatch.peek()
             if (maybeTop != null && maybeTop !== this && maybeTop.hasNext()) {
                 this.nextValue = maybeTop.next()
                 return
@@ -68,7 +67,7 @@ internal abstract class ConcatenatedIterator<T>: Iterator<T> {
         this.ended = true
         val workingStackAfterEnd = this.childStack
         if (workingStackAfterEnd != null && !this.ownsChildStack) {
-            val currentTop = if (workingStackAfterEnd.isEmpty()) { null } else { workingStackAfterEnd.peek() }
+            val currentTop = workingStackAfterEnd.peek()
             if (currentTop === this) {
                 workingStackAfterEnd.pop()
             }

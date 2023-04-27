@@ -1,6 +1,5 @@
 package name.djsweet.query.tree
 
-import java.util.*
 import kotlin.NoSuchElementException
 
 internal fun <T : Comparable<T>>compareRanges(leftLeft: T, leftRight: T, rightLeft: T, rightRight: T): Int {
@@ -374,7 +373,7 @@ private data class IntervalTreeIteratorState<T: Comparable<T>, V> (
 )
 
 private abstract class IntervalTreeCommonIterator<T : Comparable<T>, V, R>(private val t: IntervalTree<T, V>): Iterator<R> {
-    protected val iterationStack: Stack<IntervalTreeIteratorState<T, V>> = Stack()
+    protected val iterationStack: ArrayListStack<IntervalTreeIteratorState<T, V>> = ArrayListStack()
     protected var nextUp: R? = null
     private var didInitialPush = false
 
@@ -405,8 +404,8 @@ private abstract class IntervalTreeCommonIterator<T : Comparable<T>, V, R>(priva
         // throw if .hasNext() == true, but there are definitely cases
         // where we're deep in the iteration stack and have no idea
         // whether we're returning or not
-        while (!this.iterationStack.empty()) {
-            val cur = this.iterationStack.pop()
+        while (this.iterationStack.size > 0) {
+            val cur = this.iterationStack.pop()!!
             val curNode = cur.node
             if (cur.nextStep == IntervalTreeIteratorNextStep.SELF) {
                 if (this.yieldNode(curNode)) {
@@ -544,7 +543,7 @@ private data class IntervalTreeInOrderIteratorState<T: Comparable<T>, V> (
 )
 
 private class InOrderIterator<T: Comparable<T>, V>(tree: IntervalTree<T, V>): Iterator<Triple<IntervalRange<T>, V, Pair<Int, String>>> {
-    private val iterationStack: Stack<IntervalTreeInOrderIteratorState<T, V>> = Stack()
+    private val iterationStack: ArrayListStack<IntervalTreeInOrderIteratorState<T, V>> = ArrayListStack()
 
     private var nextUp: Triple<IntervalRange<T>, V, Pair<Int, String>>? = null
 
@@ -561,8 +560,8 @@ private class InOrderIterator<T: Comparable<T>, V>(tree: IntervalTree<T, V>): It
         // throw if .hasNext() == true, but there are definitely cases
         // where we're deep in the iteration stack and have no idea
         // whether we're returning or not
-        while (!this.iterationStack.empty()) {
-            val cur = this.iterationStack.pop()
+        while (this.iterationStack.size > 0) {
+            val cur = this.iterationStack.pop()!!
             val curNode = cur.node
             if (cur.nextStep == IntervalTreeInOrderIteratorNextStep.DONE) {
                 continue
