@@ -17,15 +17,37 @@ class QPTrieRunSpec {
         .ofMinSize(5)
         .ofMaxSize(20)
 
-    @Setup(Level.Iteration)
-    fun setup() {
+    protected fun setupWithData(data: List<ByteArray>) {
         var nextTrie = QPTrie<Boolean>()
-        val entries = this.byteArrayArbitrary.list().ofMinSize(this.treeSize).ofMaxSize(this.treeSize).sample()
-        for (entry in entries) {
+        for (entry in data) {
             nextTrie = nextTrie.put(entry, true)
         }
         this.trie = nextTrie
+    }
+
+    protected fun sampleByteArray(): List<ByteArray> {
+        return this.byteArrayArbitrary.list().ofMinSize(this.treeSize).ofMaxSize(this.treeSize).sample()
+    }
+
+    @Setup(Level.Iteration)
+    fun setup() {
+        val entries = this.sampleByteArray()
+        this.setupWithData(entries)
         this.lookup = entries.shuffled().first()
+    }
+}
+
+@State(Scope.Benchmark)
+class QPTrieAddSpec: QPTrieRunSpec() {
+    @Setup(Level.Iteration)
+    override fun setup() {
+        val entries = this.sampleByteArray()
+        this.setupWithData(entries)
+        var toAdd = this.byteArrayArbitrary.sample()
+        while (this.trie.get(toAdd) != null) {
+            toAdd = this.byteArrayArbitrary.sample()
+        }
+        this.lookup = toAdd
     }
 }
 
@@ -38,14 +60,24 @@ class QPTrieBenchmark {
     // JMH tries to run these benchmarks in alphabetical order, so you'll have to follow alphabetical order
     // if you want the benchmarks to run in said order. Introducing an explicit serial number does the trick
     // of enforcing this number.
-    
+
     @Benchmark
     fun point00Gets(spec: QPTrieRunSpec): Boolean {
         return spec.trie.get(spec.lookup) ?: throw Error("Could not find lookup in QPTrie")
     }
 
     @Benchmark
-    fun point01Updates(spec: QPTrieRunSpec): QPTrie<Boolean> {
+    fun point01Adds(spec: QPTrieAddSpec): QPTrie<Boolean> {
+        return spec.trie.update(spec.lookup) {
+            if (it != null) {
+                throw Error("Tried to add an existing key to QPTrie")
+            }
+            true
+        }
+    }
+
+    @Benchmark
+    fun point02Updates(spec: QPTrieRunSpec): QPTrie<Boolean> {
         return spec.trie.update(spec.lookup) {
             if (it != true) {
                 throw Error("Could not find lookup in QPTrie")
@@ -55,7 +87,7 @@ class QPTrieBenchmark {
     }
 
     @Benchmark
-    fun point02Deletes(spec: QPTrieRunSpec): QPTrie<Boolean> {
+    fun point03Deletes(spec: QPTrieRunSpec): QPTrie<Boolean> {
         return spec.trie.update(spec.lookup) {
             if (it != true) {
                 throw Error("Could not find lookup in QPTrie")
