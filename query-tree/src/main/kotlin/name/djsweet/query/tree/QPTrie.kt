@@ -80,24 +80,6 @@ private class OddNybble<V>(
         )
     }
 
-    fun get(key: ByteArray, offset: Int): V? {
-        val compare = this.compareLookupSliceToCurrentPrefix(key, offset)
-        val endOffset = offset + this.prefix.size
-        if (compare != 0) {
-            return null
-        }
-        if (key.size == endOffset) {
-            return this.value
-        }
-        val target = key[endOffset]
-        val child = this.dispatchByte(target)?.dispatchByte(target)
-        return if (child == null || endOffset + 1 > key.size) {
-            null
-        } else {
-            child.get(key, endOffset + 1)
-        }
-    }
-
     private fun updateEvenOdd(
         key: ByteArray,
         keyOffset: Int,
@@ -1015,6 +997,26 @@ private class GreaterThanOrEqualToEvenNybbleIterator<V>(
     }
 }
 
+
+private tailrec fun<V> getValue(node: OddNybble<V>, key: ByteArray, offset: Int): V? {
+    val compare = node.compareLookupSliceToCurrentPrefix(key, offset)
+    val endOffset = offset + node.prefix.size
+    if (compare != 0) {
+        return null
+    }
+    if (key.size == endOffset) {
+        return node.value
+    }
+    val target = key[endOffset]
+    val child = node.dispatchByte(target)?.dispatchByte(target)
+    return if (child == null || endOffset + 1 > key.size) {
+        null
+    } else {
+        getValue(child, key, endOffset + 1)
+    }
+}
+
+
 class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     private val root: OddNybble<V>?
     val size: Long
@@ -1037,7 +1039,12 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     }
 
     fun get(key: ByteArray): V? {
-        return this.root?.get(key, 0)
+        val root = this.root
+        return if (root == null) {
+            null
+        } else {
+            getValue(root, key, 0)
+        }
     }
 
     fun update(key: ByteArray, updater: (prev: V?) -> V?): QPTrie<V> {
