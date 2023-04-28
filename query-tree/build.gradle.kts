@@ -53,11 +53,14 @@ tasks.test {
 
 benchmark {
     configurations {
-        create("point") {
-            include("point.*")
+        create("trie") {
+            include("QPTrieBenchmark\\.*")
         }
-        create("iterator") {
-            include("iterator.*")
+        create("triePoint") {
+            include("QPTrieBenchmark\\.point.*")
+        }
+        create("trieIterator") {
+            include("QPTrieBenchmark\\.iterator.*")
         }
     }
     targets {
