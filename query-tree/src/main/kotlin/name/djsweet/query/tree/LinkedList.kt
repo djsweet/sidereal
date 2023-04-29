@@ -73,3 +73,35 @@ internal fun<T> listSize(list: ListNode<T>?): Int {
     }
     return result
 }
+
+internal fun<T> listHasByIdentity(list: ListNode<T>?, item: T): Boolean {
+    for (elem in listIterator(list)) {
+        if (elem === item) {
+            return true
+        }
+    }
+    return false
+}
+
+internal fun<T> listRemoveByIdentity(list: ListNode<T>?, item: T): ListNode<T>? {
+    var cur = listFirst(list)
+    var keeping = listRest(list)
+    var reAdding: ListNode<T>? = null
+    while (cur != null) {
+        if (cur === item) {
+            var result = keeping
+            while (reAdding != null) {
+                val newHead = listFirst(reAdding)!!
+                result = listPrepend(newHead, result)
+                reAdding = listRest(reAdding)
+            }
+            return result
+        } else {
+            reAdding = listPrepend(cur, reAdding)
+            cur = listFirst(keeping)
+            keeping = listRest(keeping)
+        }
+    }
+    // If we get to this point, we didn't find the item in the list.
+    return list
+}

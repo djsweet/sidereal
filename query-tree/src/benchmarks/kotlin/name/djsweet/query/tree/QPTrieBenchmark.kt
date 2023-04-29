@@ -26,7 +26,7 @@ class QPTrieRunSpec {
     }
 
     protected fun sampleByteArray(): List<ByteArray> {
-        return this.byteArrayArbitrary.list().ofMinSize(this.treeSize).ofMaxSize(this.treeSize).sample()
+        return this.byteArrayArbitrary.list().ofSize(this.treeSize).sample()
     }
 
     @Setup(Level.Iteration)

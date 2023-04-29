@@ -1021,12 +1021,12 @@ internal class FullTreeIterator<V: SizeComputable> private constructor(
 }
 
 internal class SetWithCardinality<V> private constructor(
-    val set: PersistentSet<V>,
+    val set: IdentitySet<V>,
 ): SizeComputable, Iterable<V> {
-    constructor(): this(persistentSetOf())
+    constructor(): this(IdentitySet())
 
     override fun computeSize(): Long {
-        return this.set.size.toLong()
+        return this.set.size
     }
 
     fun add(elem: V): SetWithCardinality<V> {
@@ -1085,7 +1085,7 @@ class QuerySetTree<V> private constructor(
                 null
             } else {
                 val next = prior.remove(elem)
-                if (next.set.size == 0) {
+                if (next.set.size == 0L) {
                     null
                 } else {
                     next

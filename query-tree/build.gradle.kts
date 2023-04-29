@@ -20,16 +20,19 @@ sourceSets {
 }
 
 val benchmarksImplementation: Configuration = configurations.getAt("benchmarksImplementation")
-val jqwikVersion = "1.7.3"
+
+val kotlinXCollectionsImmutable = "org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.5"
+val netJqwik = "net.jqwik:jqwik:1.7.3"
 
 dependencies {
-    implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.5")
+    implementation(kotlinXCollectionsImmutable)
     testImplementation(platform("org.junit:junit-bom:5.9.2"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.9.2")
-    testImplementation("net.jqwik:jqwik:${jqwikVersion}")
+    testImplementation(netJqwik)
     compileOnly("org.jetbrains:annotations:24.0.1")
     benchmarksImplementation(project(mapOf("path" to ":query-tree")))
-    benchmarksImplementation("net.jqwik:jqwik:${jqwikVersion}")
+    benchmarksImplementation(netJqwik)
+    benchmarksImplementation(kotlinXCollectionsImmutable)
     benchmarksImplementation("org.jetbrains.kotlinx:kotlinx-benchmark-runtime:0.4.7")
 }
 
@@ -61,6 +64,24 @@ benchmark {
         }
         create("trieIterator") {
             include("QPTrieBenchmark\\.iterator.*")
+        }
+        create("identitySet") {
+            include("IdentitySetBenchmark\\.*")
+        }
+        create("identitySetPoint") {
+            include("IdentitySetBenchmark\\.point.*")
+        }
+        create("identitySetIterator") {
+            include("IdentitySetBenchmark\\.iterator.*")
+        }
+        create("persistentSet") {
+            include("PersistentSetBenchmark\\.*")
+        }
+        create("persistentSetPoint") {
+            include("PersistentSetBenchmark\\.point.*")
+        }
+        create("persistentSetIterator") {
+            include("PersistentSetBenchmark\\.iterator.*")
         }
     }
     targets {

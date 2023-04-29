@@ -1,6 +1,5 @@
 package name.djsweet.query.tree
 
-import kotlinx.collections.immutable.toPersistentList
 import org.junit.jupiter.api.Test
 
 import org.junit.jupiter.api.Assertions.*
