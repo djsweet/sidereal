@@ -1052,6 +1052,10 @@ internal class SetWithCardinality<V> private constructor(
     override fun iterator(): Iterator<V> {
         return this.set.iterator()
     }
+
+    override fun toString(): String {
+        return "SetWithCardinality(${this.set.toList()})"
+    }
 }
 
 class QuerySetTree<V> private constructor(

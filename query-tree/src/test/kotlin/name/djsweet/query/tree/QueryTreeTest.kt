@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.*
 import net.jqwik.api.*
 import java.util.*
+import javax.management.Query
 import kotlin.collections.ArrayList
 
 class QueryTreeTest {
@@ -938,7 +939,17 @@ class QueryTreeTest {
             val handlesForQuery = mutableSetOf<Int>()
             for (i in 0 until count) {
                 val handle = querySerial
-                val (path, nextTree) = queryTree.addElementByQuery(query, handle)
+                // Note that if we aren't the first handle, we can't actually use addElementByQuery here!
+                // We have non-distinct queries, and there's no guarantee that the same query will end up
+                // with the same path if added more than once.
+                val (path, nextTree) = if (i == 0) {
+                    val (nextPath, reallyNextTree) = queryTree.addElementByQuery(query, handle)
+                    Pair(nextPath, reallyNextTree)
+                } else {
+                    val priorPath = paths[paths.size - 1]
+                    val reallyNextTree = queryTree.addElementByPath(priorPath, handle)
+                    Pair(priorPath, reallyNextTree)
+                }
                 paths.add(path)
                 handles.add(handle)
                 handlesForQuery.add(handle)
@@ -1009,5 +1020,435 @@ class QueryTreeTest {
             )
         }
         assertEquals(0, queryTree.size)
+    }
+
+    @Test fun queryTreeSetMissingQueryRegistrationsSampleBefore() {
+        // These specs caused a failure in queryTreeSet as "Sample arg0".
+        // This was actually fine.
+        val firstSpec = Pair(
+            QuerySpec()
+                .withEqualityTerm(
+                    byteArrayOf(4, -34, 56, -13, -127, -12, 4, -50, 19, -55, -69, 32),
+                    byteArrayOf(75)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(40, 10, -10, 88, 35, -8, -21, -31, -37),
+                    byteArrayOf(-30, -126, -67, -1, 12, 72, -41, 23, -85)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-100),
+                    byteArrayOf(-82, -10, 11, 5)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-8, -25, 48, 99, -39, -13),
+                    byteArrayOf(-1, 41)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-6, -20, -9, 20),
+                    byteArrayOf(11, 19, -78, -108, 62, -19)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-3, 75, 1, 22, 74, -127, 31),
+                    byteArrayOf(120, 1, -14, 14, 10, -95, 52, 108, 13, 35)
+                )
+                .withGreaterThanOrEqualToTerm(
+                    byteArrayOf(112),
+                    byteArrayOf(-85, 11, -122)
+                ),
+            1
+        ) // 1
+        val secondSpec = Pair(
+            QuerySpec()
+                .withBetweenOrEqualToTerm(
+                    byteArrayOf( -3, 75, 1, 22, 74, -127, 31),
+                    byteArrayOf(1),
+                    byteArrayOf(-2)
+                ),
+            6
+        ) // 7
+        val thirdSpec = Pair(
+            QuerySpec()
+                .withEqualityTerm(
+                    byteArrayOf(4, -34, 56, -13, -127, -12, 4, -50, 19, -55, -69, 32),
+                    byteArrayOf(75)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(40, 10, -10, 88, 35, -8, -21, -31, -37),
+                    byteArrayOf(-30, -126, -67, -1, 12, 72, -41, 23, -85)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-100),
+                    byteArrayOf(-82, -10, 11, 5)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-8, -25, 48, 99, -39, -13),
+                    byteArrayOf(-1, 41)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-6, -20, -9, 20),
+                    byteArrayOf(11, 19, -78, -108, 62, -19)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-3, 75, 1, 22, 74, -127, 31),
+                    byteArrayOf(120, 1, -14, 14, 10, -95, 52, 108, 13, 35)
+                )
+                .withGreaterThanOrEqualToTerm(
+                    byteArrayOf(112),
+                    byteArrayOf(-1)
+                ),
+            2
+        ) // 9
+        val fourthSpec = Pair(
+            QuerySpec()
+                .withGreaterThanOrEqualToTerm(
+                    byteArrayOf(-3, 75, 1, 22, 74, -127, 31),
+                    byteArrayOf(-47, 31, -3)
+                ),
+            5
+        ) // 14
+        val fifthSpec = Pair(
+            QuerySpec()
+                .withBetweenOrEqualToTerm(
+                    byteArrayOf(-3, 75, 1, 22, 74, -127, 31),
+                    byteArrayOf(-55, 10, 44, 69, 0, 82, -39, 0, 121),
+                    byteArrayOf(-12, 11, -25, 20, 99, 0)
+                ),
+            5
+        ) // 19
+        val sixthSpec = Pair(
+            QuerySpec()
+                .withBetweenOrEqualToTerm(
+                    byteArrayOf(-3, 75, 1, 22, 74, -127, 31),
+                    byteArrayOf(8, 78, -47, 23, -72, 5, 5, -18, -33),
+                    byteArrayOf(-90, 8, 26, 54, -55)
+                ),
+            4
+        ) // 23
+        val seventhSpec = Pair(
+            QuerySpec()
+                .withEqualityTerm(
+                    byteArrayOf(4, -34, 56, -13, -127, -12, 4, -50, 19, -55, -69, 32),
+                    byteArrayOf(75)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(40, 10, -10, 88, 35, -8, -21, -31, -37),
+                    byteArrayOf(-30, -126, -67, -1, 12, 72, -41, 23, -85)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-100),
+                    byteArrayOf(-82, -10, 11, 5)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-8, -25, 48, 99, -39, -13),
+                    byteArrayOf(-1, 41)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-6, -20, -9, 20),
+                    byteArrayOf(11, 19, -78, -108, 62, -19)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-3, 75, 1, 22, 74, -127, 31),
+                    byteArrayOf(120, 1, -14, 14, 10, -95, 52, 108, 13, 35)
+                )
+                .withGreaterThanOrEqualToTerm(
+                    byteArrayOf(112),
+                    byteArrayOf(5, 85, -1, 119, 106, -75)
+                ),
+            2
+        ) // 25
+        val eighthSpec = Pair(
+            QuerySpec()
+                .withBetweenOrEqualToTerm(
+                    byteArrayOf(-3, 75, 1, 22, 74, -127, 31),
+                    byteArrayOf(0),
+                    byteArrayOf(-1)
+                ),
+            3
+        ) // 28
+        val ninthSpec = Pair(
+            QuerySpec()
+                .withEqualityTerm(
+                    byteArrayOf(),
+                    byteArrayOf(17, 114)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(3, -4, 26, -72, -24, -49),
+                    byteArrayOf(-9, 45, -13, -1, 0, -41, 13)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(112),
+                    byteArrayOf(113)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-8, -25, 48, 99, -39, -13),
+                    byteArrayOf(-76, 2, 105, -55, 24, 0)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-6, -20, -9, 20),
+                    byteArrayOf()
+                ),
+            5
+        ) // 33
+        val tenthSpec = Pair(
+            QuerySpec()
+                .withEqualityTerm(
+                    byteArrayOf(4, -34, 56, -13, -127, -12, 4, -50, 19, -55, -69, 32),
+                    byteArrayOf(75)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(40, 10, -10, 88, 35, -8, -21, -31, -37),
+                    byteArrayOf(-30, -126, -67, -1, 12, 72, -41, 23, -85)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-100),
+                    byteArrayOf(-82, -10, 11, 5)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-8, -25, 48, 99, -39, -13),
+                    byteArrayOf(-1, 41)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-6, -20, -9, 20),
+                    byteArrayOf(11, 19, -78, -108, 62, -19)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-3, 75, 1, 22, 74, -127, 31),
+                    byteArrayOf(120, 1, -14, 14, 10, -95, 52, 108, 13, 35)
+                )
+                .withLessThanOrEqualToTerm(
+                    byteArrayOf(112),
+                    byteArrayOf(126)
+                ),
+            4
+        ) // 37
+        val eleventhSpec = Pair(
+            QuerySpec()
+                .withBetweenOrEqualToTerm(
+                    byteArrayOf(-3, 75, 1, 22, 74, -127, 31),
+                    byteArrayOf(1),
+                    byteArrayOf(2)
+                ),
+            4
+        ) // 41
+        val twelfthSpec = Pair(
+            QuerySpec()
+                .withEqualityTerm(
+                    byteArrayOf(4, -34, 56, -13, -127, -12, 4, -50, 19, -55, -69, 32),
+                    byteArrayOf(75)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(40, 10, -10, 88, 35, -8, -21, -31, -37),
+                    byteArrayOf(-30, -126, -67, -1, 12, 72, -41, 23, -85)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-100),
+                    byteArrayOf(-82, -10, 11, 5)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-8, -25, 48, 99, -39, -13),
+                    byteArrayOf(-1, 41)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-6, -20, -9, 20),
+                    byteArrayOf(11, 19, -78, -108, 62, -19)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-3, 75, 1, 22, 74, -127, 31),
+                    byteArrayOf(120, 1, -14, 14, 10, -95, 52, 108, 13, 35)
+                )
+                .withGreaterThanOrEqualToTerm(
+                    byteArrayOf(112),
+                    byteArrayOf()
+                ),
+            1,
+        ) // 42
+        val thirteenthSpec = Pair(
+            QuerySpec()
+                .withGreaterThanOrEqualToTerm(
+                    byteArrayOf(-3, 75, 1, 22, 74, -127, 31),
+                    byteArrayOf(-66, -11, 2, 15, -84, -11, 93, -9, 34, 114)
+                ),
+            2
+        ) // 44
+        val fourteenthSpec = Pair(
+            QuerySpec()
+                .withBetweenOrEqualToTerm(
+                    byteArrayOf(-3, 75, 1, 22, 74, -127, 31),
+                    byteArrayOf(-128),
+                    byteArrayOf(-2)
+                ),
+            5
+        ) // 49
+        val specs = listOf(
+            firstSpec,
+            secondSpec,
+            thirdSpec,
+            fourthSpec,
+            fifthSpec,
+            sixthSpec,
+            seventhSpec,
+            eighthSpec,
+            ninthSpec,
+            tenthSpec,
+            eleventhSpec,
+            twelfthSpec,
+            thirteenthSpec,
+            fourteenthSpec
+        )
+        this.queryTreeSet(QuerySetTreeTestData(specs, listOf()))
+    }
+
+    @Test fun queryTreeSetMissingQueryRegistrationsSampleAfter() {
+        // These specs caused a failure in queryTreeSet as "After Execution arg0".
+        // This was actually buggy.
+        val firstKey = byteArrayOf()
+        val firstValue = byteArrayOf(-63, -28, 74, -8, -18, 9, 126, -107)
+        val secondKey = byteArrayOf(3, -4, 26, -72, -24, -49)
+        val secondValue = byteArrayOf()
+        val thirdKey = byteArrayOf(4, -34, 56, -13, -127, -12, 4, -50, 19, -55, -69, 32)
+        val thirdValue = byteArrayOf()
+        val fourthKey = byteArrayOf(112)
+        val fifthKey = byteArrayOf(-3, 75, 1, 22, 74, -127, 31)
+
+        val firstSpec = Pair(
+            QuerySpec()
+                .withEqualityTerm(firstKey, firstValue)
+                .withEqualityTerm(secondKey, secondValue)
+                .withEqualityTerm(thirdKey, thirdValue)
+                .withGreaterThanOrEqualToTerm(fourthKey, byteArrayOf(-85, 11, -122)),
+            6
+        )
+        val secondSpec = Pair(
+            QuerySpec()
+                .withBetweenOrEqualToTerm(fifthKey, byteArrayOf(1), byteArrayOf(-2)),
+            5
+        ) // 11
+        val thirdSpec = Pair(
+            QuerySpec()
+                .withEqualityTerm(firstKey, firstValue)
+                .withEqualityTerm(secondKey, secondValue)
+                .withEqualityTerm(thirdKey, thirdValue)
+                .withGreaterThanOrEqualToTerm(fourthKey, byteArrayOf(-1)),
+            2
+        ) // 13
+        val fourthSpec = Pair(
+            QuerySpec()
+                .withGreaterThanOrEqualToTerm(fifthKey, byteArrayOf(-47, 31, -3)),
+            2
+        ) // 15
+        val fifthSpec = Pair(
+            QuerySpec()
+                .withBetweenOrEqualToTerm(
+                    fifthKey,
+                    byteArrayOf(-55, 10, 44, 69, 0, 82, -39, 0, 121),
+                    byteArrayOf(-12, 11, -25, 20, 99, 0)
+                ),
+            3
+        ) // 18
+        val sixthSpec = Pair(
+            QuerySpec()
+                .withBetweenOrEqualToTerm(
+                    fifthKey,
+                    byteArrayOf(8, 78, -47, 23, -72, 5, 5, -18, -33),
+                    byteArrayOf(-90, 8, 26, 54, -55)
+                ),
+            1
+        ) // 19
+        val seventhSpec = Pair(
+            QuerySpec()
+                .withEqualityTerm(firstKey, firstValue)
+                .withEqualityTerm(secondKey, secondValue)
+                .withEqualityTerm(thirdKey, thirdValue)
+                .withGreaterThanOrEqualToTerm(fourthKey, byteArrayOf(5, 85, -1, 119, 106, -75)),
+            2
+        ) // 21
+        val eighthSpec = Pair(
+            QuerySpec()
+                .withBetweenOrEqualToTerm(
+                    fifthKey,
+                    byteArrayOf(0),
+                    byteArrayOf(-1)
+                ),
+            6
+        ) // 27
+        val ninthSpec = Pair(
+            QuerySpec()
+                .withEqualityTerm(secondKey, secondValue)
+                .withEqualityTerm(thirdKey, byteArrayOf(127, -117, -37, 0, -127, 47, -33))
+                .withEqualityTerm(
+                    byteArrayOf(7, -4),
+                    byteArrayOf(-5, -15, -127, 0, -1, -25, -116, -2, 117)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(38, 10, -2, -124, -72, -10),
+                    byteArrayOf(-75, -35, 0)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(40, 10, -10, 88, 35, -8, -21, -31, -37),
+                    byteArrayOf(-67, -26, 49, -9, -108, -9, 41, -36)
+                )
+                .withEqualityTerm(
+                    fourthKey,
+                    byteArrayOf(-3, 11, 58, -7, 53, 70, -30, -92, 3)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-100),
+                    byteArrayOf(-68, 52, -2, -68, -8, 37, -29, 52, -54, -4)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-8, -25, 48, 99, -39, -13),
+                    byteArrayOf(-103, 118, 40, -54, -54, -68, -9)
+                )
+                .withEqualityTerm(
+                    byteArrayOf(-6, -20, -9, 20),
+                    byteArrayOf(-96, 83, -27)
+                )
+                .withEqualityTerm(
+                    fifthKey,
+                    byteArrayOf(4, -40, 127, 24, -6, -36, -128)
+                )
+            ,
+            6
+        ) // 33
+        val tenthSpec = Pair(
+            QuerySpec()
+                .withEqualityTerm(firstKey, firstValue)
+                .withEqualityTerm(secondKey, secondValue)
+                .withEqualityTerm(thirdKey, thirdValue)
+                .withLessThanOrEqualToTerm(fourthKey, byteArrayOf(126)),
+            5
+        ) // 38
+        val eleventhSpec = Pair(
+            QuerySpec()
+                .withBetweenOrEqualToTerm(
+                    fifthKey,
+                    byteArrayOf(1),
+                    byteArrayOf(2)
+                ),
+            6
+        ) // 44
+        val twelfthSpec = Pair(
+            QuerySpec()
+                .withEqualityTerm(firstKey, firstValue)
+                .withEqualityTerm(secondKey, secondValue)
+                .withEqualityTerm(thirdKey, thirdValue)
+                .withGreaterThanOrEqualToTerm(fourthKey, byteArrayOf()),
+            2
+        ) // 46
+        val specs = listOf(
+            firstSpec,
+            secondSpec,
+            thirdSpec,
+            fourthSpec,
+            fifthSpec,
+            sixthSpec,
+            seventhSpec,
+            eighthSpec,
+            ninthSpec,
+            tenthSpec,
+            eleventhSpec,
+            twelfthSpec,
+        )
+        this.queryTreeSet(QuerySetTreeTestData(specs, listOf()))
     }
 }
