@@ -57,7 +57,7 @@ tasks.test {
 benchmark {
     configurations {
         create("trie") {
-            include("QPTrieBenchmark\\.*")
+            include("QPTrieBenchmark\\..*")
         }
         create("triePoint") {
             include("QPTrieBenchmark\\.point.*")
@@ -66,7 +66,7 @@ benchmark {
             include("QPTrieBenchmark\\.iterator.*")
         }
         create("identitySet") {
-            include("IdentitySetBenchmark\\.*")
+            include("IdentitySetBenchmark\\..*")
         }
         create("identitySetPoint") {
             include("IdentitySetBenchmark\\.point.*")
@@ -75,13 +75,22 @@ benchmark {
             include("IdentitySetBenchmark\\.iterator.*")
         }
         create("persistentSet") {
-            include("PersistentSetBenchmark\\.*")
+            include("PersistentSetBenchmark\\..*")
         }
         create("persistentSetPoint") {
             include("PersistentSetBenchmark\\.point.*")
         }
         create("persistentSetIterator") {
             include("PersistentSetBenchmark\\.iterator.*")
+        }
+        create("persistentMap") {
+            include("PersistentMapBenchmark\\..*")
+        }
+        create("persistentMapPoint") {
+            include("PersistentMapBenchmark\\.point.*")
+        }
+        create("persistentMapIterator") {
+            include("PersistentMapBenchmark\\.iterator.*")
         }
     }
     targets {
