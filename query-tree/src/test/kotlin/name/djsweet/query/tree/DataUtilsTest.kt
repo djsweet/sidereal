@@ -12,7 +12,7 @@ class DataUtilsTest {
         private fun qpTrieToPairList(qpTrie: QPTrie<ByteArray>): ArrayList<Pair<ByteArrayButComparable, ByteArrayButComparable>> {
             val result = arrayListOf<Pair<ByteArrayButComparable, ByteArrayButComparable>>()
             for ((key, value) in qpTrie) {
-                result.add(Pair(ByteArrayButComparable(key.get()), ByteArrayButComparable(value)))
+                result.add(Pair(ByteArrayButComparable(key), ByteArrayButComparable(value)))
             }
             return result
         }
@@ -61,7 +61,7 @@ class DataUtilsTest {
             val uniques = QPTrie(byteArrays.map { Pair(it, true) })
             val uniquesList = arrayListOf<ByteArray>()
             for ((key) in uniques) {
-                uniquesList.add(key.get())
+                uniquesList.add(key)
             }
             uniquesList
         }.flatMap { availableKeys ->

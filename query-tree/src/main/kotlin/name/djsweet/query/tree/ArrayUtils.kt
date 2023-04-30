@@ -95,45 +95,7 @@ internal fun concatByteArraysFromReverseList(arrays: ListNode<ByteArray>?): Byte
     return newArray
 }
 
-data class ByteArrayThunk internal constructor(private val reverseSpec: ListNode<ByteArray>?) {
-    private var reified: ByteArray? = null
-
-    internal constructor(direct: ByteArray): this (null) {
-        this.reified = direct
-    }
-
-    // Note that this is still thread-safe, because it only deals with loading and storing references.
-    // All reference load/store operations are atomic according to the Java Memory Model. At the very
-    // worst, we concatByteArraysFromReverseList more than strictly necessary, but we get to avoid
-    // locking entirely.
-    fun get(): ByteArray {
-        var current = this.reified
-        if (current == null) {
-            current = concatByteArraysFromReverseList(this.reverseSpec)
-            this.reified = current
-        }
-        return current
-    }
-
-    override fun equals(other: Any?): Boolean {
-        return if (this === other) {
-            true
-        } else if (this.javaClass != other?.javaClass) {
-            false
-        } else {
-            other as ByteArrayThunk
-            this.get().contentEquals(other.get())
-        }
-    }
-
-    override fun hashCode(): Int {
-        return this.get().contentHashCode()
-    }
-}
-
 internal class ByteArrayButComparable(val array: ByteArray): Comparable<ByteArrayButComparable> {
-    constructor (arrayThunk: ByteArrayThunk): this(arrayThunk.get())
-
     override fun compareTo(other: ByteArrayButComparable): Int {
         return Arrays.compareUnsigned(this.array, other.array)
     }

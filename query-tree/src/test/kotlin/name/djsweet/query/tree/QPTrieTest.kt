@@ -34,7 +34,7 @@ private fun <V> trieIsEmpty(trie: QPTrie<V>) {
 
 private fun <T> fixIteratorForInvariants(it: Iterator<QPTrieKeyValue<T>>): List<Pair<ByteArrayButComparable, T>> {
     return it.asSequence().map { (key, value) ->
-        Pair(ByteArrayButComparable(key.get()), value)
+        Pair(ByteArrayButComparable(key), value)
     }.toList()
 }
 
@@ -247,7 +247,7 @@ class QPTrieTest {
     }
 
     private fun<V> qpTrieKeyValueForBytes(bytes: ByteArray, value: V): QPTrieKeyValue<V> {
-        return QPTrieKeyValue(ByteArrayThunk(bytes), value)
+        return QPTrieKeyValue(bytes, value)
     }
 
     @Test fun iteratorForLessThanOrEqualTwoElementTrie() {
@@ -495,7 +495,7 @@ class QPTrieTest {
 
         val lookupStartsWith = trie.iteratorStartsWith(byteArrayOf()).asSequence().toList()
         assertEquals(1, lookupStartsWith.size)
-        assertArrayEquals(byteArrayOf(12), lookupStartsWith.first().key.get())
+        assertArrayEquals(byteArrayOf(12), lookupStartsWith.first().key)
         assertArrayEquals(byteArrayOf(13), lookupStartsWith.first().value)
     }
 
@@ -515,7 +515,7 @@ class QPTrieTest {
         val trieAgain = trie.put(byteArrayOf(12), byteArrayOf(14))
         val lookupGreaterThanAgain = trieAgain.iteratorGreaterThanOrEqual(byteArrayOf(12)).asSequence().toList()
         assertEquals(1, lookupGreaterThanAgain.size)
-        assertArrayEquals(byteArrayOf(12), lookupGreaterThanAgain.first().key.get())
+        assertArrayEquals(byteArrayOf(12), lookupGreaterThanAgain.first().key)
         assertArrayEquals(byteArrayOf(14), lookupGreaterThanAgain.first().value)
 
         val lookupWithEmpty = trieAgain.iteratorGreaterThanOrEqual(byteArrayOf()).asSequence().toList()
@@ -539,7 +539,7 @@ class QPTrieTest {
         ).asSequence().toList()
         assertListOfByteArrayValuePairsEquals(
             targetPairs.map { (key, value) -> ByteArrayButComparable(key) to value },
-            lookupLess.map { (key, value) -> ByteArrayButComparable(key.get()) to value }
+            lookupLess.map { (key, value) -> ByteArrayButComparable(key) to value }
         )
     }
 
