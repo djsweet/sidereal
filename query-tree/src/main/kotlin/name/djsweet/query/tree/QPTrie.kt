@@ -22,6 +22,10 @@ data class QPTrieKeyValue<V> internal constructor(
     val key: ByteArray,
     val value: V
 ) {
+    internal fun withKeyCopy(): QPTrieKeyValue<V> {
+        return this.copy(key=this.key.copyOf())
+    }
+
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (javaClass != other?.javaClass) return false
@@ -982,10 +986,16 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     }
 
     override fun iterator(): Iterator<QPTrieKeyValue<V>> {
-        return this.iteratorAscending()
+        return mapSequence(this.iteratorUnsafeSharedKey()) {
+            it.withKeyCopy()
+        }
     }
 
-    fun iteratorAscending(): Iterator<QPTrieKeyValue<V>> {
+    fun iteratorUnsafeSharedKey(): Iterator<QPTrieKeyValue<V>> {
+        return this.iteratorAscendingUnsafeSharedKey()
+    }
+
+    fun iteratorAscendingUnsafeSharedKey(): Iterator<QPTrieKeyValue<V>> {
         return if (this.root == null) {
             EmptyIterator()
         } else {
@@ -993,7 +1003,7 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
         }
     }
 
-    fun iteratorDescending(): Iterator<QPTrieKeyValue<V>> {
+    fun iteratorDescendingUnsafeSharedKey(): Iterator<QPTrieKeyValue<V>> {
         return if (this.root == null) {
             EmptyIterator()
         } else {
@@ -1001,7 +1011,7 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
         }
     }
 
-    fun iteratorLessThanOrEqual(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
+    fun iteratorLessThanOrEqualUnsafeSharedKey(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
         return if (this.root == null) {
             EmptyIterator()
         } else {
@@ -1009,7 +1019,7 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
         }
     }
 
-    fun iteratorGreaterThanOrEqual(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
+    fun iteratorGreaterThanOrEqualUnsafeSharedKey(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
         return if (this.root == null) {
             EmptyIterator()
         } else {
@@ -1017,7 +1027,7 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
         }
     }
 
-    fun iteratorStartsWith(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
+    fun iteratorStartsWithUnsafeSharedKey(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
         return if (this.root == null) {
             EmptyIterator()
         } else {
@@ -1025,7 +1035,7 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
         }
     }
 
-    fun iteratorPrefixOfOrEqualTo(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
+    fun iteratorPrefixOfOrEqualToUnsafeSharedKey(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
         return if (this.root == null) {
             EmptyIterator()
         } else {

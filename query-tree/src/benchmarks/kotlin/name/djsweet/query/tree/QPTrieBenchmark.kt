@@ -103,7 +103,7 @@ class QPTrieBenchmark {
     fun iterator00Full(spec: QPTrieRunSpec): QPTrieKeyValue<Boolean>? {
         var lastEntry: QPTrieKeyValue<Boolean>? = null
         var seenEntries = 0
-        for (ent in spec.trie) {
+        for (ent in spec.trie.iteratorUnsafeSharedKey()) {
             lastEntry = ent
             seenEntries++
         }
@@ -116,7 +116,7 @@ class QPTrieBenchmark {
     @Benchmark
     fun iterator01LessThanOrEqual(spec: QPTrieRunSpec): QPTrieKeyValue<Boolean>? {
         var lastEntry: QPTrieKeyValue<Boolean>? = null
-        for (ent in spec.trie.iteratorLessThanOrEqual(spec.lookup)) {
+        for (ent in spec.trie.iteratorLessThanOrEqualUnsafeSharedKey(spec.lookup)) {
             lastEntry = ent
         }
         return lastEntry
@@ -125,7 +125,7 @@ class QPTrieBenchmark {
     @Benchmark
     fun iterator02GreaterThanOrEqual(spec: QPTrieRunSpec): QPTrieKeyValue<Boolean>? {
         var lastEntry: QPTrieKeyValue<Boolean>? = null
-        for (ent in spec.trie.iteratorGreaterThanOrEqual(spec.lookup)) {
+        for (ent in spec.trie.iteratorGreaterThanOrEqualUnsafeSharedKey(spec.lookup)) {
             lastEntry = ent
         }
         return lastEntry
