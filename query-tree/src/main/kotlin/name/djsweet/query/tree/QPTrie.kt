@@ -444,7 +444,7 @@ private class OddNybble<V>(
         }
     }
 
-    fun fullIteratorAscending(registerIteratorAsChild: RegisterChildIterator<V>): Iterator<QPTrieKeyValue<V>> {
+    inline fun fullIteratorAscending(registerIteratorAsChild: RegisterChildIterator<V>): Iterator<QPTrieKeyValue<V>> {
         val currentValue = this.valuePair
         return if (this.nybbleValues.isEmpty()) {
             // Note that currentValue != null by necessity here, so we don't need
@@ -459,7 +459,7 @@ private class OddNybble<V>(
         }
     }
 
-    fun fullIteratorDescending(registerIteratorAsChild: RegisterChildIterator<V>): Iterator<QPTrieKeyValue<V>> {
+    inline fun fullIteratorDescending(registerIteratorAsChild: RegisterChildIterator<V>): Iterator<QPTrieKeyValue<V>> {
         val currentValue = this.valuePair
         return if (this.nybbleValues.isEmpty()) {
             // Note that currentValue != null by necessity here, so we don't need
