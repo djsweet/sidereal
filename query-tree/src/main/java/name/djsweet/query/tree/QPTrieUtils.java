@@ -12,9 +12,6 @@ public final class QPTrieUtils {
     // to effectively jump over potential out-of-bounds access
     // without otherwise incurring weird branches.
     public static int offsetForNybble(byte[] values, byte nybble) {
-        if (values == null) {
-            return -1;
-        }
         switch (values.length) {
             case 16:
                 if (values[15] == nybble) {
