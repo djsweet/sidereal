@@ -220,7 +220,8 @@ private class OddNybble<V>(
         val keyOffset = this.maybeKeyOffsetForAccess(key, offset)
         // We're updating ourselves here.
         if (keyOffset == -1) {
-            val thisValue = this.valuePair?.value
+            val valuePair = this.valuePair
+            val thisValue = valuePair?.value
             val result = updater(thisValue)
             if (result === thisValue) {
                 return this
@@ -258,7 +259,11 @@ private class OddNybble<V>(
             }
             return OddNybble(
                 this.prefix,
-                if (result == null) { null } else { QPTrieKeyValue(key, result) },
+                if (result == null) {
+                    null
+                } else {
+                    QPTrieKeyValue(valuePair?.key ?: key.copyOf(), result)
+                },
                 nextSize,
                 this.nybbleValues,
                 this.nybbleDispatch
@@ -290,7 +295,7 @@ private class OddNybble<V>(
                 )
                 return OddNybble(
                     key.copyOfRange(offset, startOffset),
-                    QPTrieKeyValue(key, result),
+                    QPTrieKeyValue(key.copyOf(), result),
                     this.size + 1,
                     byteArrayOf(evenNybbleFromByte(target)),
                     arrayOf(evenNode)
@@ -301,7 +306,7 @@ private class OddNybble<V>(
                 val priorByte = this.prefix[topOffset]
                 val newNode = OddNybble(
                     key.copyOfRange(startOffset + 1, key.size),
-                    QPTrieKeyValue(key, result),
+                    QPTrieKeyValue(key.copyOf(), result),
                     1,
                     emptyByteArray,
                     emptyEvenNybbleArray
@@ -376,7 +381,7 @@ private class OddNybble<V>(
 
         val bottomNode = OddNybble(
             key.copyOfRange(keyOffset + 1, key.size),
-            QPTrieKeyValue(key, result),
+            QPTrieKeyValue(key.copyOf(), result),
             1,
             emptyByteArray,
             emptyEvenNybbleArray
@@ -961,7 +966,7 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
                 )
             )
         }
-        val newRoot = this.root.update(key.copyOf(), 0, this.emptyEvenNybbleArray, updater)
+        val newRoot = this.root.update(key, 0, this.emptyEvenNybbleArray, updater)
         if (newRoot === this.root) {
             return this
         }
