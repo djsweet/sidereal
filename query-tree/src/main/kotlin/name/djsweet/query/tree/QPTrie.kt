@@ -270,7 +270,7 @@ private class OddNybble<V>(
                 this.nybbleDispatch
             )
         }
-        // We didn't match, but the key is shorter than our prefix supports.
+        // We didn't match, but the equal portion of the key is shorter than our prefix.
         // If this is an addition we'll need to introduce a new node.
         if (keyOffset < -1) {
             val result = updater(null)
