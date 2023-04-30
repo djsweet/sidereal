@@ -24,6 +24,8 @@ internal fun nybblesToBytesPreShifted(highNybble: Int, lowNybble: Byte): Byte {
     return highNybble.or(lowNybble.toInt()).toByte()
 }
 
+private val emptyByteArray = byteArrayOf()
+
 data class QPTrieKeyValue<V> internal constructor(
     val key: ByteArrayThunk,
     val value: V
@@ -85,12 +87,13 @@ private class OddNybble<V>(
         evenNode: EvenNybble<V>,
         evenOffset: Int,
         oddNode: OddNybble<V>,
-        oddOffset: Int
+        oddOffset: Int,
+        emptyEvenNybbleArray: Array<EvenNybble<V>>
     ): OddNybble<V>? {
         val nybbleValues = this.nybbleValues
         val nybbleDispatch = this.nybbleDispatch
 
-        val nextOddNode = oddNode.update(key, keyOffset + 1, updater)
+        val nextOddNode = oddNode.update(key, keyOffset + 1, emptyEvenNybbleArray, updater)
         // No change, just return ourselves
         if (nextOddNode === oddNode) {
             return this
@@ -223,7 +226,12 @@ private class OddNybble<V>(
         return if (remainder == prefixSize) { -1 } else { offset + prefixSize }
     }
 
-    fun update(key: ByteArray, offset: Int, updater: (prev: V?) -> V?): OddNybble<V>? {
+    fun update(
+        key: ByteArray,
+        offset: Int,
+        emptyEvenNybbleArray: Array<EvenNybble<V>>,
+        updater: (prev: V?) -> V?
+    ): OddNybble<V>? {
         val keyOffset = this.maybeKeyOffsetForAccess(key, offset)
         // We're updating ourselves here.
         if (keyOffset == -1) {
@@ -309,8 +317,8 @@ private class OddNybble<V>(
                     key.copyOfRange(startOffset + 1, key.size),
                     result,
                     1,
-                    byteArrayOf(),
-                    arrayOf()
+                    emptyByteArray,
+                    emptyEvenNybbleArray
                 )
                 val newHighNybble = evenNybbleFromByte(target)
                 val priorHighNybble = evenNybbleFromByte(priorByte)
@@ -362,7 +370,17 @@ private class OddNybble<V>(
             val oddOffset = QPTrieUtils.offsetForNybble(evenNode.nybbleValues, oddNybbleFromByte(childTarget))
             if (oddOffset > -1) {
                 val oddNode = evenNode.nybbleDispatch[oddOffset]
-                return this.updateEvenOdd(key, keyOffset, updater, childTarget, evenNode, evenOffset, oddNode, oddOffset)
+                return this.updateEvenOdd(
+                    key,
+                    keyOffset,
+                    updater,
+                    childTarget,
+                    evenNode,
+                    evenOffset,
+                    oddNode,
+                    oddOffset,
+                    emptyEvenNybbleArray
+                )
             }
         }
 
@@ -374,8 +392,8 @@ private class OddNybble<V>(
             key.copyOfRange(keyOffset + 1, key.size),
             result,
             1,
-            byteArrayOf(),
-            arrayOf()
+            emptyByteArray,
+            emptyEvenNybbleArray
         )
         val newEvenNode: EvenNybble<V> = if (evenNode == null) {
             EvenNybble(
@@ -1010,6 +1028,7 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     val size: Long
 
     private val noopRegisterChildIterator: RegisterChildIterator<V> = { it }
+    private val emptyEvenNybbleArray: Array<EvenNybble<V>> = arrayOf()
 
     private constructor(baseRoot: OddNybble<V>?) {
         this.root = baseRoot
@@ -1038,9 +1057,17 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     fun update(key: ByteArray, updater: (prev: V?) -> V?): QPTrie<V> {
         if (this.root == null) {
             val value = updater(null) ?: return this
-            return QPTrie(OddNybble(key.copyOf(), value, 1, byteArrayOf(), arrayOf()))
+            return QPTrie(
+                OddNybble(
+                    key.copyOf(),
+                    value,
+                    1,
+                    emptyByteArray,
+                    arrayOf()
+                )
+            )
         }
-        val newRoot = this.root.update(key, 0, updater)
+        val newRoot = this.root.update(key, 0, this.emptyEvenNybbleArray, updater)
         if (newRoot === this.root) {
             return this
         }
@@ -1173,16 +1200,23 @@ private class LookupPrefixOfOrEqualToIterator<V>(
 
 private fun <V> sizeNodeFromIterable(items: Iterable<Pair<ByteArray, V>>): OddNybble<V>? {
     val it = items.iterator()
+    val emptyEvenNybbleArray: Array<EvenNybble<V>> = arrayOf()
     var root: OddNybble<V>
     if (it.hasNext()) {
         val (key, value) = it.next()
-        root = OddNybble(key.copyOf(), value, 1, byteArrayOf(), arrayOf())
+        root = OddNybble(
+            key.copyOf(),
+            value,
+            1,
+            emptyByteArray,
+            arrayOf()
+        )
     } else {
         return null
     }
     for (item in it) {
         val (key, value) = item
-        root = (root.update(key, 0) { value })!!
+        root = (root.update(key, 0, emptyEvenNybbleArray) { value })!!
     }
     return root
 }
