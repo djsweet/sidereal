@@ -897,18 +897,22 @@ private class GreaterThanOrEqualToEvenNybbleIterator<V>(
 
 private tailrec fun<V> getValue(node: OddNybble<V>, key: ByteArray, offset: Int): V? {
     val endOffset = offset + node.prefix.size
-    if (endOffset >= key.size) {
+    val keySize = key.size
+    if (endOffset < keySize) {
+        val target = key[endOffset]
+        val child = node.dispatchByte(target)?.dispatchByte(target) ?: return null
+        return getValue(child, key, endOffset + 1)
+    } else if (endOffset == keySize) {
         val valuePair = node.valuePair
         return if (valuePair == null || !key.contentEquals(valuePair.key)) {
             null
         } else {
             valuePair.value
         }
+    } else {
+        // endOffset > keySize
+        return null
     }
-
-    val target = key[endOffset]
-    val child = node.dispatchByte(target)?.dispatchByte(target) ?: return null
-    return getValue(child, key, endOffset + 1)
 }
 
 
