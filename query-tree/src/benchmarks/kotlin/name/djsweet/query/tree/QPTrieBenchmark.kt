@@ -4,6 +4,7 @@ import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentMapOf
 import org.openjdk.jmh.annotations.*
 import net.jqwik.api.*
+import java.util.*
 import java.util.concurrent.TimeUnit
 
 @State(Scope.Benchmark)
@@ -131,32 +132,55 @@ class QPTrieBenchmark {
     }
 }
 
+class ComparableByteArray(val array: ByteArray): Comparable<ComparableByteArray> {
+    override fun compareTo(other: ComparableByteArray): Int {
+        return Arrays.compare(this.array, other.array)
+    }
+
+    override fun equals(other: Any?): Boolean {
+        return if (other === this) {
+            true
+        } else if (other is ComparableByteArray) {
+            this.array.contentEquals(other.array)
+        } else {
+            super.equals(other)
+        }
+    }
+
+    override fun hashCode(): Int {
+        return this.array.contentHashCode()
+    }
+}
+
 @State(Scope.Benchmark)
 class PersistentMapRunSpec {
     @Param("100", "200", "400", "800", "1600")
     var treeSize: Int = 0
 
-    var map = persistentMapOf<String, Boolean>()
-    var lookup: String = ""
+    var map = persistentMapOf<ComparableByteArray, Boolean>()
+    var lookup = ComparableByteArray(byteArrayOf())
     // It's not clear whether ByteArray.hashCode() is the right thing,
-    // IntelliJ's auto-generated hashCode calls contentHashCode instead
-    // so it's likely not accurate to the contents. Instead, we'll compare
-    // against strings, expecting them to be UTF-16, so halving the size.
-    val stringArbitrary: Arbitrary<String> = Arbitraries
-        .strings()
-        .ofMinLength(3)
-        .ofMaxLength(10)
+    // IntelliJ's auto-generated hashCode calls contentHashCode instead,
+    // so it's likely not accurate to the contents. We'll have to lift
+    // our ByteArray into a ComparableByteArray so that we have guaranteed
+    // behavior here.
+    val byteArrayArbitrary: Arbitrary<ComparableByteArray> = Arbitraries
+        .bytes()
+        .array(ByteArray::class.java)
+        .ofMinSize(5)
+        .ofMaxSize(20)
+        .map { ComparableByteArray(it) }
 
-    protected fun setupWithData(data: List<String>) {
-        var nextMap = persistentMapOf<String, Boolean>()
+    protected fun setupWithData(data: List<ComparableByteArray>) {
+        var nextMap = persistentMapOf<ComparableByteArray, Boolean>()
         for (entry in data) {
             nextMap = nextMap.put(entry, true)
         }
         this.map = nextMap
     }
 
-    protected fun sampleStrings(): List<String> {
-        return this.stringArbitrary.list().ofSize(this.treeSize).sample()
+    protected fun sampleStrings(): List<ComparableByteArray> {
+        return this.byteArrayArbitrary.list().ofSize(this.treeSize).sample()
     }
 
     @Setup(Level.Iteration)
@@ -173,9 +197,9 @@ class PersistentMapAddSpec: PersistentMapRunSpec() {
     override fun setup() {
         val entries = this.sampleStrings()
         this.setupWithData(entries)
-        var toAdd = this.stringArbitrary.sample()
+        var toAdd = this.byteArrayArbitrary.sample()
         while (this.map[toAdd] != null) {
-            toAdd = this.stringArbitrary.sample()
+            toAdd = this.byteArrayArbitrary.sample()
         }
         this.lookup = toAdd
     }
@@ -197,23 +221,23 @@ class PersistentMapBenchmark {
     }
 
     @Benchmark
-    fun point01Adds(spec: PersistentMapAddSpec): PersistentMap<String, Boolean> {
+    fun point01Adds(spec: PersistentMapAddSpec): PersistentMap<ComparableByteArray, Boolean> {
         return spec.map.put(spec.lookup, true)
     }
 
     @Benchmark
-    fun point02Updates(spec: PersistentMapRunSpec): PersistentMap<String, Boolean> {
+    fun point02Updates(spec: PersistentMapRunSpec): PersistentMap<ComparableByteArray, Boolean> {
         return spec.map.put(spec.lookup, false)
     }
 
     @Benchmark
-    fun point03Deletes(spec: PersistentMapRunSpec): PersistentMap<String, Boolean> {
+    fun point03Deletes(spec: PersistentMapRunSpec): PersistentMap<ComparableByteArray, Boolean> {
         return spec.map.remove(spec.lookup)
     }
 
     @Benchmark
-    fun iterator00Full(spec: PersistentMapRunSpec): Map.Entry<String, Boolean>? {
-        var lastEntry: Map.Entry<String, Boolean>? = null
+    fun iterator00Full(spec: PersistentMapRunSpec): Map.Entry<ComparableByteArray, Boolean>? {
+        var lastEntry: Map.Entry<ComparableByteArray, Boolean>? = null
         var seenEntries = 0
         for (ent in spec.map) {
             lastEntry = ent
