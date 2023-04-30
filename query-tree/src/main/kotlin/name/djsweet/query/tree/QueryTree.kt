@@ -1,6 +1,5 @@
 package name.djsweet.query.tree
 
-import kotlinx.collections.immutable.*
 import java.util.*
 
 internal enum class IntermediateQueryTermKind {
@@ -169,7 +168,7 @@ class QuerySpec private constructor(
     }
 }
 
-class QueryPath private constructor(internal val breadcrumbs: ListNode<IntermediateQueryTerm>?) {
+class QueryPath internal constructor(internal val breadcrumbs: ListNode<IntermediateQueryTerm>?) {
     internal constructor(path: Iterable<IntermediateQueryTerm>): this(listFromIterable(path))
     internal constructor(): this(null)
 
@@ -581,7 +580,7 @@ internal class QueryTreeNode<V  : SizeComputable>(
         return if (selfReplacement.size == 0L) {
             null
         } else if (replacementSpecs == null) {
-            Pair(QueryPath(persistentListOf(queryTerm)), selfReplacement)
+            Pair(QueryPath(ListNode(queryTerm)), selfReplacement)
         } else {
             Pair(replacementSpecs.first.prepend(queryTerm), selfReplacement)
         }
@@ -597,7 +596,7 @@ internal class QueryTreeNode<V  : SizeComputable>(
                 val updated = updater(this.value)
                 return Pair(QueryPath(), if (updated === this.value) { this } else { this.replaceValue(updated) })
             }
-            val resultPath = QueryPath(persistentListOf(inequalityTerm))
+            val resultPath = QueryPath(ListNode(inequalityTerm))
             when (inequalityTerm.kind) {
                 IntermediateQueryTermKind.EQUALS -> {
                     // This should not have happened.
@@ -737,7 +736,7 @@ internal enum class GetByDataIteratorState {
 
 internal class GetByDataIterator<V: SizeComputable> private constructor(
     private val node: QueryTreeNode<V>,
-    private val reversePath: PersistentList<IntermediateQueryTerm>,
+    private val reversePath: ListNode<IntermediateQueryTerm>?,
     private val fullData: QPTrie<ByteArray>,
     private var state: GetByDataIteratorState,
     private var currentData: QPTrie<ByteArray>,
@@ -745,13 +744,13 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
     private constructor(
         node: QueryTreeNode<V>,
         fullData: QPTrie<ByteArray>,
-        reversePath: PersistentList<IntermediateQueryTerm>
+        reversePath: ListNode<IntermediateQueryTerm>?
     ): this(node, reversePath, fullData, GetByDataIteratorState.VALUE, fullData)
 
     constructor(
         node: QueryTreeNode<V>,
         fullData: QPTrie<ByteArray>
-    ): this(node, fullData, persistentListOf())
+    ): this(node, fullData, null)
 
     private fun <T>workingDataForKeys(keyTargets: QPTrie<T>?): QPTrie<ByteArray> {
         return workingDataForAvailableKeys(this.fullData, keyTargets)
@@ -769,8 +768,8 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
             GetByDataIteratorState.STARTS_WITH -> IntermediateQueryTerm.startsWithTerm(key, value)
             else -> IntermediateQueryTerm.startsWithTerm(key, value)
         }
-        val pathList = this.reversePath.add(0, term)
-        return QueryPathValue(QueryPath(pathList.reversed()), result)
+        val pathList = listPrepend(term, this.reversePath)
+        return QueryPathValue(QueryPath(listReverse(pathList)), result)
     }
 
     private fun pathForRange(
@@ -780,8 +779,8 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
     ): QueryPathValue<V> {
         val (lowerBound, upperBound) = value
         val term = IntermediateQueryTerm.greaterOrLessTerm(key, lowerBound.array, upperBound.array)
-        val pathList = this.reversePath.add(0, term)
-        return QueryPathValue(QueryPath(pathList.reversed()), result)
+        val pathList = listPrepend(term, this.reversePath)
+        return QueryPathValue(QueryPath(listReverse(pathList)), result)
     }
 
     override fun iteratorForOffset(offset: Int): Iterator<QueryPathValue<V>>? {
@@ -795,7 +794,7 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
                     this.currentData = this.workingDataForKeys(this.node.equalityTerms)
                     if (this.node.value != null) {
                         return SingleElementIterator(
-                            QueryPathValue(QueryPath(this.reversePath.reversed()), this.node.value)
+                            QueryPathValue(QueryPath(listReverse(this.reversePath)), this.node.value)
                         )
                     }
                 }
@@ -808,9 +807,9 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
                         val (key, value) = this.currentData.first()
                         this.currentData = this.currentData.remove(key)
                         val subNode = this.node.equalityTerms?.get(key)?.get(value) ?: continue
-                        val newReversePath = this.reversePath.add(
-                            0,
-                            IntermediateQueryTerm.equalityTerm(key, value)
+                        val newReversePath = listPrepend(
+                            IntermediateQueryTerm.equalityTerm(key, value),
+                            this.reversePath
                         )
                         return this.registerChild(GetByDataIterator(subNode, this.fullData.remove(key), newReversePath))
                     }
@@ -904,10 +903,10 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
 
 internal class FullTreeIterator<V: SizeComputable> private constructor(
     private val node: QueryTreeNode<V>,
-    private val reversePath: PersistentList<IntermediateQueryTerm>,
+    private val reversePath: ListNode<IntermediateQueryTerm>?,
     private var state: GetByDataIteratorState
 ): ConcatenatedIterator<QueryPathValue<V>>() {
-    constructor (node: QueryTreeNode<V>): this(node, persistentListOf(), GetByDataIteratorState.VALUE)
+    constructor (node: QueryTreeNode<V>): this(node, null, GetByDataIteratorState.VALUE)
 
     override fun iteratorForOffset(offset: Int): Iterator<QueryPathValue<V>>? {
         while (this.state != GetByDataIteratorState.DONE) {
@@ -916,7 +915,7 @@ internal class FullTreeIterator<V: SizeComputable> private constructor(
                     this.state = GetByDataIteratorState.EQUALITY
                     if (this.node.value != null) {
                         return SingleElementIterator(
-                            QueryPathValue(QueryPath(this.reversePath.reversed()), this.node.value)
+                            QueryPathValue(QueryPath(listReverse(this.reversePath)), this.node.value)
                         )
                     }
                 }
@@ -930,7 +929,7 @@ internal class FullTreeIterator<V: SizeComputable> private constructor(
                                 this.registerChild(
                                     FullTreeIterator(
                                         child,
-                                        this.reversePath.add(0, term),
+                                        listPrepend(term, this.reversePath),
                                         GetByDataIteratorState.VALUE
                                     )
                                 )
@@ -946,7 +945,8 @@ internal class FullTreeIterator<V: SizeComputable> private constructor(
                             mapSequence(values) { (value, result) ->
                                 val term = IntermediateQueryTerm.greaterOrLessTerm(key, null, value)
                                 QueryPathValue(
-                                    QueryPath(this.reversePath.add(0, term).reversed()), result
+                                    QueryPath(listReverse(listPrepend(term, this.reversePath))),
+                                    result
                                 )
                             }
                         })
@@ -965,7 +965,8 @@ internal class FullTreeIterator<V: SizeComputable> private constructor(
                                     upperBound.array
                                 )
                                 QueryPathValue(
-                                    QueryPath(this.reversePath.add(0, term).reversed()), result
+                                    QueryPath(listReverse(listPrepend(term, this.reversePath))),
+                                    result
                                 )
                             }
                         })
@@ -979,7 +980,8 @@ internal class FullTreeIterator<V: SizeComputable> private constructor(
                             mapSequence(values) { (value, result) ->
                                 val term = IntermediateQueryTerm.greaterOrLessTerm(key, value, null)
                                 QueryPathValue(
-                                    QueryPath(this.reversePath.add(0, term).reversed()), result
+                                    QueryPath(listReverse(listPrepend(term, this.reversePath))),
+                                    result
                                 )
                             }
                         })
@@ -993,7 +995,8 @@ internal class FullTreeIterator<V: SizeComputable> private constructor(
                             mapSequence(values) { (value, result) ->
                                 val term = IntermediateQueryTerm.startsWithTerm(key, value)
                                 QueryPathValue(
-                                    QueryPath(this.reversePath.add(0, term).reversed()), result
+                                    QueryPath(listReverse(listPrepend(term, this.reversePath))),
+                                    result
                                 )
                             }
                         })
