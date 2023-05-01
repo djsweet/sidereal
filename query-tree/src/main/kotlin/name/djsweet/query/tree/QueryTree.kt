@@ -155,9 +155,9 @@ class QuerySpec private constructor(
     }
 
     override fun toString(): String {
-        val equalityTerms = this.equalityTerms.iteratorUnsafeSharedKey().asSequence().map {
+        val equalityTerms = mapSequence(this.equalityTerms) {
             (key, value) -> Pair(ByteArrayButComparable(key), ByteArrayButComparable(value))
-        } .toList()
+        }.asSequence().toList()
         return "QuerySpec(equalityTerms=${equalityTerms}, inequalityTerm=${inequalityTerm})"
     }
 
@@ -824,7 +824,7 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
                         this.currentData = this.currentData.remove(key)
                         val maybe = this.node.lessThanTerms?.get(
                             key
-                        )?.iteratorGreaterThanOrEqualUnsafeSharedKey(
+                        )?.iteratorGreaterThanOrEqual(
                             value
                         )
                         if (maybe != null) {
@@ -862,7 +862,7 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
                         this.currentData = this.currentData.remove(key)
                         val maybe = this.node.greaterThanTerms?.get(
                             key
-                        )?.iteratorLessThanOrEqualUnsafeSharedKey(
+                        )?.iteratorLessThanOrEqual(
                             value
                         )
                         if (maybe != null) {
@@ -881,7 +881,7 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
                         this.currentData = this.currentData.remove(key)
                         val maybe = this.node.startsWithTerms?.get(
                             key
-                        )?.iteratorPrefixOfOrEqualToUnsafeSharedKey(
+                        )?.iteratorPrefixOfOrEqualTo(
                             value
                         )
                         if (maybe != null) {
