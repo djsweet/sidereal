@@ -986,88 +986,60 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     }
 
     override fun iterator(): Iterator<QPTrieKeyValue<V>> {
-        return this.iteratorAscending()
-    }
-
-    fun iteratorAscending(): Iterator<QPTrieKeyValue<V>> {
-        return if (this.root == null) {
-            EmptyIterator()
-        } else {
-            // Note that fullIteratorAscending will give us the internal entry.
-            // To ensure callers don't accidentally violate internal invariants by mutating the key,
-            // we make a copy of the key before handing the QPTrieKeyValue to them.
-            mapSequence(this.root.fullIteratorAscending(this.noopRegisterChildIterator)) {
-                it.withKeyCopy()
-            }
+        return mapSequence(this.iteratorUnsafeSharedKey()) {
+            it.withKeyCopy()
         }
     }
 
-    fun iteratorDescending(): Iterator<QPTrieKeyValue<V>> {
+    fun iteratorUnsafeSharedKey(): Iterator<QPTrieKeyValue<V>> {
+        return this.iteratorAscendingUnsafeSharedKey()
+    }
+
+    fun iteratorAscendingUnsafeSharedKey(): Iterator<QPTrieKeyValue<V>> {
         return if (this.root == null) {
             EmptyIterator()
         } else {
-            // Note that fullIteratorDescending will give us the internal entry.
-            // To ensure callers don't accidentally violate internal invariants by mutating the key,
-            // we make a copy of the key before handing the QPTrieKeyValue to them.
-            mapSequence(this.root.fullIteratorDescending(this.noopRegisterChildIterator)) {
-                it.withKeyCopy()
-            }
+            this.root.fullIteratorAscending(this.noopRegisterChildIterator)
         }
     }
 
-    fun iteratorLessThanOrEqual(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
+    fun iteratorDescendingUnsafeSharedKey(): Iterator<QPTrieKeyValue<V>> {
         return if (this.root == null) {
             EmptyIterator()
         } else {
-            // Note that iteratorForLessThanOrEqual will give us the internal entry.
-            // To ensure callers don't accidentally violate internal invariants by mutating the key,
-            // we make a copy of the key before handing the QPTrieKeyValue to them.
-            mapSequence(
-                this.root.iteratorForLessThanOrEqual(key, 0, this.noopRegisterChildIterator)
-            ) {
-                it.withKeyCopy()
-            }
+            this.root.fullIteratorDescending(this.noopRegisterChildIterator)
         }
     }
 
-    fun iteratorGreaterThanOrEqual(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
+    fun iteratorLessThanOrEqualUnsafeSharedKey(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
         return if (this.root == null) {
             EmptyIterator()
         } else {
-            // Note that iteratorForGreaterThanOrEqual will give us the internal entry.
-            // To ensure callers don't accidentally violate internal invariants by mutating the key,
-            // we make a copy of the key before handing the QPTrieKeyValue to them.
-            mapSequence(
-                this.root.iteratorForGreaterThanOrEqual(key, 0, this.noopRegisterChildIterator)
-            ) {
-                it.withKeyCopy()
-            }
+            this.root.iteratorForLessThanOrEqual(key, 0, this.noopRegisterChildIterator)
         }
     }
 
-    fun iteratorStartsWith(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
+    fun iteratorGreaterThanOrEqualUnsafeSharedKey(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
         return if (this.root == null) {
             EmptyIterator()
         } else {
-            // Note that iteratorForStartsWith will give us the internal entry.
-            // To ensure callers don't accidentally violate internal invariants by mutating the key,
-            // we make a copy of the key before handing the QPTrieKeyValue to them.
-            mapSequence(this.root.iteratorForStartsWith(key, 0, this.noopRegisterChildIterator)) {
-                it.withKeyCopy()
-            }
+            this.root.iteratorForGreaterThanOrEqual(key, 0, this.noopRegisterChildIterator)
         }
     }
 
-    fun iteratorPrefixOfOrEqualTo(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
+    fun iteratorStartsWithUnsafeSharedKey(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
         return if (this.root == null) {
             EmptyIterator()
         } else {
-            // Note that LookupPrefixOrEqualToIterator will give us the internal entry.
-            // To ensure callers don't accidentally violate internal invariants by mutating the key,
-            // we make a copy of the key before handing the QPTrieKeyValue to them.
-            mapSequence(LookupPrefixOfOrEqualToIterator(key, this.root)) {
-                it.withKeyCopy()
-            }
+            this.root.iteratorForStartsWith(key, 0, this.noopRegisterChildIterator)
+        }
+    }
+
+    fun iteratorPrefixOfOrEqualToUnsafeSharedKey(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
+        return if (this.root == null) {
+            EmptyIterator()
+        } else {
+            LookupPrefixOfOrEqualToIterator(key, this.root)
         }
     }
 }
