@@ -14,13 +14,13 @@ internal abstract class ConcatenatedIterator<T>: Iterator<T> {
     protected abstract fun iteratorForOffset(offset: Int): Iterator<T>?
 
     protected fun <S : ConcatenatedIterator<T>>registerChild(child: S): S {
-        val workingStack = (this.childStack ?: ArrayListStack())
-        if (this.childStack == null) {
+        var workingStack = this.childStack
+        if (workingStack == null) {
+            workingStack = ArrayListStack()
             this.childStack = workingStack
             this.ownsChildStack = true
         }
         child.childStack = workingStack
-        child.ownsChildStack = false
         workingStack.push(child)
         return child
     }
