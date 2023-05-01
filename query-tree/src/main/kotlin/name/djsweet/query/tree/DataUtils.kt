@@ -6,7 +6,7 @@ fun <T>workingDataForAvailableKeys(fullData: QPTrie<ByteArray>, keyDispatch: QPT
     }
     val keyBasis = if (fullData.size < keyDispatch.size) { fullData } else { keyDispatch }
     var result = QPTrie<ByteArray>()
-    for ((key) in keyBasis) {
+    for ((key) in keyBasis.iteratorUnsafeSharedKey()) {
         val fromFullData = fullData.get(key) ?: continue
         if (keyDispatch.get(key) != null) {
             result = result.put(key, fromFullData)
