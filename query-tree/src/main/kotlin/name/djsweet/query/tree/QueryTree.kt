@@ -97,6 +97,9 @@ class QuerySpec private constructor(
 ) {
     constructor(): this(QPTrie(), null)
 
+    val cardinality: Int
+        get() = this.equalityTerms.size.toInt() + if (this.inequalityTerm == null) { 0 } else { 1 }
+
     fun withEqualityTerm(key: ByteArray, value: ByteArray): QuerySpec {
         return QuerySpec(this.equalityTerms.put(key, value), this.inequalityTerm)
     }

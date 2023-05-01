@@ -36,6 +36,7 @@ class QueryTreeRunSpec {
         for ((index, query) in this.queries.withIndex()) {
             val (_, alteredTree) = nextQueryTree.addElementByQuery(query, index)
             nextQueryTree = alteredTree
+            println("query cardinality was ${query.cardinality}")
         }
         this.queryTree = nextQueryTree
         val matchSet = this.linearScanLookup()
