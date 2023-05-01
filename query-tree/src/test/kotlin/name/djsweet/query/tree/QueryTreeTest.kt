@@ -74,48 +74,6 @@ class QueryTreeTest {
             return result
         }
 
-        private fun querySpecMatchesData(querySpec: QuerySpec, data: QPTrie<ByteArray>): Boolean {
-            for ((key, value) in querySpec.equalityTerms) {
-                val dataAtKey = data.get(key) ?: return false
-                if (!value.contentEquals(dataAtKey)) {
-                    return false
-                }
-            }
-            val inequalityTerm = querySpec.inequalityTerm ?: return true
-            val dataAtInequality = data.get(inequalityTerm.key) ?: return false
-            return when (inequalityTerm.kind) {
-                IntermediateQueryTermKind.EQUALS -> (inequalityTerm.lowerBound!!).contentEquals(dataAtInequality)
-                IntermediateQueryTermKind.STARTS_WITH -> {
-                    val boundSize = inequalityTerm.lowerBound!!.size
-                    if (boundSize > dataAtInequality.size) {
-                        false
-                    } else {
-                        Arrays.equals(
-                            inequalityTerm.lowerBound,
-                            0,
-                            boundSize,
-                            dataAtInequality,
-                            0,
-                            boundSize
-                        )
-                    }
-                }
-                IntermediateQueryTermKind.GREATER_OR_LESS -> if (inequalityTerm.lowerBound == null && inequalityTerm.upperBound == null) {
-                    false
-                } else if (inequalityTerm.lowerBound != null && inequalityTerm.upperBound != null) {
-                    Arrays.compareUnsigned(
-                        dataAtInequality, inequalityTerm.lowerBound
-                    ) >= 0 && Arrays.compareUnsigned(
-                        dataAtInequality, inequalityTerm.upperBound
-                    ) <= 0
-                } else if (inequalityTerm.upperBound != null) {
-                    Arrays.compareUnsigned(dataAtInequality, inequalityTerm.upperBound) <= 0
-                } else {
-                    Arrays.compareUnsigned(dataAtInequality, inequalityTerm.lowerBound!!) >= 0
-                }
-            }
-        }
-
         private fun<T> findIndex(arr: ArrayList<T>, needle: T): Int {
             for (i in arr.indices) {
                 if (arr[i]?.equals(needle) == true) {
@@ -575,12 +533,11 @@ class QueryTreeTest {
         }
     }
 
-    @Provide
-    fun queryTreeTestData(): Arbitrary<QueryTreeTestData> {
+    fun queryTreeTestDataWithQueryListSize(minSize: Int, maxSize: Int): Arbitrary<QueryTreeTestData> {
         return this.byteArray(keySize).list().ofMinSize(1).ofMaxSize(keySpaceSize).flatMap { keySpace ->
             val queryList = this.querySpecWithKeySpace(keySpace).map {
-                (queries, _, _) -> queries
-            }.list().ofMinSize(1).ofMaxSize(24)
+                    (queries) -> queries
+            }.list().ofMinSize(minSize).ofMaxSize(maxSize)
             queryList.flatMap { queries ->
                 val basedData = listOfArbitrariesToArbitraryOfList(queries.map {
                     this.basedDataForQuerySpec(it, keySpace)
@@ -593,6 +550,11 @@ class QueryTreeTest {
                 Arbitraries.just(QueryTreeTestData(uniqueQuerySpecs(queries), dataList))
             }
         }
+    }
+
+    @Provide
+    fun queryTreeTestData(): Arbitrary<QueryTreeTestData> {
+        return this.queryTreeTestDataWithQueryListSize(1, 24)
     }
 
     private data class SizeComputableInteger(val value: Int, val weight: Int): SizeComputable {
@@ -612,7 +574,7 @@ class QueryTreeTest {
             val expectedResults = queries.mapIndexed {
                     idx, q -> Pair(idx, q)
             }.filter {
-                    (_, q) -> querySpecMatchesData(q, dataEntry)
+                    (_, q) -> q.matchesData(dataEntry)
             }.map {
                     (idx) -> handles[idx]
             }.toTypedArray()
@@ -854,7 +816,7 @@ class QueryTreeTest {
             val expectedResults = queries.mapIndexed { idx, q ->
                 Pair(idx, q)
             }.filter { (_, q) ->
-                querySpecMatchesData(q, dataEntry)
+                q.matchesData(dataEntry)
             }.map { (idx) ->
                 handles[idx]
             }.toSet()

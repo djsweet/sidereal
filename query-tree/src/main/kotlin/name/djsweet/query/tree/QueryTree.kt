@@ -133,6 +133,48 @@ class QuerySpec private constructor(
         return QuerySpec(this.equalityTerms.remove(key), term)
     }
 
+    fun matchesData(data: QPTrie<ByteArray>): Boolean {
+        for ((key, value) in this.equalityTerms) {
+            val dataAtKey = data.get(key) ?: return false
+            if (!value.contentEquals(dataAtKey)) {
+                return false
+            }
+        }
+        val inequalityTerm = this.inequalityTerm ?: return true
+        val dataAtInequality = data.get(inequalityTerm.key) ?: return false
+        return when (inequalityTerm.kind) {
+            IntermediateQueryTermKind.EQUALS -> (inequalityTerm.lowerBound!!).contentEquals(dataAtInequality)
+            IntermediateQueryTermKind.STARTS_WITH -> {
+                val boundSize = inequalityTerm.lowerBound!!.size
+                if (boundSize > dataAtInequality.size) {
+                    false
+                } else {
+                    Arrays.equals(
+                        inequalityTerm.lowerBound,
+                        0,
+                        boundSize,
+                        dataAtInequality,
+                        0,
+                        boundSize
+                    )
+                }
+            }
+            IntermediateQueryTermKind.GREATER_OR_LESS -> if (inequalityTerm.lowerBound == null && inequalityTerm.upperBound == null) {
+                false
+            } else if (inequalityTerm.lowerBound != null && inequalityTerm.upperBound != null) {
+                Arrays.compareUnsigned(
+                    dataAtInequality, inequalityTerm.lowerBound
+                ) >= 0 && Arrays.compareUnsigned(
+                    dataAtInequality, inequalityTerm.upperBound
+                ) <= 0
+            } else if (inequalityTerm.upperBound != null) {
+                Arrays.compareUnsigned(dataAtInequality, inequalityTerm.upperBound) <= 0
+            } else {
+                Arrays.compareUnsigned(dataAtInequality, inequalityTerm.lowerBound!!) >= 0
+            }
+        }
+    }
+
     private fun equalityTermsForComparison(): Array<Pair<ByteArrayButComparable, ByteArrayButComparable>> {
         return this.equalityTerms.toList().map { (key, value) ->
             Pair(ByteArrayButComparable(key), ByteArrayButComparable(value))

@@ -25,15 +25,16 @@ val kotlinXCollectionsImmutable = "org.jetbrains.kotlinx:kotlinx-collections-imm
 val netJqwik = "net.jqwik:jqwik:1.7.3"
 
 dependencies {
-    testImplementation(kotlinXCollectionsImmutable)
     testImplementation(platform("org.junit:junit-bom:5.9.2"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.9.2")
     testImplementation(netJqwik)
+    testImplementation(kotlinXCollectionsImmutable)
     compileOnly("org.jetbrains:annotations:24.0.1")
     benchmarksImplementation(project(mapOf("path" to ":query-tree")))
+    benchmarksImplementation("org.jetbrains.kotlinx:kotlinx-benchmark-runtime:0.4.7")
     benchmarksImplementation(netJqwik)
     benchmarksImplementation(kotlinXCollectionsImmutable)
-    benchmarksImplementation("org.jetbrains.kotlinx:kotlinx-benchmark-runtime:0.4.7")
+    benchmarksImplementation(sourceSets.test.get().output + sourceSets.test.get().runtimeClasspath)
 }
 
 tasks.test {
@@ -91,6 +92,12 @@ benchmark {
         }
         create("persistentMapIterator") {
             include("PersistentMapBenchmark\\.iterator.*")
+        }
+        create("queryTree") {
+            include("QueryTreeBenchmark\\..*")
+        }
+        create("queryTreeOnly") {
+            include("QueryTreeBenchmark\\.point01.*")
         }
     }
     targets {
