@@ -906,7 +906,6 @@ private class GreaterThanOrEqualToEvenNybbleIterator<V>(
     }
 }
 
-
 private tailrec fun<V> getValue(node: OddNybble<V>, key: ByteArray, offset: Int): V? {
     val endOffset = offset + node.prefix.size
     val keySize = key.size
@@ -927,6 +926,14 @@ private tailrec fun<V> getValue(node: OddNybble<V>, key: ByteArray, offset: Int)
     }
 }
 
+private tailrec fun<V> minKeyValue(node: OddNybble<V>): QPTrieKeyValue<V> {
+    return if (node.valuePair != null) {
+        node.valuePair
+    } else {
+        val nextNode = node.nybbleDispatch[0].nybbleDispatch[0]
+        minKeyValue(nextNode)
+    }
+}
 
 class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     private val root: OddNybble<V>?
@@ -1056,6 +1063,11 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
         } else {
             LookupPrefixOfOrEqualToIterator(key, this.root)
         }
+    }
+
+    fun minKeyValueUnsafeSharedKey(): QPTrieKeyValue<V>? {
+        val root = this.root ?: return null
+        return minKeyValue(root)
     }
 }
 

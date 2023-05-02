@@ -849,7 +849,7 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
                         this.state = GetByDataIteratorState.LESS_THAN
                         this.currentData = this.workingDataForKeys(this.node.lessThanTerms)
                     } else {
-                        val (key, value) = this.currentData.first()
+                        val (key, value) = this.currentData.minKeyValueUnsafeSharedKey()!!
                         this.currentData = this.currentData.remove(key)
                         val subNode = this.node.equalityTerms?.get(key)?.get(value) ?: continue
                         val newReversePath = listPrepend(
@@ -865,7 +865,7 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
                         this.state = GetByDataIteratorState.RANGE
                         this.currentData = this.workingDataForKeys(this.node.rangeTerms)
                     } else {
-                        val (key, value) = this.currentData.first()
+                        val (key, value) = this.currentData.minKeyValueUnsafeSharedKey()!!
                         this.currentData = this.currentData.remove(key)
                         val maybe = this.node.lessThanTerms?.get(
                             key
@@ -885,7 +885,7 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
                         this.state = GetByDataIteratorState.GREATER_THAN
                         this.currentData = this.workingDataForKeys(this.node.greaterThanTerms)
                     } else {
-                        val (key, value) = this.currentData.first()
+                        val (key, value) = this.currentData.minKeyValueUnsafeSharedKey()!!
                         this.currentData = this.currentData.remove(key)
                         val maybe = this.node.rangeTerms?.get(key)?.lookupPoint(
                             ByteArrayButComparable(value)
@@ -903,7 +903,7 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
                         this.state = GetByDataIteratorState.STARTS_WITH
                         this.currentData = this.workingDataForKeys(this.node.startsWithTerms)
                     } else {
-                        val (key, value) = this.currentData.first()
+                        val (key, value) = this.currentData.minKeyValueUnsafeSharedKey()!!
                         this.currentData = this.currentData.remove(key)
                         val maybe = this.node.greaterThanTerms?.get(
                             key
@@ -922,7 +922,7 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
                     if (currentData.size == 0L) {
                         this.state = GetByDataIteratorState.DONE
                     } else {
-                        val (key, value) = this.currentData.first()
+                        val (key, value) = this.currentData.minKeyValueUnsafeSharedKey()!!
                         this.currentData = this.currentData.remove(key)
                         val maybe = this.node.startsWithTerms?.get(
                             key

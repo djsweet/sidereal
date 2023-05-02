@@ -42,6 +42,16 @@ private fun <V> verifyIteratorInvariants(t: QPTrie<V>, spec: IntervalTree<ByteAr
     val expectedAscending = spec.iterator().asSequence().map { Pair(it.first.lowerBound, it.second) }.toList()
     val expectedDescending = expectedAscending.reversed()
 
+    val minKeyValue = t.minKeyValueUnsafeSharedKey()
+    if (t.size == 0L) {
+        assertNull(minKeyValue)
+    } else {
+        assertNotNull(minKeyValue)
+        val (firstKey, firstValue) = expectedAscending.first()
+        assertArrayEquals(firstKey.array, minKeyValue!!.key)
+        assertEquals(firstValue, minKeyValue.value)
+    }
+
     val givenAscendingImplicit = fixIteratorForInvariants(t.iterator())
     assertListOfByteArrayValuePairsEquals(expectedAscending, givenAscendingImplicit)
     val givenAscendingExplicit = fixIteratorForInvariants(t.iteratorAscendingUnsafeSharedKey())
