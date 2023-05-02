@@ -55,7 +55,7 @@ class IdentitySet<T> private constructor(private val trie: QPTrie<ListNode<T>>):
     }
 
     override fun iterator(): Iterator<T> {
-        return FlattenIterator(mapSequence(this.trie) {
+        return FlattenIterator(mapSequence(this.trie.iteratorUnsafeSharedKey()) {
             listIterator(it.value)
         })
     }
