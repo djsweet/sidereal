@@ -20,6 +20,8 @@ class QPTrieRunSpec {
         .ofMinSize(5)
         .ofMaxSize(20)
 
+    val keyReceiver = ArrayList<ByteArray>()
+
     protected fun setupWithData(data: List<ByteArray>) {
         var nextTrie = QPTrie<Boolean>()
         for (entry in data) {
@@ -37,6 +39,7 @@ class QPTrieRunSpec {
         val entries = this.sampleByteArray()
         this.setupWithData(entries)
         this.lookup = entries.shuffled().first()
+        this.keyReceiver.ensureCapacity(this.trie.size.toInt())
     }
 }
 
@@ -111,6 +114,13 @@ class QPTrieBenchmark {
             throw Error("Only saw some entries in full iteration")
         }
         return lastEntry
+    }
+
+    @Benchmark
+    fun iterator000KeysInto(spec: QPTrieRunSpec): ArrayList<ByteArray> {
+        spec.keyReceiver.clear()
+        spec.trie.keysIntoUnsafeSharedKey(spec.keyReceiver)
+        return spec.keyReceiver
     }
 
     @Benchmark

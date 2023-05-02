@@ -1,5 +1,13 @@
 package name.djsweet.query.tree
 
+// Iterating over the available keys in a QPTrie is extremely expensive,
+// unless you use keysIntoUnsafeSharedKey, which is around 10x as fast.
+// We don't want to be caught constantly allocating and returning
+// ArrayList instances, so we'll hold on to one per thread. We're not
+// going to yield inside the users of this thread-local, so it should
+// be safe to use.
+val workingDataKeysArrayThreadLocal: ThreadLocal<ArrayList<ByteArray>> = ThreadLocal.withInitial { ArrayList() }
+
 fun<T> workingDataForAvailableEqualityKeys(
     fullData: QPTrie<ByteArray>,
     keyDispatch: QPTrie<QPTrie<T>>?
@@ -9,7 +17,9 @@ fun<T> workingDataForAvailableEqualityKeys(
     }
     val keyBasis = if (fullData.size < keyDispatch.size) { fullData } else { keyDispatch }
     var result = QPTrie<ByteArray>()
-    for ((key) in keyBasis.iteratorUnsafeSharedKey()) {
+    val workingKeysArray = workingDataKeysArrayThreadLocal.get()
+    workingKeysArray.clear()
+    for (key in keyBasis.keysIntoUnsafeSharedKey(workingKeysArray)) {
         val fromFullData = fullData.get(key) ?: continue
         val fromKeyDispatch = keyDispatch.get(key) ?: continue
         if (fromKeyDispatch.get(fromFullData) != null) {
@@ -25,7 +35,9 @@ fun<T> workingDataForAvailableKeys(fullData: QPTrie<ByteArray>, keyDispatch: QPT
     }
     val keyBasis = if (fullData.size < keyDispatch.size) { fullData } else { keyDispatch }
     var result = QPTrie<ByteArray>()
-    for ((key) in keyBasis.iteratorUnsafeSharedKey()) {
+    val workingKeysArray = workingDataKeysArrayThreadLocal.get()
+    workingKeysArray.clear()
+    for (key in keyBasis.keysIntoUnsafeSharedKey(workingKeysArray)) {
         val fromFullData = fullData.get(key) ?: continue
         if (keyDispatch.get(key) != null) {
             result = result.putNoCopy(key, fromFullData)

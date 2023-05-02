@@ -935,6 +935,20 @@ private tailrec fun<V> minKeyValue(node: OddNybble<V>): QPTrieKeyValue<V> {
     }
 }
 
+private fun<V> keysInto(node: OddNybble<V>, result: ArrayList<ByteArray>) {
+    val valuePair = node.valuePair
+    val evenDispatch = node.nybbleDispatch
+    if (valuePair != null) {
+        result.add(valuePair.key)
+    }
+    for (evenNybble in evenDispatch) {
+        val oddDispatch = evenNybble.nybbleDispatch
+        for (oddNybble in oddDispatch) {
+            keysInto(oddNybble, result)
+        }
+    }
+}
+
 class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     private val root: OddNybble<V>?
     val size: Long
@@ -1068,6 +1082,13 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     fun minKeyValueUnsafeSharedKey(): QPTrieKeyValue<V>? {
         val root = this.root ?: return null
         return minKeyValue(root)
+    }
+
+    fun keysIntoUnsafeSharedKey(result: ArrayList<ByteArray>): ArrayList<ByteArray> {
+        result.ensureCapacity(this.size.toInt())
+        val root = this.root ?: return result
+        keysInto(root, result)
+        return result
     }
 }
 
