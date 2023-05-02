@@ -801,6 +801,10 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
         return workingDataForAvailableKeys(this.fullData, keyTargets)
     }
 
+    private fun <T>workingDataForEqualityKeys(keyTargets: QPTrie<QPTrie<T>>?): QPTrie<ByteArray> {
+        return workingDataForAvailableEqualityKeys(this.fullData, keyTargets)
+    }
+
     private fun pathForState(
         state: GetByDataIteratorState,
         key: ByteArray,
@@ -836,7 +840,7 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
             when (this.state) {
                 GetByDataIteratorState.VALUE -> {
                     this.state = GetByDataIteratorState.EQUALITY
-                    this.currentData = this.workingDataForKeys(this.node.equalityTerms)
+                    this.currentData = this.workingDataForEqualityKeys(this.node.equalityTerms)
                     if (this.node.value != null) {
                         return SingleElementIterator(
                             QueryPathValue(QueryPath(listReverse(this.reversePath)), this.node.value)

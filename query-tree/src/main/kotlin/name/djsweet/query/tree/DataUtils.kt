@@ -1,6 +1,25 @@
 package name.djsweet.query.tree
 
-fun <T>workingDataForAvailableKeys(fullData: QPTrie<ByteArray>, keyDispatch: QPTrie<T>?): QPTrie<ByteArray> {
+fun<T> workingDataForAvailableEqualityKeys(
+    fullData: QPTrie<ByteArray>,
+    keyDispatch: QPTrie<QPTrie<T>>?
+): QPTrie<ByteArray> {
+    if (keyDispatch == null) {
+        return QPTrie()
+    }
+    val keyBasis = if (fullData.size < keyDispatch.size) { fullData } else { keyDispatch }
+    var result = QPTrie<ByteArray>()
+    for ((key) in keyBasis.iteratorUnsafeSharedKey()) {
+        val fromFullData = fullData.get(key) ?: continue
+        val fromKeyDispatch = keyDispatch.get(key) ?: continue
+        if (fromKeyDispatch.get(fromFullData) != null) {
+            result = result.putNoCopy(key, fromFullData)
+        }
+    }
+    return result
+}
+
+fun<T> workingDataForAvailableKeys(fullData: QPTrie<ByteArray>, keyDispatch: QPTrie<T>?): QPTrie<ByteArray> {
     if (keyDispatch == null) {
         return QPTrie()
     }
