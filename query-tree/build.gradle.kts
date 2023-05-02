@@ -37,6 +37,12 @@ dependencies {
     benchmarksImplementation(sourceSets.test.get().output + sourceSets.test.get().runtimeClasspath)
 }
 
+tasks.named("compileKotlin", org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask::class.java) {
+    compilerOptions {
+        freeCompilerArgs.add("-Xno-param-assertions")
+    }
+}
+
 tasks.test {
     // As silly as this looks, Gradle sometimes gets very confused about
     // whether it needs to run the `test` task, because the artifacts
