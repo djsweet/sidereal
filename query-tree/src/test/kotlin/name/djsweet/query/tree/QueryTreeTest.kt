@@ -533,11 +533,17 @@ class QueryTreeTest {
         }
     }
 
-    fun queryTreeTestDataWithQueryListSize(minSize: Int, maxSize: Int): Arbitrary<QueryTreeTestData> {
+    fun queryTreeTestDataWithQueryListSize(minSize: Int, maxSize: Int, unique: Boolean): Arbitrary<QueryTreeTestData> {
         return this.byteArray(keySize).list().ofMinSize(1).ofMaxSize(keySpaceSize).flatMap { keySpace ->
-            val queryList = this.querySpecWithKeySpace(keySpace).map {
+            val listArbitrary = this.querySpecWithKeySpace(keySpace).map {
                     (queries) -> queries
-            }.list().ofMinSize(minSize).ofMaxSize(maxSize)
+            }.list()
+
+            val queryList = if (minSize == maxSize) {
+                listArbitrary.ofSize(minSize)
+            } else {
+                listArbitrary.ofMinSize(minSize).ofMaxSize(maxSize)
+            }
             queryList.flatMap { queries ->
                 val basedData = listOfArbitrariesToArbitraryOfList(queries.map {
                     this.basedDataForQuerySpec(it, keySpace)
@@ -547,14 +553,19 @@ class QueryTreeTest {
                 val basedDataSample = basedData.sample()
                 val arbitraryDataSample = arbitraryData.sample()
                 val dataList = concatList(basedDataSample, arbitraryDataSample)
-                Arbitraries.just(QueryTreeTestData(uniqueQuerySpecs(queries), dataList))
+                Arbitraries.just(
+                    QueryTreeTestData(
+                        if (unique) { uniqueQuerySpecs(queries) } else { queries },
+                        dataList
+                    )
+                )
             }
         }
     }
 
     @Provide
     fun queryTreeTestData(): Arbitrary<QueryTreeTestData> {
-        return this.queryTreeTestDataWithQueryListSize(1, 24)
+        return this.queryTreeTestDataWithQueryListSize(1, 24, true)
     }
 
     private data class SizeComputableInteger(val value: Int, val weight: Int): SizeComputable {

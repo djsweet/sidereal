@@ -28,7 +28,8 @@ class QueryTreeRunSpec {
     fun setup() {
         val (queries, data) = this.testWithArbitraries.queryTreeTestDataWithQueryListSize(
             this.queryCount,
-            this.queryCount
+            this.queryCount,
+            false
         ).sample()
         this.queries = queries
         this.lookup = data.shuffled().first()
