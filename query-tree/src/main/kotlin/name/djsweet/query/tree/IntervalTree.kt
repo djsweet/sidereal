@@ -369,7 +369,7 @@ private enum class IntervalTreeIteratorNextStep { SELF, RIGHT }
 
 private data class IntervalTreeIteratorState<T: Comparable<T>, V> (
     val node: TreeNode<T, V>,
-    val nextStep: IntervalTreeIteratorNextStep
+    var nextStep: IntervalTreeIteratorNextStep
 )
 
 private abstract class IntervalTreeCommonIterator<T : Comparable<T>, V, R>(private val t: IntervalTree<T, V>): Iterator<R> {
@@ -392,7 +392,7 @@ private abstract class IntervalTreeCommonIterator<T : Comparable<T>, V, R>(priva
 
     private fun pushIterationEntry(n: TreeNode<T, V>) {
         var curNode: TreeNode<T, V>? = n
-        while (curNode != null) {
+        while (curNode != null && this.iterateLeft(curNode)) {
             this.iterationStack.push(IntervalTreeIteratorState(curNode, IntervalTreeIteratorNextStep.SELF))
             curNode = curNode.leftNode
         }
@@ -404,20 +404,22 @@ private abstract class IntervalTreeCommonIterator<T : Comparable<T>, V, R>(priva
         // throw if .hasNext() == true, but there are definitely cases
         // where we're deep in the iteration stack and have no idea
         // whether we're returning or not
-        while (this.iterationStack.size > 0) {
-            val cur = this.iterationStack.pop()!!
+        var cur = this.iterationStack.peek()
+        while (cur != null) {
             val curNode = cur.node
             if (cur.nextStep == IntervalTreeIteratorNextStep.SELF) {
                 if (this.yieldNode(curNode)) {
-                    this.iterationStack.push(IntervalTreeIteratorState(curNode, IntervalTreeIteratorNextStep.RIGHT))
+                    cur.nextStep = IntervalTreeIteratorNextStep.RIGHT
                     this.nextUp = this.transformNode(curNode)
                     return
                 }
             }
             // cur.nextStep == IntervalTreeIteratorNextStep.RIGHT
+            this.iterationStack.pop()
             if (curNode.rightNode != null && this.iterateRight(curNode)) {
                 this.pushIterationEntry(curNode.rightNode)
             }
+            cur = this.iterationStack.peek()
         }
         this.nextUp = null
     }
@@ -430,6 +432,7 @@ private abstract class IntervalTreeCommonIterator<T : Comparable<T>, V, R>(priva
     protected abstract fun yieldNode(n: TreeNode<T, V>): Boolean
     protected abstract fun transformNode(n: TreeNode<T, V>): R
     protected abstract fun iterateRight(n: TreeNode<T, V>): Boolean
+    protected abstract fun iterateLeft(n: TreeNode<T, V>): Boolean
 
     override fun next(): R {
         this.initialPushIfNecessary()
@@ -449,6 +452,10 @@ private abstract class IntervalTreePairIterator<T : Comparable<T>, V>(t: Interva
 
 private class IntervalTreePointLookupIterator<T: Comparable<T>, V>(t: IntervalTree<T, V>, private val lookup: T) :
     IntervalTreePairIterator<T, V>(t) {
+
+    override fun iterateLeft(n: TreeNode<T, V>): Boolean {
+        return this.lookup <= n.maxRightKey
+    }
 
     override fun iterateRight(n: TreeNode<T, V>): Boolean {
         return this.lookup <= n.maxRightKey
@@ -482,6 +489,10 @@ private class IntervalTreeRangeLookupIterator<T: Comparable<T>, V>(t: IntervalTr
         return rangeOverlaps(this.lookupLow, this.lookupHigh, otherLow, otherHigh)
     }
 
+    override fun iterateLeft(n: TreeNode<T, V>): Boolean {
+        return this.lookupLow <= n.maxRightKey
+    }
+
     override fun iterateRight(n: TreeNode<T, V>): Boolean {
         return this.rangeOverlaps(n.leftKey, n.maxRightKey)
     }
@@ -492,6 +503,10 @@ private class IntervalTreeRangeLookupIterator<T: Comparable<T>, V>(t: IntervalTr
 }
 
 private class IntervalTreeIterator<T : Comparable<T>, V>(t: IntervalTree<T, V>) : IntervalTreeCommonIterator<T, V, Triple<IntervalRange<T>, V, Int>>(t) {
+    override fun iterateLeft(n: TreeNode<T, V>): Boolean {
+        return true
+    }
+
     override fun iterateRight(n: TreeNode<T ,V>): Boolean {
         return true
     }
