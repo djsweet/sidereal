@@ -817,7 +817,7 @@ internal class GetTermsByDataIterator<V : SizeComputable> private constructor(
                     this.state = GetTermsByDataIteratorState.LESS_THAN
                     val subNode = terms.equalityTerms?.get(value) ?: continue
                     val term = IntermediateQueryTerm.equalityTerm(key, value)
-                    return GetByDataIterator(subNode, fullData, listPrepend(term, reversePath))
+                    return this.registerChild(GetByDataIterator(subNode, fullData, listPrepend(term, reversePath)))
                 }
 
                 GetTermsByDataIteratorState.LESS_THAN -> {
@@ -924,13 +924,13 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
                         this.keyOffset++
                         val targetTerms = node.keys.get(targetKey) ?: continue
                         val value = fullData.get(targetKey) ?: continue
-                        return GetTermsByDataIterator(
+                        return this.registerChild(GetTermsByDataIterator(
                             targetKey,
                             value,
                             targetTerms,
                             fullData.remove(targetKey),
                             reversePath
-                        )
+                        ))
                     }
                 }
 
@@ -966,7 +966,7 @@ internal class FullTermsByDataIterator<V : SizeComputable> private constructor (
                     val equalityTerms = this.terms.equalityTerms ?: continue
                     return FlattenIterator(mapSequence(equalityTerms) {
                         val term = IntermediateQueryTerm.equalityTerm(key, it.key)
-                        FullTreeIterator(it.value, listPrepend(term, reversePath))
+                        this.registerChild(FullTreeIterator(it.value, listPrepend(term, reversePath)))
                     })
                 }
 
@@ -1047,7 +1047,7 @@ internal class FullTreeIterator<V: SizeComputable> private constructor(
                 GetByDataIteratorState.TERMS -> {
                     this.state = GetByDataIteratorState.DONE
                     return FlattenIterator(mapSequence(node.keys) {
-                        FullTermsByDataIterator(it.key, it.value, reversePath)
+                        this.registerChild(FullTermsByDataIterator(it.key, it.value, reversePath))
                     })
                 }
 

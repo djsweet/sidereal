@@ -911,7 +911,6 @@ class QueryTreeTest {
         var queryTree = QuerySetTree<Int>()
         var lastCount = 0
         val queries = mutableListOf<QuerySpec>()
-        println("start saving")
         for ((query, count) in queriesAndCounts) {
             val handlesForQuery = mutableSetOf<Int>()
             for (i in 0 until count) {
@@ -957,7 +956,6 @@ class QueryTreeTest {
             }
             lastCount += count
         }
-        println("stop saving")
         assertEquals(querySerial.toLong(), queryTree.size)
         this.verifyQueriesSet(data, queries, handles, paths, queryTree)
 
