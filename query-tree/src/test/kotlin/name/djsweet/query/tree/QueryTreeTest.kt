@@ -646,7 +646,8 @@ class QueryTreeTest {
             // that immediate inserts also work.
             val resultForPath = queryTree.getByPath(path)
             if (handle != resultForPath) {
-                println("Wait, the path was $path=$handle")
+                println("Wait, the path should have been $path=$handle")
+                println("Instead it was $path=$resultForPath")
             }
             assertEquals(handle, resultForPath)
             assertEquals((querySerial * weight).toLong(), queryTree.size)
@@ -769,9 +770,11 @@ class QueryTreeTest {
 
         val (path, tree) = QueryTree<SizeComputableInteger>().updateByQuery(querySpec) { handle }
         assertEquals(1L, tree.size)
-        /*
+        // /*
         for ((treePath, value) in tree) {
-            println("${treePath}=${value}")
+            println("$treePath=$value")
+            val byPath = tree.getByPath(treePath)
+            println("$treePath=$byPath")
         }
         // */
         val gottenAgain = tree.getByPath(path)
@@ -908,6 +911,7 @@ class QueryTreeTest {
         var queryTree = QuerySetTree<Int>()
         var lastCount = 0
         val queries = mutableListOf<QuerySpec>()
+        println("start saving")
         for ((query, count) in queriesAndCounts) {
             val handlesForQuery = mutableSetOf<Int>()
             for (i in 0 until count) {
@@ -932,6 +936,18 @@ class QueryTreeTest {
                 // This is getting handled below, but we want to make sure
                 // that immediate inserts also work.
                 val resultsForPath = queryTree.getByPath(path).asSequence().toSet()
+                if (handlesForQuery != resultsForPath) {
+                    println("Wait, the path should have been $path=$handlesForQuery")
+                    println("Instead it was $path=$resultsForPath")
+                    var sawSomething = false
+                    for ((actualPath, actualValue) in queryTree) {
+                        sawSomething = true
+                        println("So what we had was $actualPath=$actualValue")
+                    }
+                    if (!sawSomething) {
+                        println("Why is the tree empty?")
+                    }
+                }
                 assertEquals(handlesForQuery, resultsForPath)
                 assertEquals(querySerial.toLong(), queryTree.size)
 
@@ -941,6 +957,7 @@ class QueryTreeTest {
             }
             lastCount += count
         }
+        println("stop saving")
         assertEquals(querySerial.toLong(), queryTree.size)
         this.verifyQueriesSet(data, queries, handles, paths, queryTree)
 

@@ -255,303 +255,277 @@ interface SizeComputable {
 
 data class QueryPathValue<V> internal constructor (val path: QueryPath, val value: V)
 
+internal class QueryTreeTerms<V: SizeComputable>(
+    val equalityTerms: QPTrie<QueryTreeNode<V>>?,
+    val lessThanTerms: QPTrie<V>?,
+    val rangeTerms: IntervalTree<ByteArrayButComparable, V>?,
+    val greaterThanTerms: QPTrie<V>?,
+    val startsWithTerms: QPTrie<V>?,
+) {
+    constructor(): this(null, null, null, null, null)
+
+    private fun hasAnyTerms(): Boolean {
+        return when {
+            this.equalityTerms != null -> true
+            this.lessThanTerms != null -> true
+            this.rangeTerms != null -> true
+            this.greaterThanTerms != null -> true
+            this.startsWithTerms != null -> true
+            else -> false
+        }
+    }
+
+    fun replaceEqualityTerms(newTerms: QPTrie<QueryTreeNode<V>>?): QueryTreeTerms<V>? {
+        val newTreeTerms = QueryTreeTerms(
+            if (newTerms?.size == 0L) { null } else { newTerms },
+            this.lessThanTerms,
+            this.rangeTerms,
+            this.greaterThanTerms,
+            this.startsWithTerms
+        )
+        return if (newTreeTerms.hasAnyTerms()) {
+            newTreeTerms
+        } else {
+            null
+        }
+    }
+
+    fun replaceLessThanTerms(newTerms: QPTrie<V>?): QueryTreeTerms<V>? {
+        val newTreeTerms = QueryTreeTerms(
+            this.equalityTerms,
+            if (newTerms?.size == 0L) { null } else { newTerms },
+            this.rangeTerms,
+            this.greaterThanTerms,
+            this.startsWithTerms
+        )
+        return if (newTreeTerms.hasAnyTerms()) {
+            newTreeTerms
+        } else {
+            null
+        }
+    }
+
+    fun replaceRangeTerms(newTerms: IntervalTree<ByteArrayButComparable, V>?): QueryTreeTerms<V>? {
+        val newTreeTerms = QueryTreeTerms(
+            this.equalityTerms,
+            this.lessThanTerms,
+            if (newTerms?.size == 0L) { null } else { newTerms },
+            this.greaterThanTerms,
+            this.startsWithTerms
+        )
+        return if (newTreeTerms.hasAnyTerms()) {
+            newTreeTerms
+        } else {
+            null
+        }
+    }
+
+    fun replaceGreaterThanTerms(newTerms: QPTrie<V>?): QueryTreeTerms<V>? {
+        val newTreeTerms = QueryTreeTerms(
+            this.equalityTerms,
+            this.lessThanTerms,
+            this.rangeTerms,
+            if (newTerms?.size == 0L) { null } else { newTerms },
+            this.startsWithTerms,
+        )
+        return if (newTreeTerms.hasAnyTerms()) {
+            newTreeTerms
+        } else {
+            null
+        }
+    }
+
+    fun replaceStartsWithTerms(newTerms: QPTrie<V>?): QueryTreeTerms<V>? {
+        val newTreeTerms = QueryTreeTerms(
+            this.equalityTerms,
+            this.lessThanTerms,
+            this.rangeTerms,
+            this.greaterThanTerms,
+            if (newTerms?.size == 0L) { null } else { newTerms },
+        )
+        return if (newTreeTerms.hasAnyTerms()) {
+            newTreeTerms
+        } else {
+            null
+        }
+    }
+}
+
 internal class QueryTreeNode<V  : SizeComputable>(
     val value: V?,
-    val equalityTerms: QPTrie<QPTrie<QueryTreeNode<V>>>?,
-    val lessThanTerms: QPTrie<QPTrie<V>>?,
-    val rangeTerms: QPTrie<IntervalTree<ByteArrayButComparable, V>>?,
-    val greaterThanTerms: QPTrie<QPTrie<V>>?,
-    val startsWithTerms: QPTrie<QPTrie<V>>?,
+    val keys: QPTrie<QueryTreeTerms<V>>,
     val size: Long
 ) {
     companion object {
         fun <V: SizeComputable>emptyInstance(): QueryTreeNode<V> {
             return QueryTreeNode(
                 null,
-                null,
-                null,
-                null,
-                null,
-                null,
+                QPTrie(),
                 0
             )
         }
     }
 
-    private fun hasOtherTerms(): Boolean {
-        if ((this.equalityTerms != null) && (this.equalityTerms.size > 0)) {
-            return true
-        }
-        if ((this.lessThanTerms != null) && (this.lessThanTerms.size > 0)) {
-            return true
-        }
-        if ((this.rangeTerms != null) && (this.rangeTerms.size > 0)) {
-            return true
-        }
-        if ((this.greaterThanTerms != null) && (this.greaterThanTerms.size > 0)) {
-            return true
-        }
-        return (this.startsWithTerms != null) && (this.startsWithTerms.size > 0)
-    }
-
-    private fun replaceValue(newValue: V?): QueryTreeNode<V> {
-        return QueryTreeNode(
-            newValue,
-            this.equalityTerms,
-            this.lessThanTerms,
-            this.rangeTerms,
-            this.greaterThanTerms,
-            this.startsWithTerms,
-            this.size - (this.value?.computeSize() ?: 0) + (newValue?.computeSize() ?: 0)
-        )
-    }
-
-    private fun replaceEqualityTerms(newTerms: QPTrie<QPTrie<QueryTreeNode<V>>>?, sizeDiff: Long): QueryTreeNode<V> {
-        return QueryTreeNode(
-            this.value,
-            if (newTerms?.size == 0L) { null } else { newTerms },
-            this.lessThanTerms,
-            this.rangeTerms,
-            this.greaterThanTerms,
-            this.startsWithTerms,
-            this.size + sizeDiff
-        )
-    }
-
-    private fun replaceLessThanTerms(newTerms: QPTrie<QPTrie<V>>?, sizeDiff: Long): QueryTreeNode<V> {
-        return QueryTreeNode(
-            this.value,
-            this.equalityTerms,
-            if (newTerms?.size == 0L) { null } else { newTerms },
-            this.rangeTerms,
-            this.greaterThanTerms,
-            this.startsWithTerms,
-            this.size + sizeDiff
-        )
-    }
-
-    private fun replaceRangeTerms(newTerms: QPTrie<IntervalTree<ByteArrayButComparable, V>>?, sizeDiff: Long): QueryTreeNode<V> {
-        return QueryTreeNode(
-            this.value,
-            this.equalityTerms,
-            this.lessThanTerms,
-            if (newTerms?.size == 0L) { null } else { newTerms },
-            this.greaterThanTerms,
-            this.startsWithTerms,
-            this.size + sizeDiff
-        )
-    }
-
-    private fun replaceGreaterThanTerms(newTerms: QPTrie<QPTrie<V>>?, sizeDiff: Long): QueryTreeNode<V> {
-        return QueryTreeNode(
-            this.value,
-            this.equalityTerms,
-            this.lessThanTerms,
-            this.rangeTerms,
-            if (newTerms?.size == 0L) { null } else { newTerms },
-            this.startsWithTerms,
-            this.size + sizeDiff
-        )
-    }
-
-    private fun replaceStartsWithTerms(newTerms: QPTrie<QPTrie<V>>?, sizeDiff: Long): QueryTreeNode<V> {
-        return QueryTreeNode(
-            this.value,
-            this.equalityTerms,
-            this.lessThanTerms,
-            this.rangeTerms,
-            this.greaterThanTerms,
-            if (newTerms?.size == 0L) { null } else { newTerms },
-            this.size + sizeDiff
-        )
-    }
-
-    private fun updateByPathForSingleBound(
-        key: ByteArray,
-        bound: ByteArray,
-        terms: QPTrie<QPTrie<V>>?,
-        updater: (prior: V?) -> V?,
-        replacer: (newTree: QPTrie<QPTrie<V>>?, sizeDiff: Long) -> QueryTreeNode<V>
-    ): QueryTreeNode<V>? {
-        val priorTermsForKey = terms?.get(key)
-        val priorTerm = priorTermsForKey?.get(bound)
-        if (priorTerm == null) {
-            val updateValue = updater(null) ?: return this
-            val bottomTree = (priorTermsForKey ?: QPTrie()).put(bound, updateValue)
-            val topTree = (terms ?: QPTrie()).put(key, bottomTree)
-            return replacer(topTree, updateValue.computeSize())
-        }
-
-        var sizeDiff = 0L
-        val replacementTerms = terms.update(key) { valuesTree ->
-            val nextValuesTree = (valuesTree ?: QPTrie()).update(bound) { priorValue ->
-                val updateValue = updater(priorValue)
-                sizeDiff = (updateValue?.computeSize() ?: 0) - (priorValue?.computeSize() ?: 0)
-                updateValue
-            }
-            if (nextValuesTree.size == 0L) { null } else { nextValuesTree }
-        }
-        if (replacementTerms === terms) {
-            return this
-        }
-        val possibly = replacer(replacementTerms, sizeDiff)
-        return if (possibly.value == null && !possibly.hasOtherTerms()) {
+    private fun replaceValue(value: V?): QueryTreeNode<V>? {
+        return if (value === this.value) {
+            this
+        } else if (value == null && this.keys.size == 0L) {
             null
         } else {
-            possibly
+            val sizeDiff = (value?.computeSize() ?: 0) - (this.value?.computeSize() ?: 0)
+            val newSize = this.size + sizeDiff
+            QueryTreeNode(value, this.keys, newSize)
         }
     }
 
-    private fun updateByPathForLessThan(
+    private fun replaceKeys(newKeys: QPTrie<QueryTreeTerms<V>>, sizeDiff: Long): QueryTreeNode<V>? {
+        return if (newKeys === this.keys) {
+            this
+        } else if (this.value == null && newKeys.size == 0L) {
+            null
+        } else {
+            val newSize = this.size + sizeDiff
+            QueryTreeNode(this.value, newKeys, newSize)
+        }
+    }
+
+    private fun updateTrieTerms(
+        keys: QPTrie<QueryTreeTerms<V>>,
+        target: QPTrie<V>?,
         key: ByteArray,
-        upperBound: ByteArray,
-        updater: (prior: V?) -> V?
+        value: ByteArray,
+        updater: (prior: V?) -> V?,
+        replacer: (terms: QPTrie<V>) -> QueryTreeTerms<V>?
     ): QueryTreeNode<V>? {
-        return this.updateByPathForSingleBound(key, upperBound, this.lessThanTerms, updater) { newTree, sizeDiff ->
-            this.replaceLessThanTerms(newTree, sizeDiff)
+        val existingResultByValue = target?.get(value)
+        val newResult = updater(existingResultByValue)
+        if (newResult === existingResultByValue) {
+            return this
         }
+
+        val sizeDiff = (newResult?.computeSize() ?: 0) - (existingResultByValue?.computeSize() ?: 0)
+        val newStartsWithTerms = (target ?: QPTrie()).update(value) { newResult }
+        val newTerms = replacer(newStartsWithTerms)
+        val newKeys = keys.update(key) { newTerms }
+        return this.replaceKeys(newKeys, sizeDiff)
     }
 
-    private fun updateByPathForRange(
+    private fun updateRangeTerms(
+        keys: QPTrie<QueryTreeTerms<V>>,
+        termsByKey: QueryTreeTerms<V>,
         key: ByteArray,
         lowerBound: ByteArray,
         upperBound: ByteArray,
         updater: (prior: V?) -> V?
     ): QueryTreeNode<V>? {
+        val rangeTerms = termsByKey.rangeTerms
         val lowerBoundComparable = ByteArrayButComparable(lowerBound)
         val upperBoundComparable = ByteArrayButComparable(upperBound)
-        val targetRange = Pair(lowerBoundComparable, upperBoundComparable)
-        val priorRangeTermsForKey = this.rangeTerms?.get(key)
-        val priorRangeTerm = priorRangeTermsForKey?.lookupExactRange(targetRange)
-        if (priorRangeTerm == null) {
-            val updateValue = updater(null) ?: return this
-            val bottomTree = (priorRangeTermsForKey ?: IntervalTree()).put(targetRange, updateValue)
-            val topTree = (this.rangeTerms ?: QPTrie()).put(key, bottomTree)
-            return this.replaceRangeTerms(topTree, updateValue.computeSize())
-        }
-
-        var sizeDiff = 0L
-        val replacementTerms = (this.rangeTerms ?: QPTrie()).update(key) { valuesTree ->
-            val nextValuesTree = (valuesTree ?: IntervalTree()).update(targetRange) {priorValue ->
-                val updateValue = updater(priorValue)
-                sizeDiff = (updateValue?.computeSize() ?: 0) - (priorValue?.computeSize() ?: 0)
-                updateValue
-            }
-            if (nextValuesTree.size == 0L) { null } else { nextValuesTree }
-        }
-        if (replacementTerms === this.rangeTerms) {
+        val rangeValue = lowerBoundComparable to upperBoundComparable
+        val existingResultByValue = rangeTerms?.lookupExactRange(rangeValue)
+        val newResult = updater(existingResultByValue)
+        if (newResult === existingResultByValue) {
             return this
         }
-        val possibly = this.replaceRangeTerms(replacementTerms, sizeDiff)
-        return if (possibly.value == null && !possibly.hasOtherTerms()) {
-            null
-        } else {
-            possibly
-        }
-    }
-
-    private fun updateByPathForGreaterThan(
-        key: ByteArray,
-        lowerBound: ByteArray,
-        updater: (prior: V?) -> V?
-    ): QueryTreeNode<V>? {
-        return this.updateByPathForSingleBound(key, lowerBound, this.greaterThanTerms, updater) { newTree, sizeDiff ->
-            this.replaceGreaterThanTerms(newTree, sizeDiff)
-        }
-    }
-
-    private fun updateByPathForStartsWith(
-        key: ByteArray,
-        lowerBound: ByteArray,
-        updater: (prior: V?) -> V?
-    ): QueryTreeNode<V>? {
-        return this.updateByPathForSingleBound(key, lowerBound, this.startsWithTerms, updater) { newTree, sizeDiff ->
-            this.replaceStartsWithTerms(newTree, sizeDiff)
-        }
+        val sizeDiff = (newResult?.computeSize() ?: 0) - (existingResultByValue?.computeSize() ?: 0)
+        val newRangeTerms = (rangeTerms ?: IntervalTree()).update(rangeValue) { newResult }
+        val newTerms = termsByKey.replaceRangeTerms(newRangeTerms)
+        val newKeys = keys.update(key) { newTerms }
+        return this.replaceKeys(newKeys, sizeDiff)
     }
 
     fun updateByPath(path: QueryPath, updater: (prior: V?) -> V?): QueryTreeNode<V>? {
-        val currentPath = path.first()
-        if (currentPath == null) {
-            val update = updater(this.value)
-            if (update === this.value) {
-                return this
-            }
-            if (update == null && !this.hasOtherTerms()) {
-                return null
-            }
-            return this.replaceValue(update)
-        }
+        val currentPath = path.first() ?: return this.replaceValue(updater(this.value))
+        val keys = this.keys
+        val currentKey = currentPath.key
+        val termsByKey = this.keys.get(currentKey) ?: QueryTreeTerms()
         when (currentPath.kind) {
             IntermediateQueryTermKind.EQUALS -> {
                 if (currentPath.lowerBound == null) {
                     return this
                 }
-                val priorEqualityTermsForKey = this.equalityTerms?.get(currentPath.key)
-                val priorEqualityTerm = priorEqualityTermsForKey?.get(currentPath.lowerBound)
-                if (priorEqualityTerm == null) {
+                val value = currentPath.lowerBound
+                val equalityTerms = termsByKey.equalityTerms ?: QPTrie()
+                val existingNodeByValue = equalityTerms.get(value)
+
+                // This is an entirely new value, so we'll be strictly adding to the key set.
+                if (existingNodeByValue == null) {
                     val updateValue = updater(null) ?: return this
                     val subNode = emptyInstance<V>().updateByPath(path.rest()) { updateValue } ?: return this
-                    val bottomTree = (priorEqualityTermsForKey ?: QPTrie()).put(currentPath.lowerBound, subNode)
-                    val topTree = (this.equalityTerms ?: QPTrie()).put(currentPath.key, bottomTree)
-                    return this.replaceEqualityTerms(
-                        topTree,
-                        updateValue.computeSize()
-                    )
+                    val newEqualityTerms = equalityTerms.update(value) { subNode }
+                    val newTerms = termsByKey.replaceEqualityTerms(newEqualityTerms)
+                    val newKeys = keys.update(currentKey) { newTerms }
+                    return this.replaceKeys(newKeys, updateValue.computeSize())
                 }
 
-                var sizeDiff = 0L
-                val replacementTerms = (this.equalityTerms ?: QPTrie()).update(currentPath.key) { valuesTree ->
-                    val nextValuesTree = (valuesTree ?: QPTrie()).update(currentPath.lowerBound) { subNode ->
-                        if (subNode == null) {
-                            val updateValue = updater(null)
-                            if (updateValue == null) {
-                                null
-                            } else {
-                                sizeDiff = updateValue.computeSize()
-                                emptyInstance<V>().updateByPath(path.rest()) { updateValue }
-                            }
-                        } else {
-                            val newSubNode = subNode.updateByPath(path.rest(), updater)
-                            sizeDiff = (newSubNode?.size ?: 0) - subNode.size
-                            newSubNode
-                        }
+                val newNodeByValue = existingNodeByValue.updateByPath(path.rest(), updater)
+                val sizeDiff = (newNodeByValue?.size ?: 0) - existingNodeByValue.size
+                val newKeys = this.keys.update(currentKey) {
+                    // We know we had prior terms, because we were able to find a value
+                    // in the equalityTerms above. This could not have happened for entirely
+                    // new terms.
+                    val priorTerms = it!!
+                    val priorEqualityTerms = priorTerms.equalityTerms!!
+                    val newEqualityTerms = priorEqualityTerms.update(value) { newNodeByValue }
+                    if (newEqualityTerms === priorEqualityTerms) {
+                        priorTerms
+                    } else {
+                        priorTerms.replaceEqualityTerms(newEqualityTerms)
                     }
-                    if (nextValuesTree.size == 0L) { null } else { nextValuesTree }
                 }
-                if (replacementTerms === this.equalityTerms) {
-                    return this
-                }
-                val possibly = this.replaceEqualityTerms(replacementTerms, sizeDiff)
-                return if (possibly.value == null && !possibly.hasOtherTerms()) {
-                    null
-                } else {
-                    possibly
-                }
+                return this.replaceKeys(newKeys, sizeDiff)
             }
             IntermediateQueryTermKind.GREATER_OR_LESS -> {
-                return if (currentPath.lowerBound == null && currentPath.upperBound == null) {
-                    this
-                } else if (currentPath.lowerBound != null && currentPath.upperBound != null) {
-                    this.updateByPathForRange(
-                        currentPath.key,
-                        currentPath.lowerBound,
-                        currentPath.upperBound,
-                        updater
-                    )
-                } else if (currentPath.lowerBound != null) {
-                    // currentPath.upperBound == null
-                    this.updateByPathForGreaterThan(currentPath.key, currentPath.lowerBound, updater)
-                } else {
-                    // currentPath.lowerBound == null, currentPath.upperBound != null
-                    this.updateByPathForLessThan(currentPath.key, currentPath.upperBound!!, updater)
+                val lowerBound = currentPath.lowerBound
+                val upperBound = currentPath.upperBound
+                if (lowerBound == null && upperBound == null) {
+                    return this
                 }
+                if (lowerBound == null) {
+                    // upperBound != null
+                    return this.updateTrieTerms(
+                        keys,
+                        termsByKey.lessThanTerms,
+                        currentKey,
+                        upperBound!!,
+                        updater
+                    ) {
+                        termsByKey.replaceLessThanTerms(it)
+                    }
+                }
+                if (upperBound == null) {
+                    // lowerBound != null
+                    return this.updateTrieTerms(
+                        keys,
+                        termsByKey.greaterThanTerms,
+                        currentKey,
+                        lowerBound,
+                        updater
+                    ) {
+                        termsByKey.replaceGreaterThanTerms(it)
+                    }
+                }
+
+                // We now have to update the range terms.
+                return this.updateRangeTerms(
+                    keys,
+                    termsByKey,
+                    currentKey,
+                    lowerBound,
+                    upperBound,
+                    updater
+                )
             }
             IntermediateQueryTermKind.STARTS_WITH -> {
-                return if (currentPath.lowerBound == null) {
-                    this
-                } else {
-                    this.updateByPathForStartsWith(currentPath.key, currentPath.lowerBound, updater)
+                val value = currentPath.lowerBound ?: return this
+                return this.updateTrieTerms(
+                    keys,
+                    termsByKey.startsWithTerms,
+                    currentKey,
+                    value,
+                    updater
+                ) {
+                    termsByKey.replaceStartsWithTerms(it)
                 }
             }
         }
@@ -564,7 +538,7 @@ internal class QueryTreeNode<V  : SizeComputable>(
                 if (currentPath.lowerBound == null) {
                     return null
                 }
-                val subNode = this.equalityTerms?.get(currentPath.key)?.get(currentPath.lowerBound) ?: return null
+                val subNode = this.keys.get(currentPath.key)?.equalityTerms?.get(currentPath.lowerBound) ?: return null
                 return subNode.getByPath(queryPath.rest())
             }
             IntermediateQueryTermKind.GREATER_OR_LESS -> {
@@ -574,20 +548,20 @@ internal class QueryTreeNode<V  : SizeComputable>(
                     val lowerBoundComparable = ByteArrayButComparable(currentPath.lowerBound)
                     val upperBoundComparable = ByteArrayButComparable(currentPath.upperBound)
                     val targetRange = Pair(lowerBoundComparable, upperBoundComparable)
-                    this.rangeTerms?.get(currentPath.key)?.lookupExactRange(targetRange)
+                    this.keys.get(currentPath.key)?.rangeTerms?.lookupExactRange(targetRange)
                 } else if (currentPath.lowerBound != null) {
                     // currentPath.upperBound == null
-                    this.greaterThanTerms?.get(currentPath.key)?.get(currentPath.lowerBound)
+                    this.keys.get(currentPath.key)?.greaterThanTerms?.get(currentPath.lowerBound)
                 } else {
                     // currentPath.lowerBound == null, currentPath.upperBound != null
-                    this.lessThanTerms?.get(currentPath.key)?.get(currentPath.upperBound!!)
+                    this.keys.get(currentPath.key)?.lessThanTerms?.get(currentPath.upperBound!!)
                 }
             }
             IntermediateQueryTermKind.STARTS_WITH -> {
                 if (currentPath.lowerBound == null) {
                     return null
                 }
-                return this.startsWithTerms?.get(currentPath.key)?.get(currentPath.lowerBound)
+                return this.keys.get(currentPath.key)?.startsWithTerms?.get(currentPath.lowerBound)
             }
         }
     }
@@ -598,28 +572,28 @@ internal class QueryTreeNode<V  : SizeComputable>(
         querySpec: QuerySpec,
     ): Pair<QueryPath, QueryTreeNode<V>>? {
         val (bestKey, bestValue) = bestKeyValue
-        val target = this.equalityTerms?.get(bestKey)?.get(bestValue) ?: emptyInstance()
+        val keys = this.keys
+        val target = keys.get(bestKey)?.equalityTerms?.get(bestValue) ?: emptyInstance()
         val queryTerm = IntermediateQueryTerm.equalityTerm(bestKey, bestValue)
         val replacementSpecs = target.updateByQuery(querySpec.withoutEqualityTerm(bestKey), updater)
         val sizeDiff = (replacementSpecs?.second?.size ?: 0) - target.size
-        val newEqualityTerms = (this.equalityTerms ?: QPTrie()).update(bestKey) {
-            val newByValue = (it ?: QPTrie()).update(bestValue) { replacementSpecs?.second }
-            if (newByValue.size == 0L) {
-                null
+        val newKeys = keys.update(bestKey) {
+            val terms = it ?: QueryTreeTerms()
+            val equalityTerms = terms.equalityTerms ?: QPTrie()
+            val newEqualityTerms = equalityTerms.update(bestValue) { replacementSpecs?.second }
+            if (newEqualityTerms === equalityTerms) {
+                it
             } else {
-                newByValue
+                terms.replaceEqualityTerms(newEqualityTerms)
             }
         }
-        val selfReplacement = if (newEqualityTerms === this.equalityTerms) {
+        val selfReplacement = if (newKeys === this.keys) {
             this
         } else {
-            this.replaceEqualityTerms(
-                if (newEqualityTerms.size == 0L) {
-                    null
-                } else {
-                    newEqualityTerms
-                },
-                sizeDiff
+            QueryTreeNode(
+                this.value,
+                newKeys,
+                this.size + sizeDiff
             )
         }
         return if (selfReplacement.size == 0L) {
@@ -639,7 +613,12 @@ internal class QueryTreeNode<V  : SizeComputable>(
             // and we're all out of equality terms, the value is present on this.
             if (inequalityTerm == null) {
                 val updated = updater(this.value)
-                return Pair(QueryPath(), if (updated === this.value) { this } else { this.replaceValue(updated) })
+                return if (updated === this.value) {
+                    Pair(QueryPath(), this)
+                } else {
+                    val replacement = this.replaceValue(updated) ?: return null
+                    Pair(QueryPath(), replacement)
+                }
             }
             val resultPath = QueryPath(ListNode(inequalityTerm))
             when (inequalityTerm.kind) {
@@ -648,14 +627,22 @@ internal class QueryTreeNode<V  : SizeComputable>(
                     return Pair(resultPath, this)
                 }
                 IntermediateQueryTermKind.STARTS_WITH -> {
-                    return if (inequalityTerm.lowerBound == null) {
+                    val value = inequalityTerm.lowerBound
+                    return if (value == null) {
                         Pair(QueryPath(), this)
                     } else {
-                        val newNode = this.updateByPathForStartsWith(
-                            inequalityTerm.key,
-                            inequalityTerm.lowerBound,
+                        val key = inequalityTerm.key
+                        val keys = this.keys
+                        val termsForKey = keys.get(key) ?: QueryTreeTerms()
+                        val newNode = this.updateTrieTerms(
+                            keys,
+                            termsForKey.startsWithTerms,
+                            key,
+                            value,
                             updater
-                        ) ?: return null
+                        ) {
+                            termsForKey.replaceStartsWithTerms(it)
+                        } ?: return null
                         Pair(resultPath, newNode)
                     }
                 }
@@ -663,14 +650,39 @@ internal class QueryTreeNode<V  : SizeComputable>(
                     val lowerBound = inequalityTerm.lowerBound
                     val upperBound = inequalityTerm.upperBound
                     val key = inequalityTerm.key
+                    val keys = this.keys
+                    val termsForKey = keys.get(key) ?: QueryTreeTerms()
                     val newNode = (if (lowerBound == null && upperBound == null) {
                         this
                     } else if (lowerBound != null && upperBound != null) {
-                        this.updateByPathForRange(key, lowerBound, upperBound, updater)
+                        this.updateRangeTerms(
+                            keys,
+                            termsForKey,
+                            key,
+                            lowerBound,
+                            upperBound,
+                            updater
+                        )
                     } else if (lowerBound != null) {
-                        this.updateByPathForGreaterThan(key, lowerBound, updater)
+                        this.updateTrieTerms(
+                            keys,
+                            termsForKey.greaterThanTerms,
+                            key,
+                            lowerBound,
+                            updater
+                        ) {
+                            termsForKey.replaceGreaterThanTerms(it)
+                        }
                     } else {
-                        this.updateByPathForLessThan(key, upperBound!!, updater)
+                        this.updateTrieTerms(
+                            keys,
+                            termsForKey.lessThanTerms,
+                            key,
+                            upperBound!!,
+                            updater
+                        ) {
+                            termsForKey.replaceLessThanTerms(it)
+                        }
                     }) ?: return null
                     return Pair(resultPath, newNode)
                 }
@@ -691,10 +703,8 @@ internal class QueryTreeNode<V  : SizeComputable>(
             if (firstKeyValue == null) {
                 firstKeyValue = kvp
             }
-            if (this.equalityTerms == null) {
-                break
-            }
-            val valuePairs = this.equalityTerms.get(kvp.key) ?: continue
+            val termPairs = this.keys.get(kvp.key) ?: continue
+            val valuePairs = termPairs.equalityTerms ?: continue
             if (valuePairs.size <= bestKeyOnlySize) {
                 bestKeyOnly = kvp
                 bestKeyOnlySize = valuePairs.size
@@ -764,13 +774,12 @@ class QueryTree<V: SizeComputable> private constructor(
         return if (this.root == null) {
             EmptyIterator()
         } else {
-            FullTreeIterator(this.root)
+            FullTreeIterator(this.root, null)
         }
     }
 }
 
-internal enum class GetByDataIteratorState {
-    VALUE,
+internal enum class GetTermsByDataIteratorState {
     EQUALITY,
     LESS_THAN,
     RANGE,
@@ -779,169 +788,230 @@ internal enum class GetByDataIteratorState {
     DONE
 }
 
+internal class GetTermsByDataIterator<V : SizeComputable> private constructor(
+    private val key: ByteArray,
+    private val value: ByteArray,
+    private val terms: QueryTreeTerms<V>,
+    private val reversePath: ListNode<IntermediateQueryTerm>?,
+    private val fullData: QPTrie<ByteArray>,
+    private var state: GetTermsByDataIteratorState
+): ConcatenatedIterator<QueryPathValue<V>>() {
+
+    constructor(
+        key: ByteArray,
+        value: ByteArray,
+        terms: QueryTreeTerms<V>,
+        fullData: QPTrie<ByteArray>,
+        reversePath: ListNode<IntermediateQueryTerm>?
+    ): this(key, value, terms, reversePath, fullData, GetTermsByDataIteratorState.EQUALITY)
+
+    override fun iteratorForOffset(offset: Int): Iterator<QueryPathValue<V>>? {
+        val terms = this.terms
+        val key = this.key
+        val value = this.value
+        val reversePath = this.reversePath
+        val fullData = this.fullData
+        while (this.state != GetTermsByDataIteratorState.DONE) {
+            when (this.state) {
+                GetTermsByDataIteratorState.EQUALITY -> {
+                    this.state = GetTermsByDataIteratorState.LESS_THAN
+                    val subNode = terms.equalityTerms?.get(value) ?: continue
+                    val term = IntermediateQueryTerm.equalityTerm(key, value)
+                    return GetByDataIterator(subNode, fullData, listPrepend(term, reversePath))
+                }
+
+                GetTermsByDataIteratorState.LESS_THAN -> {
+                    this.state = GetTermsByDataIteratorState.RANGE
+                    val result = terms.lessThanTerms?.iteratorGreaterThanOrEqualUnsafeSharedKey(value) ?: continue
+                    return mapSequence(result) {
+                        val term = IntermediateQueryTerm.greaterOrLessTerm(key, null, it.key)
+                        QueryPathValue(QueryPath(listReverse(listPrepend(term, reversePath))), it.value)
+                    }
+                }
+
+                GetTermsByDataIteratorState.RANGE -> {
+                    this.state = GetTermsByDataIteratorState.GREATER_THAN
+                    val result = terms.rangeTerms?.lookupPoint(ByteArrayButComparable(value)) ?: continue
+                    return mapSequence(result) {
+                        val bounds = it.key
+                        val term = IntermediateQueryTerm.greaterOrLessTerm(
+                            key,
+                            bounds.lowerBound.array,
+                            bounds.upperBound.array
+                        )
+                        QueryPathValue(QueryPath(listReverse(listPrepend(term, reversePath))), it.value)
+                    }
+                }
+
+                GetTermsByDataIteratorState.GREATER_THAN -> {
+                    this.state = GetTermsByDataIteratorState.STARTS_WITH
+                    val result = terms.greaterThanTerms?.iteratorLessThanOrEqualUnsafeSharedKey(value) ?: continue
+                    return mapSequence(result) {
+                        val term = IntermediateQueryTerm.greaterOrLessTerm(key, it.key, null)
+                        QueryPathValue(QueryPath(listReverse(listPrepend(term, reversePath))), it.value)
+                    }
+                }
+
+                GetTermsByDataIteratorState.STARTS_WITH -> {
+                    this.state = GetTermsByDataIteratorState.DONE
+                    val result = terms.startsWithTerms?.iteratorPrefixOfOrEqualToUnsafeSharedKey(value) ?: continue
+                    return mapSequence(result) {
+                        val term = IntermediateQueryTerm.startsWithTerm(key, it.key)
+                        QueryPathValue(QueryPath(listReverse(listPrepend(term, reversePath))), it.value)
+                    }
+                }
+
+                GetTermsByDataIteratorState.DONE -> {
+                    break
+                }
+            }
+        }
+        return null
+    }
+}
+
+internal enum class GetByDataIteratorState {
+    VALUE,
+    TERMS,
+    DONE
+}
+
 internal class GetByDataIterator<V: SizeComputable> private constructor(
     private val node: QueryTreeNode<V>,
     private val reversePath: ListNode<IntermediateQueryTerm>?,
     private val fullData: QPTrie<ByteArray>,
     private var state: GetByDataIteratorState,
-    private var currentData: QPTrie<ByteArray>,
 ): ConcatenatedIterator<QueryPathValue<V>>() {
-    private constructor(
+    private val keys = workingDataForAvailableKeys(fullData, node.keys).keysIntoUnsafeSharedKey(ArrayList())
+    private var keyOffset = 0
+
+    constructor(
         node: QueryTreeNode<V>,
         fullData: QPTrie<ByteArray>,
         reversePath: ListNode<IntermediateQueryTerm>?
-    ): this(node, reversePath, fullData, GetByDataIteratorState.VALUE, fullData)
+    ): this(node, reversePath, fullData, GetByDataIteratorState.VALUE)
 
     constructor(
         node: QueryTreeNode<V>,
         fullData: QPTrie<ByteArray>
     ): this(node, fullData, null)
 
-    private fun <T>workingDataForKeys(keyTargets: QPTrie<T>?): QPTrie<ByteArray> {
-        return workingDataForAvailableKeys(this.fullData, keyTargets)
-    }
-
-    private fun <T>workingDataForEqualityKeys(keyTargets: QPTrie<QPTrie<T>>?): QPTrie<ByteArray> {
-        return workingDataForAvailableEqualityKeys(this.fullData, keyTargets)
-    }
-
-    private fun pathForState(
-        state: GetByDataIteratorState,
-        key: ByteArray,
-        value: ByteArray,
-        result: V
-    ): QueryPathValue<V> {
-        val term = when (state) {
-            GetByDataIteratorState.LESS_THAN -> IntermediateQueryTerm.greaterOrLessTerm(key, null, value)
-            GetByDataIteratorState.GREATER_THAN -> IntermediateQueryTerm.greaterOrLessTerm(key, value, null)
-            GetByDataIteratorState.STARTS_WITH -> IntermediateQueryTerm.startsWithTerm(key, value)
-            else -> IntermediateQueryTerm.startsWithTerm(key, value)
-        }
-        val pathList = listPrepend(term, this.reversePath)
-        return QueryPathValue(QueryPath(listReverse(pathList)), result)
-    }
-
-    private fun pathForRange(
-        key: ByteArray,
-        value: IntervalRange<ByteArrayButComparable>,
-        result: V
-    ): QueryPathValue<V> {
-        val (lowerBound, upperBound) = value
-        val term = IntermediateQueryTerm.greaterOrLessTerm(key, lowerBound.array, upperBound.array)
-        val pathList = listPrepend(term, this.reversePath)
-        return QueryPathValue(QueryPath(listReverse(pathList)), result)
-    }
-
     override fun iteratorForOffset(offset: Int): Iterator<QueryPathValue<V>>? {
         if (this.state != GetByDataIteratorState.VALUE && this.fullData.size == 0L) {
             return null
         }
         while (this.state != GetByDataIteratorState.DONE) {
+            val node = this.node
+            val reversePath = this.reversePath
             when (this.state) {
                 GetByDataIteratorState.VALUE -> {
-                    this.state = GetByDataIteratorState.EQUALITY
-                    this.currentData = this.workingDataForEqualityKeys(this.node.equalityTerms)
-                    if (this.node.value != null) {
+                    this.state = GetByDataIteratorState.TERMS
+                    if (node.value != null) {
                         return SingleElementIterator(
-                            QueryPathValue(QueryPath(listReverse(this.reversePath)), this.node.value)
+                            QueryPathValue(QueryPath(listReverse(reversePath)), node.value)
                         )
                     }
                 }
 
-                GetByDataIteratorState.EQUALITY -> {
-                    if (currentData.size == 0L) {
-                        this.state = GetByDataIteratorState.LESS_THAN
-                        this.currentData = this.workingDataForKeys(this.node.lessThanTerms)
-                    } else {
-                        val (key, value) = this.currentData.minKeyValueUnsafeSharedKey()!!
-                        this.currentData = this.currentData.remove(key)
-                        val subNode = this.node.equalityTerms?.get(key)?.get(value) ?: continue
-                        val newReversePath = listPrepend(
-                            IntermediateQueryTerm.equalityTerm(key, value),
-                            this.reversePath
-                        )
-                        return this.registerChild(GetByDataIterator(subNode, this.fullData.remove(key), newReversePath))
-                    }
-                }
-
-                GetByDataIteratorState.LESS_THAN -> {
-                    if (currentData.size == 0L) {
-                        this.state = GetByDataIteratorState.RANGE
-                        this.currentData = this.workingDataForKeys(this.node.rangeTerms)
-                    } else {
-                        val (key, value) = this.currentData.minKeyValueUnsafeSharedKey()!!
-                        this.currentData = this.currentData.remove(key)
-                        val maybe = this.node.lessThanTerms?.get(
-                            key
-                        )?.iteratorGreaterThanOrEqualUnsafeSharedKey(
-                            value
-                        )
-                        if (maybe != null) {
-                            return mapSequence(maybe) { (predicateValue, result) ->
-                                this.pathForState(GetByDataIteratorState.LESS_THAN, key, predicateValue, result)
-                            }
-                        }
-                    }
-                }
-
-                GetByDataIteratorState.RANGE -> {
-                    if (currentData.size == 0L) {
-                        this.state = GetByDataIteratorState.GREATER_THAN
-                        this.currentData = this.workingDataForKeys(this.node.greaterThanTerms)
-                    } else {
-                        val (key, value) = this.currentData.minKeyValueUnsafeSharedKey()!!
-                        this.currentData = this.currentData.remove(key)
-                        val maybe = this.node.rangeTerms?.get(key)?.lookupPoint(
-                            ByteArrayButComparable(value)
-                        )
-                        if (maybe != null) {
-                            return mapSequence(maybe) { (predicateValue, result) ->
-                                this.pathForRange(key, predicateValue, result)
-                            }
-                        }
-                    }
-                }
-
-                GetByDataIteratorState.GREATER_THAN -> {
-                    if (currentData.size == 0L) {
-                        this.state = GetByDataIteratorState.STARTS_WITH
-                        this.currentData = this.workingDataForKeys(this.node.startsWithTerms)
-                    } else {
-                        val (key, value) = this.currentData.minKeyValueUnsafeSharedKey()!!
-                        this.currentData = this.currentData.remove(key)
-                        val maybe = this.node.greaterThanTerms?.get(
-                            key
-                        )?.iteratorLessThanOrEqualUnsafeSharedKey(
-                            value
-                        )
-                        if (maybe != null) {
-                            return mapSequence(maybe) { (predicateValue, result) ->
-                                this.pathForState(GetByDataIteratorState.GREATER_THAN, key, predicateValue, result)
-                            }
-                        }
-                    }
-                }
-
-                GetByDataIteratorState.STARTS_WITH -> {
-                    if (currentData.size == 0L) {
+                GetByDataIteratorState.TERMS -> {
+                    val keyOffset = this.keyOffset
+                    val keys = this.keys
+                    if (keyOffset >= keys.size) {
                         this.state = GetByDataIteratorState.DONE
                     } else {
-                        val (key, value) = this.currentData.minKeyValueUnsafeSharedKey()!!
-                        this.currentData = this.currentData.remove(key)
-                        val maybe = this.node.startsWithTerms?.get(
-                            key
-                        )?.iteratorPrefixOfOrEqualToUnsafeSharedKey(
-                            value
+                        val targetKey = keys[keyOffset]
+                        val fullData = this.fullData
+                        this.keyOffset++
+                        val targetTerms = node.keys.get(targetKey) ?: continue
+                        val value = fullData.get(targetKey) ?: continue
+                        return GetTermsByDataIterator(
+                            targetKey,
+                            value,
+                            targetTerms,
+                            fullData.remove(targetKey),
+                            reversePath
                         )
-                        if (maybe != null) {
-                            return mapSequence(maybe) { (predicateValue, result) ->
-                                this.pathForState(GetByDataIteratorState.STARTS_WITH, key, predicateValue, result)
-                            }
-                        }
                     }
                 }
 
                 GetByDataIteratorState.DONE -> {
+                    break
+                }
+            }
+        }
+        return null
+    }
+}
+
+internal class FullTermsByDataIterator<V : SizeComputable> private constructor (
+    private val key: ByteArray,
+    private val terms: QueryTreeTerms<V>,
+    private val reversePath: ListNode<IntermediateQueryTerm>?,
+    private var state: GetTermsByDataIteratorState
+): ConcatenatedIterator<QueryPathValue<V>>() {
+    constructor(
+        key: ByteArray,
+        terms: QueryTreeTerms<V>,
+        reversePath: ListNode<IntermediateQueryTerm>?
+    ): this(key, terms, reversePath, GetTermsByDataIteratorState.EQUALITY)
+
+    override fun iteratorForOffset(offset: Int): Iterator<QueryPathValue<V>>? {
+        val key = this.key
+        val reversePath = this.reversePath
+
+        while (this.state != GetTermsByDataIteratorState.DONE) {
+            when (this.state) {
+                GetTermsByDataIteratorState.EQUALITY -> {
+                    this.state = GetTermsByDataIteratorState.LESS_THAN
+                    val equalityTerms = this.terms.equalityTerms ?: continue
+                    return FlattenIterator(mapSequence(equalityTerms) {
+                        val term = IntermediateQueryTerm.equalityTerm(key, it.key)
+                        FullTreeIterator(it.value, listPrepend(term, reversePath))
+                    })
+                }
+
+                GetTermsByDataIteratorState.LESS_THAN -> {
+                    this.state = GetTermsByDataIteratorState.RANGE
+                    val lessThanTerms = this.terms.lessThanTerms ?: continue
+                    return mapSequence(lessThanTerms) {
+                        val term = IntermediateQueryTerm.greaterOrLessTerm(key,null, it.key)
+                        QueryPathValue(QueryPath(listReverse(listPrepend(term, reversePath))), it.value)
+                    }
+                }
+
+                GetTermsByDataIteratorState.RANGE -> {
+                    this.state = GetTermsByDataIteratorState.GREATER_THAN
+                    val rangeTerms = this.terms.rangeTerms ?: continue
+                    return mapSequence(rangeTerms) {
+                        val value = it.first
+                        val term = IntermediateQueryTerm.greaterOrLessTerm(
+                            key,
+                            value.lowerBound.array,
+                            value.upperBound.array
+                        )
+                        QueryPathValue(QueryPath(listReverse(listPrepend(term, reversePath))), it.second)
+                    }
+                }
+
+                GetTermsByDataIteratorState.GREATER_THAN -> {
+                    this.state = GetTermsByDataIteratorState.STARTS_WITH
+                    val greaterThanTerms = this.terms.greaterThanTerms ?: continue
+                    return mapSequence(greaterThanTerms) {
+                        val term = IntermediateQueryTerm.greaterOrLessTerm(key, it.key, null)
+                        QueryPathValue(QueryPath(listReverse(listPrepend(term, reversePath))), it.value)
+                    }
+                }
+
+                GetTermsByDataIteratorState.STARTS_WITH -> {
+                    this.state = GetTermsByDataIteratorState.DONE
+                    val startsWithTerms = this.terms.startsWithTerms ?: continue
+                    return mapSequence(startsWithTerms) {
+                        val term = IntermediateQueryTerm.startsWithTerm(key, it.key)
+                        QueryPathValue(QueryPath(listReverse(listPrepend(term, reversePath))), it.value)
+                    }
+                }
+
+                GetTermsByDataIteratorState.DONE -> {
                     break
                 }
             }
@@ -955,101 +1025,30 @@ internal class FullTreeIterator<V: SizeComputable> private constructor(
     private val reversePath: ListNode<IntermediateQueryTerm>?,
     private var state: GetByDataIteratorState
 ): ConcatenatedIterator<QueryPathValue<V>>() {
-    constructor (node: QueryTreeNode<V>): this(node, null, GetByDataIteratorState.VALUE)
+    constructor (
+        node: QueryTreeNode<V>,
+        reversePath: ListNode<IntermediateQueryTerm>?
+    ): this(node, reversePath, GetByDataIteratorState.VALUE)
 
     override fun iteratorForOffset(offset: Int): Iterator<QueryPathValue<V>>? {
+        val node = this.node
+        val reversePath = this.reversePath
         while (this.state != GetByDataIteratorState.DONE) {
             when (this.state) {
                 GetByDataIteratorState.VALUE -> {
-                    this.state = GetByDataIteratorState.EQUALITY
-                    if (this.node.value != null) {
+                    this.state = GetByDataIteratorState.TERMS
+                    if (node.value != null) {
                         return SingleElementIterator(
-                            QueryPathValue(QueryPath(listReverse(this.reversePath)), this.node.value)
+                            QueryPathValue(QueryPath(listReverse(reversePath)), node.value)
                         )
                     }
                 }
 
-                GetByDataIteratorState.EQUALITY -> {
-                    this.state = GetByDataIteratorState.LESS_THAN
-                    if (this.node.equalityTerms != null) {
-                        return FlattenIterator(mapSequence(this.node.equalityTerms) { (key, values) ->
-                            FlattenIterator(mapSequence(values) { (value, child) ->
-                                val term = IntermediateQueryTerm.equalityTerm(key, value)
-                                this.registerChild(
-                                    FullTreeIterator(
-                                        child,
-                                        listPrepend(term, this.reversePath),
-                                        GetByDataIteratorState.VALUE
-                                    )
-                                )
-                            })
-                        })
-                    }
-                }
-
-                GetByDataIteratorState.LESS_THAN -> {
-                    this.state = GetByDataIteratorState.RANGE
-                    if (this.node.lessThanTerms != null) {
-                        return FlattenIterator(mapSequence(this.node.lessThanTerms) { (key, values) ->
-                            mapSequence(values) { (value, result) ->
-                                val term = IntermediateQueryTerm.greaterOrLessTerm(key, null, value)
-                                QueryPathValue(
-                                    QueryPath(listReverse(listPrepend(term, this.reversePath))),
-                                    result
-                                )
-                            }
-                        })
-                    }
-                }
-
-                GetByDataIteratorState.RANGE -> {
-                    this.state = GetByDataIteratorState.GREATER_THAN
-                    if (this.node.rangeTerms != null) {
-                        return FlattenIterator(mapSequence(this.node.rangeTerms) { (key, values) ->
-                            mapSequence(values) { (bounds, result, _) ->
-                                val (lowerBound, upperBound) = bounds
-                                val term = IntermediateQueryTerm.greaterOrLessTerm(
-                                    key,
-                                    lowerBound.array,
-                                    upperBound.array
-                                )
-                                QueryPathValue(
-                                    QueryPath(listReverse(listPrepend(term, this.reversePath))),
-                                    result
-                                )
-                            }
-                        })
-                    }
-                }
-
-                GetByDataIteratorState.GREATER_THAN -> {
-                    this.state = GetByDataIteratorState.STARTS_WITH
-                    if (this.node.greaterThanTerms != null) {
-                        return FlattenIterator(mapSequence(this.node.greaterThanTerms) { (key, values) ->
-                            mapSequence(values) { (value, result) ->
-                                val term = IntermediateQueryTerm.greaterOrLessTerm(key, value, null)
-                                QueryPathValue(
-                                    QueryPath(listReverse(listPrepend(term, this.reversePath))),
-                                    result
-                                )
-                            }
-                        })
-                    }
-                }
-
-                GetByDataIteratorState.STARTS_WITH -> {
+                GetByDataIteratorState.TERMS -> {
                     this.state = GetByDataIteratorState.DONE
-                    if (this.node.startsWithTerms != null) {
-                        return FlattenIterator(mapSequence(this.node.startsWithTerms) { (key, values) ->
-                            mapSequence(values) { (value, result) ->
-                                val term = IntermediateQueryTerm.startsWithTerm(key, value)
-                                QueryPathValue(
-                                    QueryPath(listReverse(listPrepend(term, this.reversePath))),
-                                    result
-                                )
-                            }
-                        })
-                    }
+                    return FlattenIterator(mapSequence(node.keys) {
+                        FullTermsByDataIterator(it.key, it.value, reversePath)
+                    })
                 }
 
                 GetByDataIteratorState.DONE -> {
