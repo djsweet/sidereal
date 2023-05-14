@@ -429,10 +429,10 @@ private abstract class IntervalTreeCommonIterator<T : Comparable<T>, V, R>(priva
         return this.nextUp != null
     }
 
-    protected abstract fun yieldNode(n: TreeNode<T, V>): Boolean
-    protected abstract fun transformNode(n: TreeNode<T, V>): R
-    protected abstract fun iterateRight(n: TreeNode<T, V>): Boolean
-    protected abstract fun iterateLeft(n: TreeNode<T, V>): Boolean
+    abstract fun yieldNode(n: TreeNode<T, V>): Boolean
+    abstract fun transformNode(n: TreeNode<T, V>): R
+    abstract fun iterateRight(n: TreeNode<T, V>): Boolean
+    abstract fun iterateLeft(n: TreeNode<T, V>): Boolean
 
     override fun next(): R {
         this.initialPushIfNecessary()
@@ -612,6 +612,41 @@ private class InOrderIterator<T: Comparable<T>, V>(tree: IntervalTree<T, V>): It
     }
 }
 
+private fun<T: Comparable<T>, V> visitFromIterator(
+    node: TreeNode<T, V>,
+    iterator: IntervalTreePairIterator<T, V>,
+    receiver: (result: IntervalTreeKeyValue<T, V>) -> Unit
+) {
+    val left = node.leftNode
+    if (left != null && iterator.iterateLeft(node)) {
+        visitFromIterator(left, iterator, receiver)
+    }
+    if (iterator.yieldNode(node)) {
+        receiver(iterator.transformNode(node))
+    }
+    val right = node.rightNode ?: return
+    if (iterator.iterateRight(node)) {
+        visitFromIterator(right, iterator, receiver)
+    }
+}
+
+private fun<T: Comparable<T>, V> visitFromIteratorForFull(
+    node: TreeNode<T, V>,
+    iterator: IntervalTreeIterator<T, V>,
+    receiver: (result: Triple<IntervalRange<T>, V, Int>) -> Unit
+) {
+    val left = node.leftNode
+    if (left != null) {
+        // For a full iterator, we always iterate left.
+        visitFromIteratorForFull(left, iterator, receiver)
+    }
+    // For a full iterator, we always yield.
+    receiver(iterator.transformNode(node))
+    val right = node.rightNode ?: return
+    // For a full iterator, we always iterate right.
+    visitFromIteratorForFull(right, iterator, receiver)
+}
+
 class IntervalTree<T: Comparable<T>, V> private constructor(
     val size: Long,
     internal val root: TreeNode<T, V>?
@@ -626,9 +661,20 @@ class IntervalTree<T: Comparable<T>, V> private constructor(
         return IntervalTreePointLookupIterator(this, at)
     }
 
+    fun lookupPointVisit(at: T, receiver: (value: IntervalTreeKeyValue<T, V>) -> Unit) {
+        val root = this.root ?: return
+        visitFromIterator(root, IntervalTreePointLookupIterator(this, at), receiver)
+    }
+
     fun lookupRange(maybeRange: Pair<T, T>): Iterator<IntervalTreeKeyValue<T, V>> {
         val enforced = enforceRangeInvariants(maybeRange)
         return IntervalTreeRangeLookupIterator(this, enforced.first, enforced.second)
+    }
+
+    fun lookupRangeVisit(maybeRange: Pair<T, T>, receiver: (value: IntervalTreeKeyValue<T, V>) -> Unit) {
+        val root = this.root ?: return
+        val enforced = enforceRangeInvariants(maybeRange)
+        visitFromIterator(root, IntervalTreeRangeLookupIterator(this, enforced.first, enforced.second), receiver)
     }
 
     fun lookupExactRange(maybeRange: Pair<T, T>): V? {
@@ -680,6 +726,11 @@ class IntervalTree<T: Comparable<T>, V> private constructor(
 
     override fun iterator(): Iterator<Triple<IntervalRange<T>, V, Int>> {
         return IntervalTreeIterator(this)
+    }
+
+    fun visitAll(receiver: (value: Triple<IntervalRange<T>, V, Int>) -> Unit) {
+        val root = this.root ?: return
+        visitFromIteratorForFull(root, IntervalTreeIterator(this), receiver)
     }
 
     internal fun inOrderIterator(): Iterator<Triple<IntervalRange<T>, V, Pair<Int, String>>> {

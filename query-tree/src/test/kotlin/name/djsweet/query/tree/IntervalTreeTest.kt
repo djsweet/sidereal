@@ -501,6 +501,7 @@ class IntervalTreeTest {
             // Make sure that the weight is always -1 <= w <= 1, and that
             // the values match up.
             var maxRange: IntervalRange<Int>? = null
+            val expectedTreeEntries = ArrayList<Triple<IntervalRange<Int>, String, Int>>()
             for ((range, value, depth) in tree) {
                 // Note that we can generate pairs that don't have the order invariant enforced,
                 // but the order invariant will implicitly be enforced by the tree code.
@@ -514,7 +515,14 @@ class IntervalTreeTest {
                 assertTrue(-1 <= depth)
                 assertTrue(depth <= 1)
                 maxRange = range
+                expectedTreeEntries.add(Triple(range, value, depth))
             }
+
+            val seenTreeEntries = ArrayList<Triple<IntervalRange<Int>, String, Int>>()
+            tree.visitAll {
+                seenTreeEntries.add(it)
+            }
+            assertEquals(expectedTreeEntries.toList(), seenTreeEntries.toList())
 
             // Third, test min/max keys
             val firstItemIt = tree.iterator()
@@ -529,7 +537,7 @@ class IntervalTreeTest {
                 assertNull(tree.maxRange())
             }
 
-            // Fourth, test that all point lookups function as intended
+            // Fourth, test that all range lookups function as intended
             for (range in ranges) {
                 val expectedRangeSet = HashSet<IntervalTreeKeyValue<Int, String>>()
                 val enforcedInvariantRange = enforceRangeInvariants(range)
@@ -548,11 +556,17 @@ class IntervalTreeTest {
                     receivedRangeSet.add(received)
                 }
                 assertEquals(expectedRangeSet, receivedRangeSet)
+
+                val visitedRangeSet = HashSet<IntervalTreeKeyValue<Int, String>>()
+                tree.lookupRangeVisit(range) {
+                    visitedRangeSet.add(it)
+                }
+                assertEquals(expectedRangeSet, visitedRangeSet)
             }
 
-            // Fifth, test that all range lookups function as intended
+            // Fifth, test that all point lookups function as intended
             for (point in points) {
-                val expectedRangeSet = HashSet<IntervalTreeKeyValue<Int, String>>()
+                val expectedPointSet = HashSet<IntervalTreeKeyValue<Int, String>>()
                 val pointRange = Pair(point, point)
                 for (entry in entryMap.entries) {
                     if (entry.value.size <= i) {
@@ -562,13 +576,19 @@ class IntervalTreeTest {
                     if (!rangeOverlapsPairs(enforcedInvariantEntry, pointRange)) {
                         continue
                     }
-                    expectedRangeSet.add(IntervalTreeKeyValue(IntervalRange.fromPair(enforcedInvariantEntry), entry.value[i]))
+                    expectedPointSet.add(IntervalTreeKeyValue(IntervalRange.fromPair(enforcedInvariantEntry), entry.value[i]))
                 }
                 val receivedRangeSet = HashSet<IntervalTreeKeyValue<Int, String>>()
                 for (received in tree.lookupPoint(point)) {
                     receivedRangeSet.add(received)
                 }
-                assertEquals(expectedRangeSet, receivedRangeSet)
+                assertEquals(expectedPointSet, receivedRangeSet)
+
+                val visitedPointSet = HashSet<IntervalTreeKeyValue<Int, String>>()
+                tree.lookupPointVisit(point) {
+                    visitedPointSet.add(it)
+                }
+                assertEquals(expectedPointSet, visitedPointSet)
             }
 
             // Finally, prepare for the next major iteration

@@ -72,6 +72,9 @@ benchmark {
         create("trieIterator") {
             include("QPTrieBenchmark\\.iterator.*")
         }
+        create("trieVisit") {
+            include("QPTrieBenchmark\\.visit.*")
+        }
         create("identitySet") {
             include("IdentitySetBenchmark\\..*")
         }
@@ -80,6 +83,9 @@ benchmark {
         }
         create("identitySetIterator") {
             include("IdentitySetBenchmark\\.iterator.*")
+        }
+        create("identitySetVisit") {
+            include("IdentitySetBenchmark\\.visit.*")
         }
         create("persistentSet") {
             include("PersistentSetBenchmark\\..*")

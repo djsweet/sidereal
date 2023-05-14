@@ -59,4 +59,14 @@ class IdentitySet<T> private constructor(private val trie: QPTrie<ListNode<T>>):
             listIterator(it.value)
         })
     }
+
+    fun visitAll(receiver: (value: T) -> Unit) {
+        this.trie.visitUnsafeSharedKey {
+            var node: ListNode<T>? = it.value
+            while (node != null) {
+                receiver(node.value)
+                node = node.tail
+            }
+        }
+    }
 }

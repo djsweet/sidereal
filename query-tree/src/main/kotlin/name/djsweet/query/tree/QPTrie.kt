@@ -935,17 +935,240 @@ private tailrec fun<V> minKeyValue(node: OddNybble<V>): QPTrieKeyValue<V> {
     }
 }
 
-private fun<V> keysInto(node: OddNybble<V>, result: ArrayList<ByteArray>) {
+typealias VisitReceiver<V> = (value: QPTrieKeyValue<V>) -> Unit
+
+private fun<V> visitAscendingUnsafeSharedKeyImpl(node: OddNybble<V>, receiver: VisitReceiver<V>) {
     val valuePair = node.valuePair
     val evenDispatch = node.nybbleDispatch
     if (valuePair != null) {
-        result.add(valuePair.key)
+        receiver(valuePair)
     }
     for (evenNybble in evenDispatch) {
         val oddDispatch = evenNybble.nybbleDispatch
         for (oddNybble in oddDispatch) {
-            keysInto(oddNybble, result)
+            visitAscendingUnsafeSharedKeyImpl(oddNybble, receiver)
         }
+    }
+}
+
+private fun<V> visitDescendingUnsafeSharedKeyImpl(node: OddNybble<V>, receiver: VisitReceiver<V>) {
+    val evenDispatch = node.nybbleDispatch
+    for (i in evenDispatch.size - 1 downTo 0) {
+        val oddDispatch = evenDispatch[i].nybbleDispatch
+        for (j in oddDispatch.size - 1 downTo 0) {
+            visitDescendingUnsafeSharedKeyImpl(oddDispatch[j], receiver)
+        }
+    }
+    val valuePair = node.valuePair
+    if (valuePair != null) {
+        receiver(valuePair)
+    }
+}
+
+private fun<V> visitLessThanOrEqualUnsafeSharedKeyImpl(
+    node: OddNybble<V>,
+    compareTo: ByteArray,
+    compareOffset: Int,
+    receiver: VisitReceiver<V>
+) {
+    if (compareOffset > compareTo.size) {
+        return
+    }
+    val prefixComparison = node.compareLookupSliceToCurrentPrefix(
+        compareTo,
+        compareOffset - node.prefix.size
+    )
+    if (prefixComparison > 0) {
+        return
+    }
+    if (prefixComparison < 0) {
+        return visitDescendingUnsafeSharedKeyImpl(node, receiver)
+    }
+
+    if (compareOffset < compareTo.size) {
+        val compareByte = compareTo[compareOffset]
+        val compareHigh = evenNybbleFromByte(compareByte)
+        val compareLow = oddNybbleFromByte(compareByte)
+        val nybbleValues = node.nybbleValues
+        val nybbleDispatch = node.nybbleDispatch
+        var i = nybbleValues.size - 1
+        while (i >= 0 && compareBytesUnsigned(nybbleValues[i], compareHigh) > 0) {
+            i--
+        }
+        if (i < 0) {
+            if (node.valuePair != null) {
+                receiver(node.valuePair)
+            }
+            return
+        }
+        if (nybbleValues[i] == compareHigh) {
+            val evenNybble = nybbleDispatch[i]
+            val oddValues = evenNybble.nybbleValues
+            val oddDispatch = evenNybble.nybbleDispatch
+            var j = oddValues.size - 1
+            while (j >= 0 && compareBytesUnsigned(oddValues[j], compareLow) > 0) {
+                j--
+            }
+            if (j >= 0) {
+                if (oddValues[j] == compareLow) {
+                    val oddNybble = oddDispatch[j]
+                    visitLessThanOrEqualUnsafeSharedKeyImpl(
+                        oddNybble,
+                        compareTo,
+                        oddNybble.prefix.size + compareOffset + 1,
+                        receiver
+                    )
+                }
+                j -= 1
+            }
+            while (j >= 0) {
+                visitDescendingUnsafeSharedKeyImpl(oddDispatch[j], receiver)
+                j -= 1
+            }
+            i -= 1
+        }
+        while (i >= 0) {
+            val oddDispatch = nybbleDispatch[i].nybbleDispatch
+            for (j in oddDispatch.size - 1 downTo 0) {
+                visitDescendingUnsafeSharedKeyImpl(oddDispatch[j], receiver)
+            }
+            i -= 1
+        }
+    }
+    if (node.valuePair != null) {
+        receiver(node.valuePair)
+    }
+}
+
+private fun<V> visitGreaterThanOrEqualUnsafeSharedKeyImpl(
+    node: OddNybble<V>,
+    compareTo: ByteArray,
+    compareOffset: Int,
+    receiver: VisitReceiver<V>
+) {
+    if (compareOffset > compareTo.size) {
+        return
+    }
+    val prefixComparison = node.compareLookupSliceToCurrentPrefix(
+        compareTo,
+        compareOffset - node.prefix.size
+    )
+    if (prefixComparison < 0) {
+        return
+    }
+    if (prefixComparison > 0 || compareOffset == compareTo.size) {
+        return visitAscendingUnsafeSharedKeyImpl(node, receiver)
+    }
+
+    val compareByte = compareTo[compareOffset]
+    val compareHigh = evenNybbleFromByte(compareByte)
+    val compareLow = oddNybbleFromByte(compareByte)
+    val nybbleValues = node.nybbleValues
+    val nybbleDispatch = node.nybbleDispatch
+    var i = 0
+    while (i < nybbleValues.size && compareBytesUnsigned(nybbleValues[i], compareHigh) < 0) {
+        i++
+    }
+    if (i >= nybbleValues.size) {
+        return
+    }
+    if (nybbleValues[i] == compareHigh) {
+        val evenNybble = nybbleDispatch[i]
+        val evenValues = evenNybble.nybbleValues
+        val evenDispatch = evenNybble.nybbleDispatch
+        var j = 0
+        while (j < evenValues.size && compareBytesUnsigned(evenValues[j], compareLow) < 0) {
+            j++
+        }
+        if (j < evenValues.size) {
+            if (evenValues[j] == compareLow) {
+                val oddNybble = evenDispatch[j]
+                visitGreaterThanOrEqualUnsafeSharedKeyImpl(
+                    oddNybble,
+                    compareTo,
+                    compareOffset + oddNybble.prefix.size + 1,
+                    receiver
+                )
+                j++
+            }
+            while (j < evenValues.size) {
+                visitAscendingUnsafeSharedKeyImpl(evenDispatch[j], receiver)
+                j++
+            }
+        }
+        i++
+    }
+    while (i < nybbleDispatch.size) {
+        val oddDispatch = nybbleDispatch[i].nybbleDispatch
+        for (element in oddDispatch) {
+            visitAscendingUnsafeSharedKeyImpl(element, receiver)
+        }
+        i++
+    }
+}
+
+private tailrec fun<V> visitStartsWithUnsafeSharedKeyImpl(
+    node: OddNybble<V>,
+    compareTo: ByteArray,
+    compareOffset: Int,
+    receiver: VisitReceiver<V>
+) {
+    if (compareOffset >= compareTo.size) {
+        return visitAscendingUnsafeSharedKeyImpl(node, receiver)
+    }
+    val prefixComparison = node.compareLookupSliceToCurrentPrefix(
+        compareTo,
+        compareOffset - node.prefix.size
+    )
+    if (prefixComparison != 0) {
+        return
+    }
+
+    val compareByte = compareTo[compareOffset]
+    val child = node.dispatchByte(compareByte)?.dispatchByte(compareByte) ?: return
+    return visitStartsWithUnsafeSharedKeyImpl(
+        child,
+        compareTo,
+        compareOffset + child.prefix.size + 1,
+        receiver
+    )
+}
+
+private tailrec fun<V> visitPrefixOfOrEqualToUnsafeSharedKeyImpl(
+    node: OddNybble<V>,
+    compareTo: ByteArray,
+    compareOffset: Int,
+    receiver: VisitReceiver<V>
+) {
+    if (compareOffset > compareTo.size) {
+        return
+    }
+    val prefixComparison = node.compareLookupSliceToCurrentPrefix(
+        compareTo,
+        compareOffset - node.prefix.size
+    )
+    if (prefixComparison != 0) {
+        return
+    }
+    if (node.valuePair != null) {
+        receiver(node.valuePair)
+    }
+    if (compareOffset == compareTo.size) {
+        return
+    }
+    val compareByte = compareTo[compareOffset]
+    val child = node.dispatchByte(compareByte)?.dispatchByte(compareByte) ?: return
+    return visitPrefixOfOrEqualToUnsafeSharedKeyImpl(
+        child,
+        compareTo,
+        compareOffset + child.prefix.size + 1,
+        receiver
+    )
+}
+
+private fun<V> keysInto(node: OddNybble<V>, result: ArrayList<ByteArray>) {
+    visitAscendingUnsafeSharedKeyImpl(node) {
+        result.add(it.key)
     }
 }
 
@@ -1031,11 +1254,23 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
         return this.iteratorAscendingUnsafeSharedKey()
     }
 
+    fun visitUnsafeSharedKey(receiver: VisitReceiver<V>) {
+        return this.visitAscendingUnsafeSharedKey(receiver)
+    }
+
     fun iteratorAscendingUnsafeSharedKey(): Iterator<QPTrieKeyValue<V>> {
         return if (this.root == null) {
             EmptyIterator()
         } else {
             this.root.fullIteratorAscending(this.noopRegisterChildIterator)
+        }
+    }
+
+    fun visitAscendingUnsafeSharedKey(receiver: VisitReceiver<V>) {
+        if (this.root == null) {
+            return
+        } else {
+            return visitAscendingUnsafeSharedKeyImpl(this.root, receiver)
         }
     }
 
@@ -1047,12 +1282,25 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
         }
     }
 
+    fun visitDescendingUnsafeSharedKey(receiver: VisitReceiver<V>) {
+        if (this.root == null) {
+            return
+        } else {
+            return visitDescendingUnsafeSharedKeyImpl(this.root, receiver)
+        }
+    }
+
     fun iteratorLessThanOrEqualUnsafeSharedKey(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
         return if (this.root == null) {
             EmptyIterator()
         } else {
             this.root.iteratorForLessThanOrEqual(key, 0, this.noopRegisterChildIterator)
         }
+    }
+
+    fun visitLessThanOrEqualUnsafeSharedKey(key: ByteArray, receiver: VisitReceiver<V>) {
+        val root = this.root ?: return
+        visitLessThanOrEqualUnsafeSharedKeyImpl(root, key, root.prefix.size, receiver)
     }
 
     fun iteratorGreaterThanOrEqualUnsafeSharedKey(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
@@ -1063,6 +1311,11 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
         }
     }
 
+    fun visitGreaterThanOrEqualUnsafeSharedKey(key: ByteArray, receiver: VisitReceiver<V>) {
+        val root = this.root ?: return
+        visitGreaterThanOrEqualUnsafeSharedKeyImpl(root, key, root.prefix.size, receiver)
+    }
+
     fun iteratorStartsWithUnsafeSharedKey(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
         return if (this.root == null) {
             EmptyIterator()
@@ -1071,12 +1324,22 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
         }
     }
 
+    fun visitStartsWithUnsafeSharedKey(key: ByteArray, receiver: VisitReceiver<V>) {
+        val root = this.root ?: return
+        return visitStartsWithUnsafeSharedKeyImpl(root, key, root.prefix.size, receiver)
+    }
+
     fun iteratorPrefixOfOrEqualToUnsafeSharedKey(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
         return if (this.root == null) {
             EmptyIterator()
         } else {
             LookupPrefixOfOrEqualToIterator(key, this.root)
         }
+    }
+
+    fun visitPrefixOfOrEqualToUnsafeSharedKey(key: ByteArray, receiver: VisitReceiver<V>) {
+        val root = this.root ?: return
+        return visitPrefixOfOrEqualToUnsafeSharedKeyImpl(root, key, root.prefix.size, receiver)
     }
 
     fun minKeyValueUnsafeSharedKey(): QPTrieKeyValue<V>? {

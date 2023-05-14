@@ -64,6 +64,15 @@ class IdentitySetBenchmark {
         }
         return lastOne
     }
+
+    @Benchmark
+    fun visitAll(spec: IdentitySetRunSpec): Int {
+        var lastOne = 0
+        spec.set.visitAll {
+            lastOne = it
+        }
+        return lastOne
+    }
 }
 
 @State(Scope.Benchmark)

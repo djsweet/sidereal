@@ -140,6 +140,38 @@ class QPTrieBenchmark {
         }
         return lastEntry
     }
+
+    @Benchmark
+    fun visit00Full(spec: QPTrieRunSpec): QPTrieKeyValue<Boolean>? {
+        var lastEntry: QPTrieKeyValue<Boolean>? = null
+        var seenEntries = 0
+        spec.trie.visitUnsafeSharedKey {
+            lastEntry = it
+            seenEntries++
+        }
+        if (seenEntries.toLong() != spec.trie.size) {
+            throw Error("Only saw some entries in full iteration")
+        }
+        return lastEntry
+    }
+
+    @Benchmark
+    fun visit01LessThanOrEqual(spec: QPTrieRunSpec): QPTrieKeyValue<Boolean>? {
+        var lastEntry: QPTrieKeyValue<Boolean>? = null
+        spec.trie.visitLessThanOrEqualUnsafeSharedKey(spec.lookup) {
+            lastEntry = it
+        }
+        return lastEntry
+    }
+
+    @Benchmark
+    fun visit02GreaterThanOrEqual(spec: QPTrieRunSpec): QPTrieKeyValue<Boolean>? {
+        var lastEntry: QPTrieKeyValue<Boolean>? = null
+        spec.trie.visitGreaterThanOrEqualUnsafeSharedKey(spec.lookup) {
+            lastEntry = it
+        }
+        return lastEntry
+    }
 }
 
 class ComparableByteArray(val array: ByteArray): Comparable<ComparableByteArray> {

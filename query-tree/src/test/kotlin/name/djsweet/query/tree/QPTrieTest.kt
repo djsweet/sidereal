@@ -57,6 +57,14 @@ private fun <V> verifyIteratorInvariants(t: QPTrie<V>, spec: IntervalTree<ByteAr
     val givenAscendingExplicit = fixIteratorForInvariants(t.iteratorAscendingUnsafeSharedKey())
     assertListOfByteArrayValuePairsEquals(expectedAscending, givenAscendingExplicit)
 
+    val ascendingVisited = ArrayList<Pair<ByteArrayButComparable, V>>()
+    t.visitAscendingUnsafeSharedKey { ascendingVisited.add(ByteArrayButComparable(it.key) to it.value) }
+    assertListOfByteArrayValuePairsEquals(expectedAscending, ascendingVisited)
+
+    ascendingVisited.clear()
+    t.visitUnsafeSharedKey { ascendingVisited.add(ByteArrayButComparable(it.key) to it.value) }
+    assertListOfByteArrayValuePairsEquals(expectedAscending, ascendingVisited)
+
     val keyResult = ArrayList<ByteArray>()
     t.keysIntoUnsafeSharedKey(keyResult)
     assertEquals(t.size.toInt(), keyResult.size)
@@ -67,6 +75,10 @@ private fun <V> verifyIteratorInvariants(t: QPTrie<V>, spec: IntervalTree<ByteAr
 
     val givenDescending = fixIteratorForInvariants(t.iteratorDescendingUnsafeSharedKey())
     assertListOfByteArrayValuePairsEquals(expectedDescending, givenDescending)
+
+    val descendingVisited = ArrayList<Pair<ByteArrayButComparable, V>>()
+    t.visitDescendingUnsafeSharedKey { descendingVisited.add(ByteArrayButComparable(it.key) to it.value) }
+    assertListOfByteArrayValuePairsEquals(expectedDescending, descendingVisited)
 
     if (spec.size == 0L) {
         return
@@ -82,6 +94,12 @@ private fun <V> verifyIteratorInvariants(t: QPTrie<V>, spec: IntervalTree<ByteAr
         }.toList().reversed()
         val minRanges = fixIteratorForInvariants(t.iteratorLessThanOrEqualUnsafeSharedKey(element.first.array))
         assertListOfByteArrayValuePairsEquals(expectedUpTo, minRanges)
+
+        val lessThanVisited = ArrayList<Pair<ByteArrayButComparable, V>>()
+        t.visitLessThanOrEqualUnsafeSharedKey(element.first.array) {
+            lessThanVisited.add(ByteArrayButComparable(it.key) to it.value)
+        }
+        assertListOfByteArrayValuePairsEquals(expectedUpTo, lessThanVisited)
     }
 
     // Greater than or equal checks
@@ -91,11 +109,21 @@ private fun <V> verifyIteratorInvariants(t: QPTrie<V>, spec: IntervalTree<ByteAr
         }.toList()
         val maxRanges = fixIteratorForInvariants(t.iteratorGreaterThanOrEqualUnsafeSharedKey(element.first.array))
         assertListOfByteArrayValuePairsEquals(expectedDownTo, maxRanges)
+
+        val greaterThanVisited = ArrayList<Pair<ByteArrayButComparable, V>>()
+        t.visitGreaterThanOrEqualUnsafeSharedKey(element.first.array) {
+            greaterThanVisited.add(ByteArrayButComparable(it.key) to it.value)
+        }
+        assertListOfByteArrayValuePairsEquals(expectedDownTo, greaterThanVisited)
     }
 }
 
 class QPTrieTest {
-    class PublicByteArrayButComparable internal constructor(internal val actual: ByteArrayButComparable)
+    class PublicByteArrayButComparable internal constructor(internal val actual: ByteArrayButComparable) {
+        override fun toString(): String {
+            return this.actual.toString()
+        }
+    }
 
     @Test fun emptyTrie() {
         val trie = QPTrie<String>()
@@ -498,8 +526,19 @@ class QPTrieTest {
                         (key, value) -> this.qpTrieKeyValueForBytes(key, value)
                     } .iterator()
                 )
+                val visitedStartsWith = ArrayList<Pair<ByteArrayButComparable, String>>()
+                trie.visitStartsWithUnsafeSharedKey(lookupKey) {
+                    visitedStartsWith.add(ByteArrayButComparable(it.key) to it.value)
+                }
+                assertListOfByteArrayValuePairsEquals(expectedStartsWith, visitedStartsWith)
+
                 val receivedPrefixOf = fixIteratorForInvariants(trie.iteratorPrefixOfOrEqualToUnsafeSharedKey(lookupKey))
                 assertListOfByteArrayValuePairsEquals(expectedPrefixOf, receivedPrefixOf)
+                val visitedPrefixOf = ArrayList<Pair<ByteArrayButComparable, String>>()
+                trie.visitPrefixOfOrEqualToUnsafeSharedKey(lookupKey) {
+                    visitedPrefixOf.add(ByteArrayButComparable(it.key) to it.value)
+                }
+                assertListOfByteArrayValuePairsEquals(expectedPrefixOf, visitedPrefixOf)
             }
         }
     }
@@ -578,5 +617,40 @@ class QPTrieTest {
         updateKey[0] = 3
         assertEquals(7, trie.get(byteArrayOf(0)))
         assertEquals(8, trie.get(byteArrayOf(2)))
+    }
+
+    @Test
+    fun visitGreaterThanWithOnlyTwoElements() {
+        val greaterArray = byteArrayOf(
+            57, 9, -111, 37, 115, 7, -66, -20,
+            95, 106, 78, -13, 38, -95, -7, 35,
+            -39, -49, 113, 17, -37, -64, 84, 14,
+            -37, 52, 8, 19, 18, -80
+        )
+        val trie = QPTrie(listOf(
+            byteArrayOf(0) to "",
+            greaterArray to "greater"
+        ))
+
+        val greaterReceived = ArrayList<Pair<ByteArrayButComparable, String>>()
+        trie.visitGreaterThanOrEqualUnsafeSharedKey(greaterArray) {
+            greaterReceived.add(ByteArrayButComparable(it.key) to it.value)
+        }
+        val expectedReceived = listOf(ByteArrayButComparable(greaterArray) to "greater")
+        for (i in 0 until greaterReceived.size.coerceAtLeast(expectedReceived.size)) {
+            if (i < greaterReceived.size) {
+                val thing = greaterReceived[i]
+                println("OK we looked at ${thing.first} -> ${thing.second}")
+            } else {
+                println("We did not have a pair for $i")
+            }
+            if (i < expectedReceived.size) {
+                val expectedThing = expectedReceived[i]
+                println("But we should have had ${expectedThing.first} -> ${expectedThing.second}")
+            } else {
+                println("But we should not have had anything at $i")
+            }
+        }
+        assertListOfByteArrayValuePairsEquals(expectedReceived, greaterReceived)
     }
 }

@@ -75,6 +75,12 @@ class IdentitySetTest {
         val fromIterator = IdentitySet(addedItems)
         assertEquals(gradual.toList(), fromIterator.toList())
 
+        val fromVisit = ArrayList<IntHolder>()
+        fromIterator.visitAll {
+            fromVisit.add(it)
+        }
+        assertEquals(fromIterator.toList(), fromVisit.toList())
+
         for (item in addedItems) {
             assertTrue(fromIterator.contains(item))
             val reAdded = fromIterator.add(item)
