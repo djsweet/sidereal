@@ -971,69 +971,70 @@ private fun<V> visitLessThanOrEqualUnsafeSharedKeyImpl(
     compareOffset: Int,
     receiver: VisitReceiver<V>
 ) {
-    if (compareOffset > compareTo.size) {
-        return
-    }
     val prefixComparison = node.compareLookupSliceToCurrentPrefix(
         compareTo,
         compareOffset - node.prefix.size
     )
-    if (prefixComparison > 0) {
-        return
-    }
     if (prefixComparison < 0) {
         return visitDescendingUnsafeSharedKeyImpl(node, receiver)
     }
+    if (prefixComparison > 0) {
+        return
+    }
+    if (compareOffset >= compareTo.size) {
+        if (node.valuePair != null) {
+            receiver(node.valuePair)
+        }
+        return
+    }
 
-    if (compareOffset < compareTo.size) {
-        val compareByte = compareTo[compareOffset]
-        val compareHigh = evenNybbleFromByte(compareByte)
-        val compareLow = oddNybbleFromByte(compareByte)
-        val nybbleValues = node.nybbleValues
-        val nybbleDispatch = node.nybbleDispatch
-        var i = nybbleValues.size - 1
-        while (i >= 0 && compareBytesUnsigned(nybbleValues[i], compareHigh) > 0) {
-            i--
+    val compareByte = compareTo[compareOffset]
+    val compareHigh = evenNybbleFromByte(compareByte)
+    val compareLow = oddNybbleFromByte(compareByte)
+    val nybbleValues = node.nybbleValues
+    val nybbleDispatch = node.nybbleDispatch
+    var i = nybbleValues.size - 1
+    while (i >= 0 && compareBytesUnsigned(nybbleValues[i], compareHigh) > 0) {
+        i--
+    }
+    if (i < 0) {
+        if (node.valuePair != null) {
+            receiver(node.valuePair)
         }
-        if (i < 0) {
-            if (node.valuePair != null) {
-                receiver(node.valuePair)
-            }
-            return
+        return
+    }
+    if (nybbleValues[i] == compareHigh) {
+        val evenNybble = nybbleDispatch[i]
+        val oddValues = evenNybble.nybbleValues
+        val oddDispatch = evenNybble.nybbleDispatch
+        var j = oddValues.size - 1
+        while (j >= 0 && compareBytesUnsigned(oddValues[j], compareLow) > 0) {
+            j--
         }
-        if (nybbleValues[i] == compareHigh) {
-            val evenNybble = nybbleDispatch[i]
-            val oddValues = evenNybble.nybbleValues
-            val oddDispatch = evenNybble.nybbleDispatch
-            var j = oddValues.size - 1
-            while (j >= 0 && compareBytesUnsigned(oddValues[j], compareLow) > 0) {
-                j--
-            }
-            if (j >= 0) {
-                if (oddValues[j] == compareLow) {
-                    val oddNybble = oddDispatch[j]
-                    visitLessThanOrEqualUnsafeSharedKeyImpl(
-                        oddNybble,
-                        compareTo,
-                        oddNybble.prefix.size + compareOffset + 1,
-                        receiver
-                    )
-                }
+        if (j >= 0) {
+            if (oddValues[j] == compareLow) {
+                val oddNybble = oddDispatch[j]
+                visitLessThanOrEqualUnsafeSharedKeyImpl(
+                    oddNybble,
+                    compareTo,
+                    oddNybble.prefix.size + compareOffset + 1,
+                    receiver
+                )
                 j -= 1
             }
-            while (j >= 0) {
-                visitDescendingUnsafeSharedKeyImpl(oddDispatch[j], receiver)
-                j -= 1
-            }
-            i -= 1
         }
-        while (i >= 0) {
-            val oddDispatch = nybbleDispatch[i].nybbleDispatch
-            for (j in oddDispatch.size - 1 downTo 0) {
-                visitDescendingUnsafeSharedKeyImpl(oddDispatch[j], receiver)
-            }
-            i -= 1
+        while (j >= 0) {
+            visitDescendingUnsafeSharedKeyImpl(oddDispatch[j], receiver)
+            j -= 1
         }
+        i -= 1
+    }
+    while (i >= 0) {
+        val oddDispatch = nybbleDispatch[i].nybbleDispatch
+        for (j in oddDispatch.size - 1 downTo 0) {
+            visitDescendingUnsafeSharedKeyImpl(oddDispatch[j], receiver)
+        }
+        i -= 1
     }
     if (node.valuePair != null) {
         receiver(node.valuePair)
@@ -1046,9 +1047,6 @@ private fun<V> visitGreaterThanOrEqualUnsafeSharedKeyImpl(
     compareOffset: Int,
     receiver: VisitReceiver<V>
 ) {
-    if (compareOffset > compareTo.size) {
-        return visitAscendingUnsafeSharedKeyImpl(node, receiver)
-    }
     val prefixComparison = node.compareLookupSliceToCurrentPrefix(
         compareTo,
         compareOffset - node.prefix.size
@@ -1056,7 +1054,7 @@ private fun<V> visitGreaterThanOrEqualUnsafeSharedKeyImpl(
     if (prefixComparison < 0) {
         return
     }
-    if (prefixComparison > 0 || compareOffset == compareTo.size) {
+    if (prefixComparison > 0 || compareOffset >= compareTo.size) {
         return visitAscendingUnsafeSharedKeyImpl(node, receiver)
     }
 

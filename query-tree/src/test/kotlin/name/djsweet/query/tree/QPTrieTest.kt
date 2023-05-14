@@ -667,4 +667,63 @@ class QPTrieTest {
         assertArrayEquals(byteArrayOf(0), visitResult!!.key)
         assertArrayEquals(byteArrayOf(), visitResult!!.value)
     }
+
+    @Test fun visitGreaterThanSingleExample() {
+        val trie = QPTrie(listOf(byteArrayOf(0, 0, 0, -41, 28, 7) to byteArrayOf()))
+        var visitCalls = 0
+        trie.visitGreaterThanOrEqualUnsafeSharedKey(byteArrayOf(106, -10, -7, -52, 3, 2)) {
+            visitCalls++
+        }
+        assertEquals(0, visitCalls)
+    }
+
+    @Test fun visitLessThanSingleExample() {
+        val trie = QPTrie(listOf(byteArrayOf(0, 0, 3) to byteArrayOf()))
+        var visitCalls = 0
+        var visitResult: QPTrieKeyValue<ByteArray>? = null
+        trie.visitLessThanOrEqualUnsafeSharedKey(byteArrayOf(-22)) {
+            visitCalls++
+            visitResult = it
+        }
+        assertNotNull(visitResult)
+        assertEquals(1, visitCalls)
+        assertArrayEquals(byteArrayOf(0, 0, 3), visitResult!!.key)
+        assertArrayEquals(byteArrayOf(), visitResult!!.value)
+    }
+
+    @Test fun visitGreaterThanAgainWithEmptyKey() {
+        val trie = QPTrie(listOf(
+            byteArrayOf() to 1,
+            byteArrayOf(0) to 2
+        ))
+        val seenEntries = ArrayList<Int>()
+        trie.visitGreaterThanOrEqualUnsafeSharedKey(byteArrayOf()) {
+            if (it.key.contentEquals(byteArrayOf())) {
+                assertEquals(1, it.value)
+            }
+            if (it.key.contentEquals(byteArrayOf(0))) {
+                assertEquals(2, it.value)
+            }
+            seenEntries.add(it.value)
+        }
+        assertArrayEquals(arrayOf(1, 2), seenEntries.toTypedArray())
+    }
+
+    @Test fun visitLessThanInvolvingEmptyKey() {
+        val trie = QPTrie(listOf(
+            byteArrayOf() to 1,
+            byteArrayOf(0) to 2
+        ))
+        val seenEntries = ArrayList<Int>()
+        trie.visitLessThanOrEqualUnsafeSharedKey(byteArrayOf(4, -49, 127, -13, -111)) {
+            if (it.key.contentEquals(byteArrayOf())) {
+                assertEquals(1, it.value)
+            }
+            if (it.key.contentEquals(byteArrayOf(0))) {
+                assertEquals(2, it.value)
+            }
+            seenEntries.add(it.value)
+        }
+        assertArrayEquals(arrayOf(2, 1), seenEntries.toTypedArray())
+    }
 }
