@@ -1047,7 +1047,7 @@ private fun<V> visitGreaterThanOrEqualUnsafeSharedKeyImpl(
     receiver: VisitReceiver<V>
 ) {
     if (compareOffset > compareTo.size) {
-        return
+        return visitAscendingUnsafeSharedKeyImpl(node, receiver)
     }
     val prefixComparison = node.compareLookupSliceToCurrentPrefix(
         compareTo,

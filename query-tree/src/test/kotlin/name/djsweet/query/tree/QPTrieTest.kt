@@ -653,4 +653,18 @@ class QPTrieTest {
         }
         assertListOfByteArrayValuePairsEquals(expectedReceived, greaterReceived)
     }
+
+    @Test fun visitGreaterThanWithEmptyKey() {
+        val trie = QPTrie(listOf(byteArrayOf(0) to byteArrayOf()))
+        var visitResult: QPTrieKeyValue<ByteArray>? = null
+        var visitCalls = 0
+        trie.visitGreaterThanOrEqualUnsafeSharedKey(byteArrayOf()) {
+            visitResult = it
+            visitCalls++
+        }
+        assertNotNull(visitResult)
+        assertEquals(1, visitCalls)
+        assertArrayEquals(byteArrayOf(0), visitResult!!.key)
+        assertArrayEquals(byteArrayOf(), visitResult!!.value)
+    }
 }
