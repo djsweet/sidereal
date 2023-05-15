@@ -601,6 +601,10 @@ class QueryTreeTest {
                     for (i in handles.indices) {
                         println("${paths[i]} -> ${handles[i]}")
                     }
+                    println("And the tree has")
+                    for ((knownPath, knownResult) in queryTree) {
+                        println("$knownPath -> $knownResult")
+                    }
                 }
                 assertEquals(result, handles[pathIdx])
                 givenResults = givenResults.add(0, result)
@@ -713,8 +717,7 @@ class QueryTreeTest {
             assertEquals(handles[i], resultForPath)
             assertEquals(fullTreeSize, queryTree.size)
         }
-
-
+        
         this.verifyQueriesNonSet(data, queries, handles, paths, queryTree)
 
         var queryTreeFilledByPath = QueryTree<SizeComputableInteger>()
@@ -1545,6 +1548,92 @@ class QueryTreeTest {
                 QPTrie(listOf(byteArrayOf() to byteArrayOf(106, -10, -7, -52, 3, 2)))
             )
         )
+        this.queryTreeNonSet(testData)
+    }
+
+    @Test fun queryTreeWrongInternalPath() {
+        val dataPoint = QPTrie(listOf(
+            byteArrayOf(4, 16, 25, 29, -13, 6) to byteArrayOf(),
+            byteArrayOf(17, 68, -9, -14, 97, -77, 81, -6) to byteArrayOf(-10, 9, -38, -27),
+            byteArrayOf(94, -1, 48, 78, -6, -10, -35, -127, -20, -39, -10, -60, 89, -2) to byteArrayOf(107),
+            byteArrayOf(-9, -37, 24, 84, -128, 35, -42, -50, 75) to byteArrayOf(-14, 68, 19, -22, 11, -22, 119, 13),
+            byteArrayOf(-3, 7, 106, -2, 41, -94) to byteArrayOf(126)
+        ))
+
+        val mostCommonEqualityTerms = QuerySpec()
+            .withEqualityTerm(
+                byteArrayOf(4, 16, 25, 29, -13, 6),
+                byteArrayOf()
+            )
+            .withEqualityTerm(
+                byteArrayOf(-9, -37, 24, 84, -128, 35, -42, -50, 75),
+                byteArrayOf(5, -115, 75, -10, 8)
+            )
+            .withEqualityTerm(
+                byteArrayOf(-3, 7, 106, -2, 41, -94),
+                byteArrayOf(-38, -5, -27, 8, 82, 7, -93, 107, 4, 77)
+            )
+        val mostCommonBetweenKey = byteArrayOf(17, 68, -9, -14, 97, -77, 81, -6)
+        val queries = listOf(
+            QuerySpec().withBetweenOrEqualToTerm(
+                byteArrayOf(-9, -37, 24, 84, -128, 35, -42, -50, 75),
+                byteArrayOf(0),
+                byteArrayOf(126)
+            ),
+            mostCommonEqualityTerms.withBetweenOrEqualToTerm(
+                mostCommonBetweenKey,
+                byteArrayOf(),
+                byteArrayOf(127)
+            ),
+            QuerySpec().withBetweenOrEqualToTerm(
+                byteArrayOf(-9, -37, 24, 84, -128, 35, -42, -50, 75),
+                byteArrayOf(-128),
+                byteArrayOf(-9, 17, 5, 60)
+            ),
+            mostCommonEqualityTerms.withBetweenOrEqualToTerm(
+                mostCommonBetweenKey,
+                byteArrayOf(4, -17, -17),
+                byteArrayOf(36, 19, -26, -8, -11, 12, 6, -1)
+            ),
+            QuerySpec().withEqualityTerm(
+                byteArrayOf(4, 16, 25, 29, -13, 6),
+                byteArrayOf()
+            ),
+            QuerySpec().withStartsWithTerm(
+                byteArrayOf(-9, -37, 24, 84, -128, 35, -42, -50, 75),
+                byteArrayOf(-110, -37, -40, 20, 126, -127)
+            ),
+            mostCommonEqualityTerms.withBetweenOrEqualToTerm(
+                mostCommonBetweenKey,
+                byteArrayOf(-47, -123, -21, 16, -7, 2),
+                byteArrayOf(-23, -31, 28, -12, 111, 21, -61, -128, 29, 127)
+            ),
+            mostCommonEqualityTerms.withBetweenOrEqualToTerm(
+                mostCommonBetweenKey,
+                byteArrayOf(2),
+                byteArrayOf(-128)
+            ),
+            mostCommonEqualityTerms.withBetweenOrEqualToTerm(
+                mostCommonBetweenKey,
+                byteArrayOf(127),
+                byteArrayOf(-1)
+            ),
+            QuerySpec().withBetweenOrEqualToTerm(
+                byteArrayOf(-9, -37, 24, 84, -128, 35, -42, -50, 75),
+                byteArrayOf(27, 17, -18, 1, -41, 73, 41, -104),
+                byteArrayOf(-11)
+            ),
+            mostCommonEqualityTerms.withBetweenOrEqualToTerm(
+                mostCommonBetweenKey,
+                byteArrayOf(-1),
+                byteArrayOf(-1)
+            ),
+            mostCommonEqualityTerms.withStartsWithTerm(
+                mostCommonBetweenKey,
+                byteArrayOf(-12, -60)
+            )
+        )
+        val testData = QueryTreeTestData(queries, listOf(dataPoint))
         this.queryTreeNonSet(testData)
     }
 }

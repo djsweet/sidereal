@@ -452,24 +452,32 @@ internal class QueryTreeNode<V  : SizeComputable>(
         return this.replaceKeys(newKeys, sizeDiff)
     }
 
-    fun updateByPath(path: QueryPath, knownPath: QueryPath, updater: (prior: V?) -> V?): QueryTreeNode<V>? {
-        val currentPath = path.first() ?: return this.replaceValue(updater(this.value))
+    fun updateByPath(
+        remainingPath: QueryPath,
+        priorPath: ListNode<IntermediateQueryTerm>?,
+        fullPath: QueryPath,
+        updater: (prior: V?) -> V?
+    ): QueryTreeNode<V>? {
+        val currentPathElement = remainingPath.first() ?: return this.replaceValue(updater(this.value))
+        val currentPath = listPrepend(currentPathElement, priorPath)
         val keys = this.keys
-        val currentKey = currentPath.key
+        val currentKey = currentPathElement.key
         val termsByKey = this.keys.get(currentKey) ?: QueryTreeTerms()
-        when (currentPath.kind) {
+        when (currentPathElement.kind) {
             IntermediateQueryTermKind.EQUALS -> {
-                if (currentPath.lowerBound == null) {
+                if (currentPathElement.lowerBound == null) {
                     return this
                 }
-                val value = currentPath.lowerBound
+                val value = currentPathElement.lowerBound
                 val equalityTerms = termsByKey.equalityTerms ?: QPTrie()
                 val existingNodeByValue = equalityTerms.get(value)
 
                 // This is an entirely new value, so we'll be strictly adding to the key set.
                 if (existingNodeByValue == null) {
                     val updateValue = updater(null) ?: return this
-                    val subNode = emptyInstance<V>(knownPath).updateByPath(path.rest(), knownPath) {
+                    val subNode = emptyInstance<V>(
+                        QueryPath(listReverse(currentPath))
+                    ).updateByPath(remainingPath.rest(), currentPath, fullPath) {
                         updateValue
                     } ?: return this
                     val newEqualityTerms = equalityTerms.update(value) { subNode }
@@ -478,7 +486,12 @@ internal class QueryTreeNode<V  : SizeComputable>(
                     return this.replaceKeys(newKeys, updateValue.computeSize())
                 }
 
-                val newNodeByValue = existingNodeByValue.updateByPath(path.rest(), knownPath, updater)
+                val newNodeByValue = existingNodeByValue.updateByPath(
+                    remainingPath.rest(),
+                    currentPath,
+                    fullPath,
+                    updater
+                )
                 val sizeDiff = (newNodeByValue?.size ?: 0) - existingNodeByValue.size
                 val newKeys = this.keys.update(currentKey) {
                     // We know we had prior terms, because we were able to find a value
@@ -496,8 +509,8 @@ internal class QueryTreeNode<V  : SizeComputable>(
                 return this.replaceKeys(newKeys, sizeDiff)
             }
             IntermediateQueryTermKind.GREATER_OR_LESS -> {
-                val lowerBound = currentPath.lowerBound
-                val upperBound = currentPath.upperBound
+                val lowerBound = currentPathElement.lowerBound
+                val upperBound = currentPathElement.upperBound
                 if (lowerBound == null && upperBound == null) {
                     return this
                 }
@@ -508,7 +521,7 @@ internal class QueryTreeNode<V  : SizeComputable>(
                         termsByKey.lessThanTerms,
                         currentKey,
                         upperBound!!,
-                        knownPath,
+                        fullPath,
                         updater,
                     ) {
                         termsByKey.replaceLessThanTerms(it)
@@ -521,7 +534,7 @@ internal class QueryTreeNode<V  : SizeComputable>(
                         termsByKey.greaterThanTerms,
                         currentKey,
                         lowerBound,
-                        knownPath,
+                        fullPath,
                         updater,
                     ) {
                         termsByKey.replaceGreaterThanTerms(it)
@@ -535,18 +548,18 @@ internal class QueryTreeNode<V  : SizeComputable>(
                     currentKey,
                     lowerBound,
                     upperBound,
-                    knownPath,
+                    fullPath,
                     updater,
                 )
             }
             IntermediateQueryTermKind.STARTS_WITH -> {
-                val value = currentPath.lowerBound ?: return this
+                val value = currentPathElement.lowerBound ?: return this
                 return this.updateTrieTerms(
                     keys,
                     termsByKey.startsWithTerms,
                     currentKey,
                     value,
-                    knownPath,
+                    fullPath,
                     updater
                 ) {
                     termsByKey.replaceStartsWithTerms(it)
@@ -774,7 +787,7 @@ class QueryTree<V: SizeComputable> private constructor(
 
     fun updateByPath(queryPath: QueryPath, updater: (prior: V?) -> V?): QueryTree<V> {
         val oldRoot = (this.root ?: QueryTreeNode.emptyInstance(QueryPath()))
-        val newRoot = oldRoot.updateByPath(queryPath, queryPath, updater)
+        val newRoot = oldRoot.updateByPath(queryPath, null, queryPath, updater)
         if (oldRoot === newRoot) {
             return this
         }
