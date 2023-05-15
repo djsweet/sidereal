@@ -43,7 +43,7 @@ internal class TreeNode<T : Comparable<T>, V>(
     val leftKey: T,
     val rightKey: T,
     val maxRightKey: T,
-    val value: V,
+    val value: IntervalTreeKeyValue<T, V>,
     val leftNode: TreeNode<T, V>?,
     val rightNode: TreeNode<T, V>?,
     val height: Byte
@@ -59,10 +59,10 @@ internal class TreeNode<T : Comparable<T>, V>(
             return newInstance(leftKey, rightKey, value, leftNode, rightNode)
         }
 
-        fun <T : Comparable<T>, V>newInstance(
+        fun <T: Comparable<T>, V>newInstance(
             leftKey: T,
             rightKey: T,
-            value: V,
+            value: IntervalTreeKeyValue<T, V>,
             leftNode: TreeNode<T, V>?,
             rightNode: TreeNode<T, V>?
         ): TreeNode<T, V> {
@@ -78,7 +78,34 @@ internal class TreeNode<T : Comparable<T>, V>(
             val leftHeight = leftNode?.height ?: 0
             val rightHeight = rightNode?.height ?: 0
             val height = (leftHeight.toInt()).coerceAtLeast(rightHeight.toInt()) + 1
-            return TreeNode(leftKey, rightKey, maxRightKey, value, leftNode, rightNode, height.toByte())
+            return TreeNode(
+                leftKey,
+                rightKey,
+                maxRightKey,
+                value,
+                leftNode,
+                rightNode,
+                height.toByte()
+            )
+        }
+
+        fun <T : Comparable<T>, V>newInstance(
+            leftKey: T,
+            rightKey: T,
+            value: V,
+            leftNode: TreeNode<T, V>?,
+            rightNode: TreeNode<T, V>?
+        ): TreeNode<T, V> {
+            return newInstance(
+                leftKey,
+                rightKey,
+                IntervalTreeKeyValue(
+                    IntervalRange(leftKey, rightKey),
+                    value,
+                ),
+                leftNode,
+                rightNode
+            )
         }
 
         fun <T: Comparable<T>, V>rotateLeftLeft(node: TreeNode<T, V>): TreeNode<T, V> {
@@ -223,7 +250,7 @@ internal class TreeNode<T : Comparable<T>, V>(
     fun lookupExactRange(rangeLow: T, rangeHigh: T): V? {
         val rangeCompare = compareRanges(this.leftKey, this.rightKey, rangeLow, rangeHigh)
         if (rangeCompare == 0) {
-            return this.value
+            return this.value.value
         }
         if (rangeCompare > 0) {
             // We were greater than range, so look left
@@ -446,7 +473,7 @@ private abstract class IntervalTreePairIterator<T : Comparable<T>, V>(t: Interva
     IntervalTreeCommonIterator<T, V, IntervalTreeKeyValue<T, V>>(t) {
 
     override fun transformNode(n: TreeNode<T, V>): IntervalTreeKeyValue<T, V> {
-        return IntervalTreeKeyValue(IntervalRange(n.leftKey, n.rightKey), n.value)
+        return n.value
     }
 }
 
@@ -516,7 +543,8 @@ private class IntervalTreeIterator<T : Comparable<T>, V>(t: IntervalTree<T, V>) 
     }
 
     override fun transformNode(n: TreeNode<T, V>): Triple<IntervalRange<T>, V, Int> {
-        return Triple(IntervalRange(n.leftKey, n.rightKey), n.value, n.weight())
+        val (key, value) = n.value
+        return Triple(key, value, n.weight())
     }
 }
 
@@ -582,7 +610,8 @@ private class InOrderIterator<T: Comparable<T>, V>(tree: IntervalTree<T, V>): It
                 continue
             }
             if (cur.nextStep == IntervalTreeInOrderIteratorNextStep.SELF) {
-                this.nextUp = Triple(IntervalRange(curNode.leftKey, curNode.rightKey), curNode.value, Pair(this.iterationStack.size, cur.fromDirection))
+                val (key, value) = curNode.value
+                this.nextUp = Triple(key, value, Pair(this.iterationStack.size, cur.fromDirection))
                 this.iterationStack.push(IntervalTreeInOrderIteratorState(curNode, IntervalTreeInOrderIteratorNextStep.LEFT, cur.fromDirection))
                 return
             }
