@@ -8,7 +8,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.*
 import net.jqwik.api.*
 import java.util.*
-import javax.management.Query
 import kotlin.collections.ArrayList
 
 class QueryTreeTest {
@@ -592,6 +591,17 @@ class QueryTreeTest {
             var givenResults = persistentListOf<SizeComputableInteger>()
             for ((path, result) in queryTree.getByData(dataEntry)) {
                 val pathIdx = findIndex(paths, path)
+                if (result != handles[pathIdx]) {
+                    println("Expected to find ${handles[pathIdx]}")
+                    println("Found $result instead")
+
+                    println("Data was ${dataEntry.map { ByteArrayButComparable(it.key) to ByteArrayButComparable(it.value) }}")
+                    println("Path was $path")
+                    println("Available options were:")
+                    for (i in handles.indices) {
+                        println("${paths[i]} -> ${handles[i]}")
+                    }
+                }
                 assertEquals(result, handles[pathIdx])
                 givenResults = givenResults.add(0, result)
             }
@@ -611,6 +621,29 @@ class QueryTreeTest {
                 }
             }
             assertArrayEquals(expectedResults, givenResultsArray)
+
+            val visitedResultsArray = ArrayList<SizeComputableInteger>()
+            queryTree.visitByData(dataEntry) { (path, result) ->
+                val pathIdx = findIndex(paths, path)
+                assertEquals(result, handles[pathIdx])
+                visitedResultsArray.add(result)
+            }
+            visitedResultsArray.sortBy { it.value }
+            if (!expectedResults.contentEquals(visitedResultsArray.toTypedArray())) {
+                println("data was ${dataEntry.toList().map { (key, value) -> Pair(ByteArrayButComparable(key), ByteArrayButComparable(value)) }}")
+                for (entry in expectedResults) {
+                    val query = queries[findIndex(handles, entry)]
+                    println("Expected to service query $query")
+                }
+                for (entry in visitedResultsArray) {
+                    val query = queries[findIndex(handles, entry)]
+                    println("Actually serviced query $query")
+                }
+                for((path, value) in queryTree) {
+                    println("$path=$value")
+                }
+            }
+            assertArrayEquals(expectedResults, visitedResultsArray.toTypedArray())
         }
 
         val unseenPaths = paths.toMutableList()
@@ -872,6 +905,44 @@ class QueryTreeTest {
                 }
             }
             assertEquals(expectedResults, givenResults)
+
+            val visitedResults = mutableSetOf<Int>()
+            queryTree.visitByData(dataEntry) { (path, result) ->
+                var pathIdx = findIndex(paths, path)
+                var foundIt = false
+                while (paths[pathIdx] == path) {
+                    if (result == handles[pathIdx]) {
+                        foundIt = true
+                        break
+                    } else {
+                        pathIdx ++
+                    }
+                }
+                if (!foundIt) {
+                    fail<String>("Could not find result for path $path -> $result")
+                }
+                visitedResults.add(result)
+            }
+            if (expectedResults != visitedResults) {
+                println(
+                    "data was ${
+                        dataEntry.toList()
+                            .map { (key, value) -> Pair(ByteArrayButComparable(key), ByteArrayButComparable(value)) }
+                    }"
+                )
+                for (entry in expectedResults) {
+                    val query = queries[findIndex(handles, entry)]
+                    println("Expected to service query $query")
+                }
+                for (entry in visitedResults) {
+                    val query = queries[findIndex(handles, entry)]
+                    println("Actually serviced query $query")
+                }
+                for ((path, value) in queryTree) {
+                    println("$path=$value")
+                }
+            }
+            assertEquals(expectedResults, visitedResults)
         }
 
         // Needs to be a multi-set
@@ -1438,5 +1509,42 @@ class QueryTreeTest {
             twelfthSpec,
         )
         this.queryTreeSet(QuerySetTreeTestData(specs, listOf()))
+    }
+
+    @Test fun queryTreeNonSetVisitationMissingData() {
+        val testData = QueryTreeTestData(
+            queries=listOf(
+                QuerySpec().withLessThanOrEqualToTerm(byteArrayOf(), byteArrayOf(0))
+            ),
+            data=listOf(
+                QPTrie(listOf(byteArrayOf() to byteArrayOf(0))),
+                QPTrie(listOf(byteArrayOf() to byteArrayOf())),
+            )
+        )
+        this.queryTreeNonSet(testData)
+    }
+
+    @Test fun queryTreeNonSetVisitationStillMissingData() {
+        val testData = QueryTreeTestData(
+            queries = listOf(
+                QuerySpec().withGreaterThanOrEqualToTerm(byteArrayOf(), byteArrayOf(0, 0, 3))
+            ),
+            data = listOf(
+                QPTrie(listOf(byteArrayOf() to byteArrayOf(-22)))
+            )
+        )
+        this.queryTreeNonSet(testData)
+    }
+
+    @Test fun queryTreeNonSetVisitationsTooMuchData() {
+        val testData = QueryTreeTestData(
+            queries = listOf(
+                QuerySpec().withLessThanOrEqualToTerm(byteArrayOf(), byteArrayOf(0, 0, 0, -41, 28, 7))
+            ),
+            data = listOf(
+                QPTrie(listOf(byteArrayOf() to byteArrayOf(106, -10, -7, -52, 3, 2)))
+            )
+        )
+        this.queryTreeNonSet(testData)
     }
 }

@@ -63,4 +63,13 @@ class QueryTreeBenchmark {
         }
         return seen
     }
+
+    @Benchmark
+    fun point02VisitUsingTree(spec: QueryTreeRunSpec): Set<Int> {
+        val seen = mutableSetOf<Int>()
+        spec.queryTree.visitByData(spec.lookup) {
+            seen.add(it.value)
+        }
+        return seen
+    }
 }

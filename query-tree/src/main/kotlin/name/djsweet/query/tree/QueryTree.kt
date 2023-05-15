@@ -805,12 +805,43 @@ class QueryTree<V: SizeComputable> private constructor(
         }
     }
 
+    fun visitByData(data: QPTrie<ByteArray>, receiver: (result: QueryPathValue<V>) -> Unit) {
+        val root = this.root ?: return
+        visitTermsByDataImpl(root, data, receiver)
+    }
+
     override fun iterator(): Iterator<QueryPathValue<V>> {
         return if (this.root == null) {
             EmptyIterator()
         } else {
             FullTreeIterator(this.root)
         }
+    }
+}
+
+private fun<V: SizeComputable> visitTermsByDataImpl(
+    node: QueryTreeNode<V>,
+    fullData: QPTrie<ByteArray>,
+    receiver: (result: QueryPathValue<V>) -> Unit
+) {
+    if (node.value != null) {
+        receiver(QueryPathValue(node.path, node.value))
+    }
+    val nodeKeys = node.keys
+    val keys = workingDataForAvailableKeys(fullData, nodeKeys).keysIntoUnsafeSharedKey(ArrayList())
+    val handleTrieResult = { value: QPTrieKeyValue<QueryPathValue<V>> -> receiver(value.value) }
+    val handleRangeResult = { value: IntervalTreeKeyValue<ByteArrayButComparable, QueryPathValue<V>> -> receiver(value.value) }
+    for (targetKey in keys) {
+        val terms = nodeKeys.get(targetKey) ?: continue
+        val fullDataValue = fullData.get(targetKey)!!
+        val maybeEquality = terms.equalityTerms?.get(fullDataValue)
+        if (maybeEquality != null) {
+            visitTermsByDataImpl(maybeEquality, fullData.remove(targetKey), receiver)
+        }
+        terms.lessThanTerms?.visitGreaterThanOrEqualUnsafeSharedKey(fullDataValue, handleTrieResult)
+        terms.rangeTerms?.lookupPointVisit(ByteArrayButComparable(fullDataValue), handleRangeResult)
+        terms.greaterThanTerms?.visitLessThanOrEqualUnsafeSharedKey(fullDataValue, handleTrieResult)
+        terms.startsWithTerms?.visitPrefixOfOrEqualToUnsafeSharedKey(fullDataValue, handleTrieResult)
     }
 }
 
@@ -824,35 +855,27 @@ internal enum class GetTermsByDataIteratorState {
 }
 
 internal class GetTermsByDataIterator<V : SizeComputable> private constructor(
-    private val key: ByteArray,
     private val value: ByteArray,
     private val terms: QueryTreeTerms<V>,
-    private val reversePath: ListNode<IntermediateQueryTerm>?,
     private val fullData: QPTrie<ByteArray>,
     private var state: GetTermsByDataIteratorState
 ): ConcatenatedIterator<QueryPathValue<V>>() {
-
     constructor(
-        key: ByteArray,
         value: ByteArray,
         terms: QueryTreeTerms<V>,
         fullData: QPTrie<ByteArray>,
-        reversePath: ListNode<IntermediateQueryTerm>?
-    ): this(key, value, terms, reversePath, fullData, GetTermsByDataIteratorState.EQUALITY)
+    ): this(value, terms, fullData, GetTermsByDataIteratorState.EQUALITY)
 
     override fun iteratorForOffset(offset: Int): Iterator<QueryPathValue<V>>? {
         val terms = this.terms
-        val key = this.key
         val value = this.value
-        val reversePath = this.reversePath
         val fullData = this.fullData
         while (this.state != GetTermsByDataIteratorState.DONE) {
             when (this.state) {
                 GetTermsByDataIteratorState.EQUALITY -> {
                     this.state = GetTermsByDataIteratorState.LESS_THAN
                     val subNode = terms.equalityTerms?.get(value) ?: continue
-                    val term = IntermediateQueryTerm.equalityTerm(key, value)
-                    return this.registerChild(GetByDataIterator(subNode, fullData, listPrepend(term, reversePath)))
+                    return this.registerChild(GetByDataIterator(subNode, fullData))
                 }
 
                 GetTermsByDataIteratorState.LESS_THAN -> {
@@ -896,7 +919,6 @@ internal enum class GetByDataIteratorState {
 
 internal class GetByDataIterator<V: SizeComputable> private constructor(
     private val node: QueryTreeNode<V>,
-    private val reversePath: ListNode<IntermediateQueryTerm>?,
     private val fullData: QPTrie<ByteArray>,
     private var state: GetByDataIteratorState,
 ): ConcatenatedIterator<QueryPathValue<V>>() {
@@ -906,13 +928,7 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
     constructor(
         node: QueryTreeNode<V>,
         fullData: QPTrie<ByteArray>,
-        reversePath: ListNode<IntermediateQueryTerm>?
-    ): this(node, reversePath, fullData, GetByDataIteratorState.VALUE)
-
-    constructor(
-        node: QueryTreeNode<V>,
-        fullData: QPTrie<ByteArray>
-    ): this(node, fullData, null)
+    ): this(node, fullData, GetByDataIteratorState.VALUE)
 
     override fun iteratorForOffset(offset: Int): Iterator<QueryPathValue<V>>? {
         if (this.state != GetByDataIteratorState.VALUE && this.fullData.size == 0L) {
@@ -920,7 +936,6 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
         }
         while (this.state != GetByDataIteratorState.DONE) {
             val node = this.node
-            val reversePath = this.reversePath
             when (this.state) {
                 GetByDataIteratorState.VALUE -> {
                     this.state = GetByDataIteratorState.TERMS
@@ -941,11 +956,9 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
                         val targetTerms = node.keys.get(targetKey) ?: continue
                         val value = fullData.get(targetKey) ?: continue
                         return this.registerChild(GetTermsByDataIterator(
-                            targetKey,
                             value,
                             targetTerms,
-                            fullData.remove(targetKey),
-                            reversePath
+                            fullData.remove(targetKey)
                         ))
                     }
                 }
@@ -1144,6 +1157,15 @@ class QuerySetTree<V> private constructor(
         return FlattenIterator(mapSequence(this.queryTree.getByData(data)) { (path, valueSet) ->
             mapSequence(valueSet) { QueryPathValue(path, it) }
         })
+    }
+
+    fun visitByData(data: QPTrie<ByteArray>, receiver: (result: QueryPathValue<V>) -> Unit) {
+        this.queryTree.visitByData(data) { queryTreeResult ->
+            val (path, value) = queryTreeResult
+            value.set.visitAll {
+                receiver(QueryPathValue(path, it))
+            }
+        }
     }
 
     override fun iterator(): Iterator<QueryPathValue<V>> {
