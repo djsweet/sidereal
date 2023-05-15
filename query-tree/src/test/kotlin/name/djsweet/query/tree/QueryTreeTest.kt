@@ -717,7 +717,7 @@ class QueryTreeTest {
             assertEquals(handles[i], resultForPath)
             assertEquals(fullTreeSize, queryTree.size)
         }
-        
+
         this.verifyQueriesNonSet(data, queries, handles, paths, queryTree)
 
         var queryTreeFilledByPath = QueryTree<SizeComputableInteger>()
@@ -910,7 +910,7 @@ class QueryTreeTest {
             assertEquals(expectedResults, givenResults)
 
             val visitedResults = mutableSetOf<Int>()
-            queryTree.visitByData(dataEntry) { (path, result) ->
+            queryTree.visitByData(dataEntry) { path, result ->
                 var pathIdx = findIndex(paths, path)
                 var foundIt = false
                 while (paths[pathIdx] == path) {

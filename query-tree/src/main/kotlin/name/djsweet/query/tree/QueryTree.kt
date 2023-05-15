@@ -1172,11 +1172,12 @@ class QuerySetTree<V> private constructor(
         })
     }
 
-    fun visitByData(data: QPTrie<ByteArray>, receiver: (result: QueryPathValue<V>) -> Unit) {
+    // For performance reasons, we yield the path and the value separately.
+    fun visitByData(data: QPTrie<ByteArray>, receiver: (path: QueryPath, value: V) -> Unit) {
         this.queryTree.visitByData(data) { queryTreeResult ->
             val (path, value) = queryTreeResult
             value.set.visitAll {
-                receiver(QueryPathValue(path, it))
+                receiver(path, it)
             }
         }
     }
