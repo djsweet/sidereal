@@ -72,4 +72,14 @@ class QueryTreeBenchmark {
         }
         return seen
     }
+
+    @Benchmark
+    fun point03VisitUsingTreeNoSet(spec: QueryTreeRunSpec): Int {
+        var lastSeen: Int = -1
+        spec.queryTree.visitByData(spec.lookup) {
+            lastSeen = it.value
+        }
+        return lastSeen
+    }
+
 }
