@@ -99,14 +99,21 @@ class DataUtilsTest {
     fun gettingWorkingDataForAvailableKeys(
         @ForAll @From("sharedKeyValueSpec") spec: Triple<QPTrie<ByteArray>, QPTrie<ByteArray>, QPTrie<ByteArray>>
     ) {
-        val shared = spec.first
-        val data = spec.second
-        val dispatch = spec.third
+        val (shared, data, dispatch) = spec
 
         val resultingSameKey = workingDataForAvailableKeys(data, dispatch)
         val sharedList = qpTrieToPairList(shared)
         val resultingList = qpTrieToPairList(resultingSameKey)
         assertListOfByteArrayValuePairsEquals(sharedList, resultingList)
+    }
+
+    @Property
+    fun gettingWorkingDataForAvailableKeysFromNull(
+        @ForAll @From("sharedKeyValueSpec") spec: Triple<QPTrie<ByteArray>, QPTrie<ByteArray>, QPTrie<ByteArray>>
+    ) {
+        val data = spec.second
+        val resulting = workingDataForAvailableKeys<Int>(data, null)
+        assertEquals(0, resulting.size)
     }
 
     @Test
