@@ -109,10 +109,8 @@ internal class TreeNode<T : Comparable<T>, V>(
         }
 
         fun <T: Comparable<T>, V>rotateLeftLeft(node: TreeNode<T, V>): TreeNode<T, V> {
-            if (node.leftNode == null) {
-                return node
-            }
-            val leftNode = node.leftNode
+            // node.leftNode must not be null when this is called.
+            val leftNode = node.leftNode!!
             val leftRight = leftNode.rightNode
             val newRight = newInstance(
                 node.leftKey,
@@ -130,14 +128,9 @@ internal class TreeNode<T : Comparable<T>, V>(
             )
         }
         fun <T: Comparable<T>, V>rotateLeftRight(node: TreeNode<T, V>): TreeNode<T, V> {
-            if (node.leftNode == null) {
-                return node
-            }
-            val leftNode = node.leftNode
-            if (leftNode.rightNode == null) {
-                return node
-            }
-            val leftRightNode = leftNode.rightNode
+            // node.leftNode must not be null when this is called.
+            val leftNode = node.leftNode!!
+            val leftRightNode = leftNode.rightNode ?: return node
             val leftRightLeft = leftRightNode.leftNode
             val leftRightRight = leftRightNode.rightNode
             val newLeftNode = newInstance(
@@ -163,14 +156,9 @@ internal class TreeNode<T : Comparable<T>, V>(
             )
         }
         private fun <T: Comparable<T>, V>rotateRightLeft(node: TreeNode<T, V>): TreeNode<T, V> {
-            if (node.rightNode == null) {
-                return node
-            }
-            val rightNode = node.rightNode
-            if (rightNode.leftNode == null) {
-                return node
-            }
-            val rightLeftNode = rightNode.leftNode
+            // node.rightNode must not be null when this is called.
+            val rightNode = node.rightNode!!
+            val rightLeftNode = rightNode.leftNode ?: return node
             val rightLeftLeft = rightLeftNode.leftNode
             val rightLeftRight = rightLeftNode.rightNode
             val newLeftNode = newInstance(
@@ -196,10 +184,8 @@ internal class TreeNode<T : Comparable<T>, V>(
             )
         }
         private fun<T: Comparable<T>, V>rotateRightRight(node: TreeNode<T, V>): TreeNode<T, V> {
-            if (node.rightNode == null) {
-                return node
-            }
-            val rightNode = node.rightNode
+            // node.rightNode must not be null when this is called.
+            val rightNode = node.rightNode!!
             val rightLeft = rightNode.leftNode
             val newLeft = newInstance(
                 node.leftKey,
@@ -340,9 +326,11 @@ internal class TreeNode<T : Comparable<T>, V>(
 
     fun remove(rangeLow: T, rangeHigh: T): TreeNode<T, V>? {
         val rangeCompare = compareRanges(this.leftKey, this.rightKey, rangeLow, rangeHigh)
+        val leftNode = this.leftNode
+        val rightNode = this.rightNode
         if (rangeCompare == 0) {
-            if (this.leftNode != null) {
-                val liftRightmostResult = this.leftNode.extractRightmostChild()
+            if (leftNode != null) {
+                val liftRightmostResult = leftNode.extractRightmostChild()
                 val newLeft = liftRightmostResult.first
                 val newTop = liftRightmostResult.second
                 return rotateIfNecessary(newInstance(
@@ -350,20 +338,20 @@ internal class TreeNode<T : Comparable<T>, V>(
                     newTop.rightKey,
                     newTop.value,
                     newLeft,
-                    this.rightNode
+                    rightNode
                 ))
             } else {
                 // We were balanced to begin with, so if leftNode is null, rightNode can have a height
                 // of at most 1. Note that rightNode can also be null, which means that the result
                 // should be null anyway.
-                return this.rightNode
+                return rightNode
             }
         } else if (rangeCompare > 0) {
-            if (this.leftNode == null) {
+            if (leftNode == null) {
                 return this
             }
-            val newLeft = this.leftNode.remove(rangeLow, rangeHigh)
-            if (newLeft === this.leftNode) {
+            val newLeft = leftNode.remove(rangeLow, rangeHigh)
+            if (newLeft === leftNode) {
                 return this
             }
             return rotateIfNecessary(newInstance(
@@ -371,21 +359,21 @@ internal class TreeNode<T : Comparable<T>, V>(
                 this.rightKey,
                 this.value,
                 newLeft,
-                this.rightNode
+                rightNode
             ))
         } else {
-            if (this.rightNode == null) {
+            if (rightNode == null) {
                 return this
             }
-            val newRight = this.rightNode.remove(rangeLow, rangeHigh)
-            if (newRight === this.rightNode) {
+            val newRight = rightNode.remove(rangeLow, rangeHigh)
+            if (newRight === rightNode) {
                 return this
             }
             return rotateIfNecessary(newInstance(
                 this.leftKey,
                 this.rightKey,
                 this.value,
-                this.leftNode,
+                leftNode,
                 newRight
             ))
         }
@@ -401,7 +389,7 @@ private data class IntervalTreeIteratorState<T: Comparable<T>, V> (
 
 private abstract class IntervalTreeCommonIterator<T : Comparable<T>, V, R>(private val t: IntervalTree<T, V>): Iterator<R> {
     protected val iterationStack: ArrayListStack<IntervalTreeIteratorState<T, V>> = ArrayListStack()
-    protected var nextUp: R? = null
+    private var nextUp: R? = null
     private var didInitialPush = false
 
     private fun initialPushIfNecessary() {
@@ -575,9 +563,7 @@ private fun <T: Comparable<T>, V> sizeTreePairFromIterable(entries: Iterable<Pai
     return Pair(size, root)
 }
 
-
 private enum class IntervalTreeInOrderIteratorNextStep { SELF, LEFT, RIGHT, DONE }
-
 
 private data class IntervalTreeInOrderIteratorState<T: Comparable<T>, V> (
     val node: TreeNode<T, V>,
@@ -731,12 +717,14 @@ class IntervalTree<T: Comparable<T>, V> private constructor(
     }
 
     fun remove(range: Pair<T, T>): IntervalTree<T, V> {
-        if (this.root == null) {
-            return this
-        }
+        val root = this.root ?: return this
         val enforcedRange = enforceRangeInvariants(range)
-        this.lookupExactRange(enforcedRange) ?: return this
-        return IntervalTree(this.size - 1, this.root.remove(enforcedRange.first, enforcedRange.second))
+        val removedRoot = root.remove(enforcedRange.first, enforcedRange.second)
+        return if (removedRoot === root) {
+            this
+        } else {
+            IntervalTree(this.size - 1, removedRoot)
+        }
     }
 
     fun update(maybeRange: Pair<T, T>, updater: (value: V?) -> V?): IntervalTree<T, V> {

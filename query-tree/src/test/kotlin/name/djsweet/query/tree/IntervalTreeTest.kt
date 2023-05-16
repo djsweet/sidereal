@@ -641,4 +641,60 @@ class IntervalTreeTest {
             assertFalse(it.hasNext())
         }
     }
+
+    @Test fun minMaxRangesForEmpty() {
+        val tree = IntervalTree<Int, Int>()
+        assertNull(tree.minRange())
+        assertNull(tree.maxRange())
+    }
+
+    @Test fun treeFromEmptyList() {
+        val tree = IntervalTree<Int, Int>(listOf())
+        assertEquals(0, tree.size)
+        assertNull(tree.minRange())
+        assertNull(tree.maxRange())
+    }
+
+    @Test fun treeRemoveNonexistentLefts() {
+        val tree = IntervalTree(listOf(
+            Pair(1 to 1, 1),
+            Pair(3 to 3, 3),
+            Pair(5 to 5, 5),
+            Pair(7 to 7, 7),
+            Pair(9 to 9, 9),
+            Pair(11 to 11, 11),
+            Pair(13 to 13, 13)
+        ))
+        val origSize = tree.size
+        for (i in 0 until 16 step 2) {
+            val removeTree = tree.remove(i to i)
+            assertTrue(removeTree === tree)
+            assertEquals(origSize, removeTree.size)
+            assertNull(removeTree.lookupExactRange(i to i))
+            for (j in 1 until 15 step 2) {
+                assertEquals(j, removeTree.lookupExactRange(j to j))
+            }
+        }
+    }
+
+    @Test fun treeRemoveNonexistentRights() {
+        val tree = IntervalTree(listOf(
+            Pair(2 to 2, 2),
+            Pair(4 to 4, 4),
+            Pair(6 to 6, 6),
+            Pair(8 to 8, 8),
+            Pair(10 to 10, 10),
+            Pair(12 to 12, 12),
+            Pair(14 to 14, 14)
+        ))
+        val origSize = tree.size
+        for (i in 1 until 17 step 2) {
+            val removeTree = tree.remove(i to i)
+            assertTrue(removeTree === tree)
+            assertEquals(origSize, removeTree.size)
+            for (j in 2 until 16 step 2) {
+                assertEquals(j, removeTree.lookupExactRange(j to j))
+            }
+        }
+    }
 }
