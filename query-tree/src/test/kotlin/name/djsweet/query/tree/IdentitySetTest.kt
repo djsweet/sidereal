@@ -124,4 +124,15 @@ class IdentitySetTest {
         assertFalse(reAddedThreeFirst.contains(two))
         assertEquals(keptItemsWithThreeFirst, reAddedThreeFirst.toList())
     }
+
+    @Test fun identitySetRemoveNotPresent() {
+        val set = IdentitySet(listOf(1, 2, 3))
+        val removedSet = set.remove(4)
+        assertTrue(set === removedSet)
+        assertEquals(3, set.size)
+        assertTrue(removedSet.contains(1))
+        assertTrue(removedSet.contains(2))
+        assertTrue(removedSet.contains(3))
+        assertFalse(removedSet.contains(4))
+    }
 }
