@@ -65,16 +65,16 @@ internal data class IntermediateQueryTerm(
     }
 
     override fun equals(other: Any?): Boolean {
-        return if (this === other) { true
-        } else if (!IntermediateQueryTerm::class.java.isInstance(other)) {
+        return if (this === other) {
+            true
+        } else if (other !is IntermediateQueryTerm) {
             super.equals(other)
         } else {
-            val otherTerm = other as IntermediateQueryTerm
-            if (otherTerm.kind != this.kind) {
+            if (other.kind != this.kind) {
                 false
-            } else if (Arrays.compareUnsigned(otherTerm.key, this.key) != 0) {
+            } else if (Arrays.compareUnsigned(other.key, this.key) != 0) {
                 false
-            } else if (!this.lowerBoundEquals(otherTerm)) {
+            } else if (!this.lowerBoundEquals(other)) {
                 false
             } else {
                 this.upperBoundEquals(other)
@@ -187,9 +187,8 @@ class QuerySpec private constructor(
     override fun equals(other: Any?): Boolean {
         return if (this === other) {
             true
-        } else if (QuerySpec::class.java.isInstance(other)) {
-            val otherSpec = other as QuerySpec
-            if (this.inequalityTerm != otherSpec.inequalityTerm) {
+        } else if (other is QuerySpec) {
+            if (this.inequalityTerm != other.inequalityTerm) {
                 false
             } else {
                 this.equalityTermsForComparison().contentEquals(other.equalityTermsForComparison())
@@ -232,8 +231,7 @@ class QueryPath internal constructor(internal val breadcrumbs: ListNode<Intermed
     override fun equals(other: Any?): Boolean {
         return if (this === other) {
             true
-        } else if (QueryPath::class.java.isInstance(other)) {
-            other as QueryPath
+        } else if (other is QueryPath) {
             listEquals(this.breadcrumbs, other.breadcrumbs)
         } else {
             super.equals(other)
