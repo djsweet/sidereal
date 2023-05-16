@@ -1,5 +1,9 @@
-package name.djsweet.query.tree
+package name.djsweet.query.tree.benchmarks
 
+import name.djsweet.query.tree.QPTrie
+import name.djsweet.query.tree.QuerySetTree
+import name.djsweet.query.tree.QuerySpec
+import name.djsweet.query.tree.QueryTreeTest
 import org.openjdk.jmh.annotations.*
 import java.util.concurrent.TimeUnit
 

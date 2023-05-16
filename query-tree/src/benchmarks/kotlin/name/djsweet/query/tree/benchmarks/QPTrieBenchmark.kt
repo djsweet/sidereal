@@ -1,7 +1,9 @@
-package name.djsweet.query.tree
+package name.djsweet.query.tree.benchmarks
 
 import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentMapOf
+import name.djsweet.query.tree.QPTrie
+import name.djsweet.query.tree.QPTrieKeyValue
 import org.openjdk.jmh.annotations.*
 import net.jqwik.api.*
 import java.util.*

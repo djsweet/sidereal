@@ -1,6 +1,7 @@
-package name.djsweet.query.tree
+package name.djsweet.query.tree.benchmarks
 
 import kotlinx.collections.immutable.*
+import name.djsweet.query.tree.IdentitySet
 import java.util.concurrent.TimeUnit
 import net.jqwik.api.Arbitraries
 import org.openjdk.jmh.annotations.*
