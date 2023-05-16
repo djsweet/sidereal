@@ -76,6 +76,8 @@ class IteratorUtilsTest {
             flattenedList.add(entry)
         }
         assertArrayEquals(fullList.toTypedArray(), flattenedList.toTypedArray())
+        assertFalse(flattened.hasNext())
+        assertThrows(NoSuchElementException::class.java) { flattened.next() }
     }
 
     private data class OffsetIterator(val baseOffset: Int, val size: Int): ConcatenatedIterator<Int>() {
