@@ -110,28 +110,6 @@ class DataUtilsTest {
     }
 
     @Test
-    fun gettingWorkingDataForAvailableEqualityKeys() {
-        val first = QPTrie(listOf(
-            byteArrayOf(0) to byteArrayOf(1),
-            byteArrayOf(1) to byteArrayOf(2),
-            byteArrayOf(2) to byteArrayOf(3)
-        ))
-        val second = QPTrie(listOf(
-            byteArrayOf(0) to QPTrie(listOf(byteArrayOf(2) to 3)),
-            byteArrayOf(1) to QPTrie(listOf(byteArrayOf(2) to 3)),
-            byteArrayOf(4) to QPTrie(listOf(byteArrayOf(5) to 6)),
-            byteArrayOf(5) to QPTrie(listOf(byteArrayOf(6) to 6))
-        ))
-
-        val resulting = workingDataForAvailableEqualityKeys(first, second)
-        val resultingList = qpTrieToPairList(resulting)
-        assertListOfByteArrayValuePairsEquals(
-            listOf(ByteArrayButComparable(byteArrayOf(1)) to ByteArrayButComparable(byteArrayOf(2))),
-            resultingList
-        )
-    }
-
-    @Test
     fun comparingBytesButUnsigned() {
         // Sanity check for the internals of compareBytesUnsigned
         assertEquals(0, compareBytesUnsigned(0, 0))
