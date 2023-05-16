@@ -292,4 +292,23 @@ class ArrayUtilsTest {
         }
         assertArrayEquals(fullArray, concatByteArraysFromReverseList(listFromIterable(reverseEntries)))
     }
+
+    @Test
+    fun byteArrayButComparableHashCode() {
+        val testByteArray = byteArrayOf(1, 2, 3, 4)
+        assertEquals(testByteArray.contentHashCode(), ByteArrayButComparable(testByteArray).hashCode())
+    }
+
+    @Test
+    fun byteArrayButComparableDifferentTypeEquality() {
+        val testByteArray = byteArrayOf(1, 2, 3, 4)
+        val testIntArray = intArrayOf(1, 2, 3, 4)
+        assertFalse(ByteArrayButComparable(testByteArray).equals(testIntArray))
+        // But since testByteArray isn't a ByteArrayButComparable, it won't be equal.
+        assertFalse(ByteArrayButComparable(testByteArray).equals(testByteArray))
+        // However, two ByteArrayButComparables should be equal.
+        assertEquals(ByteArrayButComparable(testByteArray), ByteArrayButComparable(testByteArray))
+        // And if it's another ByteArray but equivalent then they should still be equal.
+        assertEquals(ByteArrayButComparable(byteArrayOf(1, 2, 3, 4)), ByteArrayButComparable(testByteArray))
+    }
 }
