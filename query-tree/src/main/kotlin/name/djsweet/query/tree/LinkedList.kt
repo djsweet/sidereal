@@ -1,8 +1,6 @@
 package name.djsweet.query.tree
 
-internal data class ListNode<T>(val value: T, val tail: ListNode<T>?) {
-    constructor(value: T): this(value, null)
-}
+internal data class ListNode<T>(val value: T, val tail: ListNode<T>?)
 
 internal fun<T> listPrepend(value: T, tail: ListNode<T>?): ListNode<T> {
     return ListNode(value, tail)
