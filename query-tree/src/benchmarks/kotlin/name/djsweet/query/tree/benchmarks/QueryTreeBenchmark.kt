@@ -16,6 +16,7 @@ class QueryTreeRunSpec {
     var queries = listOf<QuerySpec>()
     var lookup = QPTrie<ByteArray>()
     var queryTree = QuerySetTree<Int>()
+    var resultArray = ArrayList<Int>()
 
     fun linearScanLookup(): Set<Int> {
         val seen = mutableSetOf<Int>()
@@ -45,6 +46,7 @@ class QueryTreeRunSpec {
         }
         this.queryTree = nextQueryTree
         val matchSet = this.linearScanLookup()
+        this.resultArray.ensureCapacity(matchSet.size)
         println("Expecting to match ${matchSet.size} ${if (matchSet.size != 1) { "queries" } else {"query" }}")
     }
 }
@@ -86,4 +88,13 @@ class QueryTreeBenchmark {
         return lastSeen
     }
 
+    @Benchmark
+    fun point04VisitUsingTreeIntoArray(spec: QueryTreeRunSpec): Int {
+        val into = spec.resultArray
+        into.clear()
+        spec.queryTree.visitByData(spec.lookup) { _, value ->
+            into.add(value)
+        }
+        return into[into.size - 1]
+    }
 }
