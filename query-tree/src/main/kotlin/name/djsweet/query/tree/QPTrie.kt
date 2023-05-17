@@ -411,23 +411,16 @@ private class OddNybble<V>(
         } else {
             val targetLowNybble = oddNybbleFromByte(childTarget)
             val foundOffset = findByteInSortedArray(evenNode.nybbleValues, targetLowNybble)
-            if (foundOffset < 0) {
-                val oddOffset = -(foundOffset + 1)
-                val nextValues = insertByteArray(evenNode.nybbleValues, oddOffset, targetLowNybble)
-                val nextDispatch = Array(evenNode.nybbleDispatch.size + 1) { bottomNode }
-                insertArray(evenNode.nybbleDispatch, nextDispatch, oddOffset, bottomNode)
-                EvenNybble(
-                    nextValues,
-                    nextDispatch
-                )
-            } else {
-                val nextDispatch = evenNode.nybbleDispatch.clone()
-                nextDispatch[foundOffset] = bottomNode
-                EvenNybble(
-                    evenNode.nybbleValues,
-                    nextDispatch
-                )
-            }
+            // foundOffset is necessarily negative here. If it weren't,
+            // we would have `oddOffset` > -1 above, and would have returned.
+            val oddOffset = -(foundOffset + 1)
+            val nextValues = insertByteArray(evenNode.nybbleValues, oddOffset, targetLowNybble)
+            val nextDispatch = Array(evenNode.nybbleDispatch.size + 1) { bottomNode }
+            insertArray(evenNode.nybbleDispatch, nextDispatch, oddOffset, bottomNode)
+            EvenNybble(
+                nextValues,
+                nextDispatch
+            )
         }
         return if (this.nybbleValues.isEmpty()) {
             OddNybble(
@@ -586,7 +579,7 @@ private class OddNybble<V>(
                     break
                 }
             }
-            return registerIteratorAsChild(GreaterThanOrEqualOddNybbleIterator(
+            return registerIteratorAsChild(GreaterThanOddNybbleIterator(
                 this,
                 compareTo,
                 endCompareOffset,
@@ -715,7 +708,7 @@ private class LessThanOrEqualOddNybbleIterator<V>(
     }
 }
 
-private class GreaterThanOrEqualOddNybbleIterator<V>(
+private class GreaterThanOddNybbleIterator<V>(
     private val node: OddNybble<V>,
     private val compareTo: ByteArray,
     private val compareOffset: Int,
@@ -723,27 +716,16 @@ private class GreaterThanOrEqualOddNybbleIterator<V>(
     private val equalNybbleOffset: Int
 ): ConcatenatedIterator<QPTrieKeyValue<V>>() {
     override fun iteratorForOffset(offset: Int): Iterator<QPTrieKeyValue<V>>? {
-        var nodeOffset = offset
+        val nodeOffset = offset + this.greaterOrEqualNybbleOffset
         val node = this.node
-        val value = node.valuePair
-        val compareOffset = this.compareOffset
-        val compareTo = this.compareTo
-        if (compareOffset >= compareTo.size && value != null) {
-            if (offset == 0) {
-                return SingleElementIterator(value)
-            } else {
-                nodeOffset -= 1
-            }
-        }
-        nodeOffset += this.greaterOrEqualNybbleOffset
 
         val nybbleDispatch = node.nybbleDispatch
         return if (nodeOffset >= nybbleDispatch.size) {
             null
         } else if (nodeOffset == this.equalNybbleOffset) {
             this.registerChild(nybbleDispatch[nodeOffset].iteratorForGreaterThanOrEqual(
-                compareTo,
-                compareOffset
+                this.compareTo,
+                this.compareOffset
             ))
         } else {
             this.registerChild(nybbleDispatch[nodeOffset].fullIteratorAscending())
