@@ -28,17 +28,14 @@ data class QPTrieKeyValue<V> internal constructor(
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
-        if (javaClass != other?.javaClass) return false
-
-        other as QPTrieKeyValue<*>
-
-        if (!key.contentEquals(other.key)) return false
-        return value == other.value
+        if (other !is QPTrieKeyValue<*>) return false
+        if (!this.key.contentEquals(other.key)) return false
+        return this.value == other.value
     }
 
     override fun hashCode(): Int {
-        var result = key.contentHashCode()
-        result = 31 * result + (value?.hashCode() ?: 0)
+        var result = this.key.contentHashCode()
+        result = 31 * result + this.value.hashCode()
         return result
     }
 }
@@ -65,6 +62,19 @@ private class OddNybble<V>(
             compareTo,
             compareOffset,
             (compareOffset + this.prefix.size).coerceAtMost(compareTo.size)
+        )
+    }
+
+    fun compareEqualLookupSliceToCurrentPrefixForStart(compareTo: ByteArray, compareOffset: Int): Boolean {
+        val maxCompareEnd = compareTo.size - compareOffset
+        val compareSize = this.prefix.size.coerceAtMost(maxCompareEnd)
+        return Arrays.equals(
+            this.prefix,
+            0,
+            compareSize,
+            compareTo,
+            compareOffset,
+            compareOffset + compareSize
         )
     }
 
@@ -579,7 +589,7 @@ private class OddNybble<V>(
             return registerIteratorAsChild(GreaterThanOrEqualOddNybbleIterator(
                 this,
                 compareTo,
-                compareOffset + this.prefix.size,
+                endCompareOffset,
                 greaterEqualOffset,
                 equalOffset
             ))
@@ -591,12 +601,12 @@ private class OddNybble<V>(
         compareOffset: Int,
         registerIteratorAsChild: RegisterChildIterator<V>
     ): Iterator<QPTrieKeyValue<V>> {
-        val comparison = this.compareLookupSliceToCurrentPrefix(compareTo, compareOffset)
+        val equalEnough = this.compareEqualLookupSliceToCurrentPrefixForStart(compareTo, compareOffset)
         val endCompareOffset = compareOffset + this.prefix.size
-        return if (comparison >= 0 && endCompareOffset >= compareTo.size) {
-            this.fullIteratorAscending(registerIteratorAsChild)
-        } else if (comparison != 0) {
+        return if (!equalEnough) {
             EmptyIterator()
+        } else if (endCompareOffset >= compareTo.size) {
+            this.fullIteratorAscending(registerIteratorAsChild)
         } else {
             val target = compareTo[endCompareOffset]
             val evenNode = this.dispatchByte(target) ?: return EmptyIterator()
@@ -1111,15 +1121,14 @@ private tailrec fun<V> visitStartsWithUnsafeSharedKeyImpl(
     compareOffset: Int,
     receiver: VisitReceiver<V>
 ) {
-    if (compareOffset >= compareTo.size) {
-        return visitAscendingUnsafeSharedKeyImpl(node, receiver)
-    }
-    val prefixComparison = node.compareLookupSliceToCurrentPrefix(
+    if (!node.compareEqualLookupSliceToCurrentPrefixForStart(
         compareTo,
         compareOffset - node.prefix.size
-    )
-    if (prefixComparison != 0) {
+    )) {
         return
+    }
+    if (compareOffset >= compareTo.size) {
+        return visitAscendingUnsafeSharedKeyImpl(node, receiver)
     }
 
     val compareByte = compareTo[compareOffset]
@@ -1193,19 +1202,16 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     }
 
     fun get(key: ByteArray): V? {
-        val root = this.root
-        return if (root == null) {
-            null
-        } else {
-            getValue(root, key, 0)
-        }
+        val root = this.root ?: return null
+        return getValue(root, key, 0)
     }
 
     private fun updateMaybeWithKeyCopy(key: ByteArray, updater: (prev: V?) -> V?, copyKey: Boolean): QPTrie<V> {
-        if (this.root == null) {
+        val root = this.root
+        return if (root == null) {
             val value = updater(null) ?: return this
             val keyCopy = if (copyKey) { key.copyOf() } else { key }
-            return QPTrie(
+            QPTrie(
                 OddNybble(
                     keyCopy,
                     QPTrieKeyValue(keyCopy, value),
@@ -1214,12 +1220,14 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
                     arrayOf()
                 )
             )
+        } else {
+            val newRoot = root.update(key, 0, this.emptyEvenNybbleArray, copyKey, updater)
+            if (newRoot === root) {
+                this
+            } else {
+                QPTrie(newRoot)
+            }
         }
-        val newRoot = this.root.update(key, 0, this.emptyEvenNybbleArray, copyKey, updater)
-        if (newRoot === this.root) {
-            return this
-        }
-        return QPTrie(newRoot)
     }
 
     fun update(key: ByteArray, updater: (prev: V?) -> V?): QPTrie<V> {
@@ -1257,43 +1265,28 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     }
 
     fun iteratorAscendingUnsafeSharedKey(): Iterator<QPTrieKeyValue<V>> {
-        return if (this.root == null) {
-            EmptyIterator()
-        } else {
-            this.root.fullIteratorAscending(this.noopRegisterChildIterator)
-        }
+        val root = this.root ?: return EmptyIterator()
+        return root .fullIteratorAscending(this.noopRegisterChildIterator)
     }
 
     fun visitAscendingUnsafeSharedKey(receiver: VisitReceiver<V>) {
-        if (this.root == null) {
-            return
-        } else {
-            return visitAscendingUnsafeSharedKeyImpl(this.root, receiver)
-        }
+        val root = this.root ?: return
+        return visitAscendingUnsafeSharedKeyImpl(root, receiver)
     }
 
     fun iteratorDescendingUnsafeSharedKey(): Iterator<QPTrieKeyValue<V>> {
-        return if (this.root == null) {
-            EmptyIterator()
-        } else {
-            this.root.fullIteratorDescending(this.noopRegisterChildIterator)
-        }
+        val root = this.root ?: return EmptyIterator()
+        return root.fullIteratorDescending(this.noopRegisterChildIterator)
     }
 
     fun visitDescendingUnsafeSharedKey(receiver: VisitReceiver<V>) {
-        if (this.root == null) {
-            return
-        } else {
-            return visitDescendingUnsafeSharedKeyImpl(this.root, receiver)
-        }
+        val root = this.root ?: return
+        return visitDescendingUnsafeSharedKeyImpl(root, receiver)
     }
 
     fun iteratorLessThanOrEqualUnsafeSharedKey(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
-        return if (this.root == null) {
-            EmptyIterator()
-        } else {
-            this.root.iteratorForLessThanOrEqual(key, 0, this.noopRegisterChildIterator)
-        }
+        val root = this.root ?: return EmptyIterator()
+        return root.iteratorForLessThanOrEqual(key, 0, this.noopRegisterChildIterator)
     }
 
     fun visitLessThanOrEqualUnsafeSharedKey(key: ByteArray, receiver: VisitReceiver<V>) {
@@ -1302,11 +1295,8 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     }
 
     fun iteratorGreaterThanOrEqualUnsafeSharedKey(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
-        return if (this.root == null) {
-            EmptyIterator()
-        } else {
-            this.root.iteratorForGreaterThanOrEqual(key, 0, this.noopRegisterChildIterator)
-        }
+        val root = this.root ?: return EmptyIterator()
+        return root.iteratorForGreaterThanOrEqual(key, 0, this.noopRegisterChildIterator)
     }
 
     fun visitGreaterThanOrEqualUnsafeSharedKey(key: ByteArray, receiver: VisitReceiver<V>) {
@@ -1315,11 +1305,8 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     }
 
     fun iteratorStartsWithUnsafeSharedKey(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
-        return if (this.root == null) {
-            EmptyIterator()
-        } else {
-            this.root.iteratorForStartsWith(key, 0, this.noopRegisterChildIterator)
-        }
+        val root = this.root ?: return EmptyIterator()
+        return root.iteratorForStartsWith(key, 0, this.noopRegisterChildIterator)
     }
 
     fun visitStartsWithUnsafeSharedKey(key: ByteArray, receiver: VisitReceiver<V>) {
@@ -1328,11 +1315,8 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     }
 
     fun iteratorPrefixOfOrEqualToUnsafeSharedKey(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
-        return if (this.root == null) {
-            EmptyIterator()
-        } else {
-            LookupPrefixOfOrEqualToIterator(key, this.root)
-        }
+        val root = this.root ?: return EmptyIterator()
+        return LookupPrefixOfOrEqualToIterator(key, root)
     }
 
     fun visitPrefixOfOrEqualToUnsafeSharedKey(key: ByteArray, receiver: VisitReceiver<V>) {
@@ -1357,9 +1341,9 @@ private class LookupPrefixOfOrEqualToIterator<V>(
     private val compareTo: ByteArray,
     private var currentNode: OddNybble<V>?
 ) : Iterator<QPTrieKeyValue<V>> {
-    var currentValue: QPTrieKeyValue<V>? = null
-    var compareOffset = 0
-    var lastTarget: Byte? = null
+    private var currentValue: QPTrieKeyValue<V>? = null
+    private var compareOffset = 0
+    private var lastTarget: Byte? = null
 
     private fun skipCurrentNodeToValue() {
         while (this.currentValue == null && this.currentNode != null) {

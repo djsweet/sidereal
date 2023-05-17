@@ -726,4 +726,55 @@ class QPTrieTest {
         }
         assertArrayEquals(arrayOf(2, 1), seenEntries.toTypedArray())
     }
+
+    @Test fun keyValueEquality() {
+        val leftPair = QPTrieKeyValue(byteArrayOf(0, 1, 2), 1)
+        val rightPair = QPTrieKeyValue(byteArrayOf(0, 1, 2), 1)
+        val middlePair = QPTrieKeyValue(byteArrayOf(2, 3, 4), 2)
+        val middlePairWrongKey = QPTrieKeyValue(byteArrayOf(2, 3, 4), "something")
+
+        assertTrue(leftPair.equals(leftPair))
+        assertEquals(leftPair.hashCode(), leftPair.hashCode())
+        assertTrue(rightPair.equals(rightPair))
+        assertEquals(rightPair.hashCode(), rightPair.hashCode())
+        assertTrue(middlePair.equals(middlePair))
+        assertEquals(middlePair.hashCode(), middlePair.hashCode())
+        assertTrue(middlePairWrongKey.equals(middlePairWrongKey))
+        assertEquals(middlePairWrongKey.hashCode(), middlePairWrongKey.hashCode())
+
+        assertTrue(leftPair == rightPair)
+        assertTrue(rightPair == leftPair)
+        assertEquals(leftPair.hashCode(), rightPair.hashCode())
+        assertFalse(leftPair == middlePair)
+        assertFalse(middlePair == leftPair)
+        assertFalse(middlePair == middlePairWrongKey)
+        assertFalse(middlePairWrongKey == middlePair)
+    }
+
+    @Test fun removeNotSetOddNybble() {
+        val trie = QPTrie(listOf(
+            byteArrayOf(0) to 0,
+            byteArrayOf(1) to 1
+        ))
+        val removedTrie = trie.remove(byteArrayOf())
+        assertTrue(trie === removedTrie)
+        assertEquals(2, removedTrie.size)
+        assertEquals(0, trie.get(byteArrayOf(0)))
+        assertEquals(1, trie.get(byteArrayOf(1)))
+        assertNull(trie.get(byteArrayOf()))
+    }
+
+    @Test fun startsWithForLesserEntry() {
+        val trie = QPTrie(listOf(
+            byteArrayOf(64) to 1
+        ))
+        val startsWithZero = trie.iteratorStartsWithUnsafeSharedKey(byteArrayOf(0)).asSequence().toList()
+        assertEquals(0, startsWithZero.size)
+
+        var sawEntry = false
+        trie.visitStartsWithUnsafeSharedKey(byteArrayOf(0)) {
+            sawEntry = true
+        }
+        assertFalse(sawEntry)
+    }
 }
