@@ -777,4 +777,18 @@ class QPTrieTest {
         }
         assertFalse(sawEntry)
     }
+
+    @Test fun startsWithForPrefixSupersetEntry() {
+        val trie = QPTrie(listOf(
+            byteArrayOf(1, 2, 3, 4) to 5
+        ))
+        val startsWithJustFive = trie.iteratorStartsWithUnsafeSharedKey(byteArrayOf(1, 2, 3, 4, 5)).asSequence().toList()
+        assertEquals(0, startsWithJustFive.size)
+
+        var sawEntry = false
+        trie.visitStartsWithUnsafeSharedKey(byteArrayOf(1, 2, 3, 4, 5)) {
+            sawEntry = true
+        }
+        assertFalse(sawEntry)
+    }
 }

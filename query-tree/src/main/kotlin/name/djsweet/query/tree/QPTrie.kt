@@ -55,21 +55,25 @@ private class OddNybble<V>(
     }
 
     fun compareLookupSliceToCurrentPrefix(compareTo: ByteArray, compareOffset: Int): Int {
+        val prefix = this.prefix
+        val prefixSize = prefix.size
         return Arrays.compareUnsigned(
-            this.prefix,
+            prefix,
             0,
-            this.prefix.size,
+            prefixSize,
             compareTo,
             compareOffset,
-            (compareOffset + this.prefix.size).coerceAtMost(compareTo.size)
+            (compareOffset + prefixSize).coerceAtMost(compareTo.size)
         )
     }
 
     fun compareEqualLookupSliceToCurrentPrefixForStart(compareTo: ByteArray, compareOffset: Int): Boolean {
-        val maxCompareEnd = compareTo.size - compareOffset
-        val compareSize = this.prefix.size.coerceAtMost(maxCompareEnd)
+        val compareEnd = compareTo.size - compareOffset
+        val prefix = this.prefix
+        val prefixSize = prefix.size
+        val compareSize = prefixSize.coerceAtMost(compareEnd)
         return Arrays.equals(
-            this.prefix,
+            prefix,
             0,
             compareSize,
             compareTo,
@@ -594,9 +598,9 @@ private class OddNybble<V>(
         compareOffset: Int,
         registerIteratorAsChild: RegisterChildIterator<V>
     ): Iterator<QPTrieKeyValue<V>> {
-        val equalEnough = this.compareEqualLookupSliceToCurrentPrefixForStart(compareTo, compareOffset)
+        val compareResult = this.compareEqualLookupSliceToCurrentPrefixForStart(compareTo, compareOffset)
         val endCompareOffset = compareOffset + this.prefix.size
-        return if (!equalEnough) {
+        return if (!compareResult) {
             EmptyIterator()
         } else if (endCompareOffset >= compareTo.size) {
             this.fullIteratorAscending(registerIteratorAsChild)
@@ -1103,10 +1107,11 @@ private tailrec fun<V> visitStartsWithUnsafeSharedKeyImpl(
     compareOffset: Int,
     receiver: VisitReceiver<V>
 ) {
-    if (!node.compareEqualLookupSliceToCurrentPrefixForStart(
+    val compareResult = node.compareEqualLookupSliceToCurrentPrefixForStart(
         compareTo,
         compareOffset - node.prefix.size
-    )) {
+    )
+    if (!compareResult) {
         return
     }
     if (compareOffset >= compareTo.size) {
