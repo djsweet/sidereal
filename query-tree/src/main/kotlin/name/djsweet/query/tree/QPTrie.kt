@@ -246,9 +246,10 @@ private class OddNybble<V>(
             if (result === thisValue) {
                 return this
             }
-            val nextSize = if (this.valuePair == null && result == null) {
-                this.size
-            } else if (this.valuePair != null && result != null) {
+            // this.valuePair == null && result == null is already handled
+            // in the identity check above, so we don't need to worry about it
+            // here.
+            val nextSize = if (this.valuePair != null && result != null) {
                 this.size
             } else if (this.valuePair == null) { // result != null
                 this.size + 1
@@ -758,6 +759,7 @@ private class EvenNybble<V>(
         compareTo: ByteArray,
         compareByteOffset: Int
     ): LessThanOrEqualEvenNybbleIterator<V> {
+        // compareByteOffset should be <= compareTo.size when calling this.
         return LessThanOrEqualEvenNybbleIterator(
             this,
             oddNybbleFromByte(compareTo[compareByteOffset]),
@@ -770,11 +772,7 @@ private class EvenNybble<V>(
         compareTo: ByteArray,
         compareByteOffset: Int
     ): ConcatenatedIterator<QPTrieKeyValue<V>> {
-        if (compareByteOffset >= compareTo.size) {
-            // We are necessarily greater than compareTo if the comparison byte offset
-            // is beyond the size of the actual lookup key.
-            return this.fullIteratorAscending()
-        }
+        // compareByteOffset should be <= compareTo.size when calling this.
         val targetNybble = oddNybbleFromByte(compareTo[compareByteOffset])
         var greaterOrEqualNybbleOffset = 0
         var equalNybbleOffset = this.nybbleValues.size
