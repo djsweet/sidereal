@@ -1,9 +1,6 @@
 package name.djsweet.query.tree.benchmarks
 
-import name.djsweet.query.tree.QPTrie
-import name.djsweet.query.tree.QuerySetTree
-import name.djsweet.query.tree.QuerySpec
-import name.djsweet.query.tree.QueryTreeTest
+import name.djsweet.query.tree.*
 import org.openjdk.jmh.annotations.*
 import java.util.concurrent.TimeUnit
 
@@ -39,10 +36,19 @@ class QueryTreeRunSpec {
         this.queries = queries
         this.lookup = data.shuffled().first()
         var nextQueryTree = QuerySetTree<Int>()
+        val seenQueries = HashMap<QuerySpec, Int>()
         for ((index, query) in this.queries.withIndex()) {
             val (_, alteredTree) = nextQueryTree.addElementByQuery(query, index)
             nextQueryTree = alteredTree
-            println("cardinality=${query.cardinality} query=${query}")
+            val priorQueryCount = seenQueries[query]
+            if (priorQueryCount == null) {
+                seenQueries[query] = 1
+            } else {
+                seenQueries[query] = priorQueryCount + 1
+            }
+        }
+        for ((query, count) in seenQueries) {
+            println("${count}x cardinality=${query.cardinality} query=${query}")
         }
         this.queryTree = nextQueryTree
         val matchSet = this.linearScanLookup()
@@ -95,6 +101,10 @@ class QueryTreeBenchmark {
         spec.queryTree.visitByData(spec.lookup) { _, value ->
             into.add(value)
         }
-        return into[into.size - 1]
+        return if (into.size == 0) {
+            0
+        } else {
+            into[into.size - 1]
+        }
     }
 }
