@@ -145,26 +145,24 @@ class QuerySpec private constructor(
         }
         val inequalityTerm = this.inequalityTerm ?: return true
         val dataAtInequality = data.get(inequalityTerm.key) ?: return false
-        return when (inequalityTerm.kind) {
-            IntermediateQueryTermKind.EQUALS -> (inequalityTerm.lowerBound!!).contentEquals(dataAtInequality)
-            IntermediateQueryTermKind.STARTS_WITH -> {
-                val boundSize = inequalityTerm.lowerBound!!.size
-                if (boundSize > dataAtInequality.size) {
-                    false
-                } else {
-                    Arrays.equals(
-                        inequalityTerm.lowerBound,
-                        0,
-                        boundSize,
-                        dataAtInequality,
-                        0,
-                        boundSize
-                    )
-                }
-            }
-            IntermediateQueryTermKind.GREATER_OR_LESS -> if (inequalityTerm.lowerBound == null && inequalityTerm.upperBound == null) {
+        return if (inequalityTerm.kind == IntermediateQueryTermKind.STARTS_WITH) {
+            val boundSize = inequalityTerm.lowerBound!!.size
+            if (boundSize > dataAtInequality.size) {
                 false
-            } else if (inequalityTerm.lowerBound != null && inequalityTerm.upperBound != null) {
+            } else {
+                Arrays.equals(
+                    inequalityTerm.lowerBound,
+                    0,
+                    boundSize,
+                    dataAtInequality,
+                    0,
+                    boundSize
+                )
+            }
+
+        } else {
+            // inequalityTerm.kind == IntermediateQueryTermKind.GREATER_OR_LESS
+            if (inequalityTerm.lowerBound != null && inequalityTerm.upperBound != null) {
                 Arrays.compareUnsigned(
                     dataAtInequality, inequalityTerm.lowerBound
                 ) >= 0 && Arrays.compareUnsigned(
@@ -239,7 +237,7 @@ class QueryPath internal constructor(internal val breadcrumbs: ListNode<Intermed
     }
 
     override fun hashCode(): Int {
-        return breadcrumbs.hashCode()
+        return listHashCode(breadcrumbs)
     }
 
     override fun toString(): String {
@@ -463,21 +461,18 @@ internal class QueryTreeNode<V  : SizeComputable>(
         val termsByKey = this.keys.get(currentKey) ?: QueryTreeTerms()
         when (currentPathElement.kind) {
             IntermediateQueryTermKind.EQUALS -> {
-                if (currentPathElement.lowerBound == null) {
-                    return this
-                }
-                val value = currentPathElement.lowerBound
+                val value = currentPathElement.lowerBound!!
                 val equalityTerms = termsByKey.equalityTerms ?: QPTrie()
                 val existingNodeByValue = equalityTerms.get(value)
 
                 // This is an entirely new value, so we'll be strictly adding to the key set.
                 if (existingNodeByValue == null) {
                     val updateValue = updater(null) ?: return this
-                    val subNode = emptyInstance<V>(
+                    val subNode = (emptyInstance<V>(
                         QueryPath(listReverse(currentPath))
                     ).updateByPath(remainingPath.rest(), currentPath, fullPath) {
                         updateValue
-                    } ?: return this
+                    })!!
                     val newEqualityTerms = equalityTerms.update(value) { subNode }
                     val newTerms = termsByKey.replaceEqualityTerms(newEqualityTerms)
                     val newKeys = keys.update(currentKey) { newTerms }
@@ -509,9 +504,6 @@ internal class QueryTreeNode<V  : SizeComputable>(
             IntermediateQueryTermKind.GREATER_OR_LESS -> {
                 val lowerBound = currentPathElement.lowerBound
                 val upperBound = currentPathElement.upperBound
-                if (lowerBound == null && upperBound == null) {
-                    return this
-                }
                 if (lowerBound == null) {
                     // upperBound != null
                     return this.updateTrieTerms(
@@ -568,18 +560,13 @@ internal class QueryTreeNode<V  : SizeComputable>(
 
     fun getByPath(queryPath: QueryPath): V? {
         val currentPath = queryPath.first() ?: return this.value
-        when (currentPath.kind) {
+        return when (currentPath.kind) {
             IntermediateQueryTermKind.EQUALS -> {
-                if (currentPath.lowerBound == null) {
-                    return null
-                }
-                val subNode = this.keys.get(currentPath.key)?.equalityTerms?.get(currentPath.lowerBound) ?: return null
-                return subNode.getByPath(queryPath.rest())
+                val subNode = this.keys.get(currentPath.key)?.equalityTerms?.get(currentPath.lowerBound!!) ?: return null
+                subNode.getByPath(queryPath.rest())
             }
             IntermediateQueryTermKind.GREATER_OR_LESS -> {
-                return if (currentPath.lowerBound == null && currentPath.upperBound == null) {
-                    null
-                } else if (currentPath.lowerBound != null && currentPath.upperBound != null) {
+                if (currentPath.lowerBound != null && currentPath.upperBound != null) {
                     val lowerBoundComparable = ByteArrayButComparable(currentPath.lowerBound)
                     val upperBoundComparable = ByteArrayButComparable(currentPath.upperBound)
                     val targetRange = Pair(lowerBoundComparable, upperBoundComparable)
@@ -593,10 +580,7 @@ internal class QueryTreeNode<V  : SizeComputable>(
                 }
             }
             IntermediateQueryTermKind.STARTS_WITH -> {
-                if (currentPath.lowerBound == null) {
-                    return null
-                }
-                return this.keys.get(currentPath.key)?.startsWithTerms?.get(currentPath.lowerBound)?.value
+                this.keys.get(currentPath.key)?.startsWithTerms?.get(currentPath.lowerBound!!)?.value
             }
         }
     }
@@ -640,10 +624,8 @@ internal class QueryTreeNode<V  : SizeComputable>(
         }
         return if (selfReplacement.size == 0L) {
             null
-        } else if (replacementSpecs == null) {
-            Pair(selfReplacement.path, selfReplacement)
         } else {
-            Pair(replacementSpecs.first, selfReplacement)
+            Pair(replacementSpecs?.first ?: selfReplacement.path, selfReplacement)
         }
     }
 
@@ -663,75 +645,62 @@ internal class QueryTreeNode<V  : SizeComputable>(
                 }
             }
             val resultPath = QueryPath(listReverse(listPrepend(inequalityTerm, reversePath)))
-            when (inequalityTerm.kind) {
-                IntermediateQueryTermKind.EQUALS -> {
-                    // This should not have happened.
-                    return Pair(resultPath, this)
-                }
-                IntermediateQueryTermKind.STARTS_WITH -> {
-                    val value = inequalityTerm.lowerBound
-                    return if (value == null) {
-                        Pair(this.path, this)
-                    } else {
-                        val key = inequalityTerm.key
-                        val keys = this.keys
-                        val termsForKey = keys.get(key) ?: QueryTreeTerms()
-                        val newNode = this.updateTrieTerms(
-                            keys,
-                            termsForKey.startsWithTerms,
-                            key,
-                            value,
-                            resultPath,
-                            updater
-                        ) {
-                            termsForKey.replaceStartsWithTerms(it)
-                        } ?: return null
-                        Pair(resultPath, newNode)
+            if (inequalityTerm.kind == IntermediateQueryTermKind.STARTS_WITH) {
+                val key = inequalityTerm.key
+                val keys = this.keys
+                val termsForKey = keys.get(key) ?: QueryTreeTerms()
+                val newNode = this.updateTrieTerms(
+                    keys,
+                    termsForKey.startsWithTerms,
+                    key,
+                    inequalityTerm.lowerBound!!,
+                    resultPath,
+                    updater
+                ) {
+                    termsForKey.replaceStartsWithTerms(it)
+                } ?: return null
+                return Pair(resultPath, newNode)
+            } else {
+                // inequalityTerm.kind == IntermediateQueryTermKind.GREATER_OR_LESS
+                val lowerBound = inequalityTerm.lowerBound
+                val upperBound = inequalityTerm.upperBound
+                val key = inequalityTerm.key
+                val keys = this.keys
+                val termsForKey = keys.get(key) ?: QueryTreeTerms()
+                val newNode = (if (lowerBound != null && upperBound != null) {
+                    this.updateRangeTerms(
+                        keys,
+                        termsForKey,
+                        key,
+                        lowerBound,
+                        upperBound,
+                        resultPath,
+                        updater
+                    )
+                } else if (lowerBound != null) {
+                    this.updateTrieTerms(
+                        keys,
+                        termsForKey.greaterThanTerms,
+                        key,
+                        lowerBound,
+                        resultPath,
+                        updater
+                    ) {
+                        termsForKey.replaceGreaterThanTerms(it)
                     }
-                }
-                IntermediateQueryTermKind.GREATER_OR_LESS -> {
-                    val lowerBound = inequalityTerm.lowerBound
-                    val upperBound = inequalityTerm.upperBound
-                    val key = inequalityTerm.key
-                    val keys = this.keys
-                    val termsForKey = keys.get(key) ?: QueryTreeTerms()
-                    val newNode = (if (lowerBound == null && upperBound == null) {
-                        this
-                    } else if (lowerBound != null && upperBound != null) {
-                        this.updateRangeTerms(
-                            keys,
-                            termsForKey,
-                            key,
-                            lowerBound,
-                            upperBound,
-                            resultPath,
-                            updater
-                        )
-                    } else if (lowerBound != null) {
-                        this.updateTrieTerms(
-                            keys,
-                            termsForKey.greaterThanTerms,
-                            key,
-                            lowerBound,
-                            resultPath,
-                            updater
-                        ) {
-                            termsForKey.replaceGreaterThanTerms(it)
-                        }
-                    } else {
-                        this.updateTrieTerms(
-                            keys,
-                            termsForKey.lessThanTerms,
-                            key,
-                            upperBound!!,
-                            resultPath,
-                            updater
-                        ) {
-                            termsForKey.replaceLessThanTerms(it)
-                        }
-                    }) ?: return null
-                    return Pair(resultPath, newNode)
-                }
+                } else {
+                    this.updateTrieTerms(
+                        keys,
+                        termsForKey.lessThanTerms,
+                        key,
+                        upperBound!!,
+                        resultPath,
+                        updater
+                    ) {
+                        termsForKey.replaceLessThanTerms(it)
+                    }
+                }) ?: return null
+                return Pair(resultPath, newNode)
             }
         }
         // We now know there is at least one equality term to try.
@@ -776,11 +745,8 @@ class QueryTree<V: SizeComputable> private constructor(
     constructor(): this(null)
 
     fun getByPath(queryPath: QueryPath): V? {
-        return if (this.root == null) {
-            null
-        } else {
-            this.root.getByPath(queryPath)
-        }
+        val root = this.root ?: return null
+        return root.getByPath(queryPath)
     }
 
     fun updateByPath(queryPath: QueryPath, updater: (prior: V?) -> V?): QueryTree<V> {
@@ -809,11 +775,8 @@ class QueryTree<V: SizeComputable> private constructor(
     }
 
     fun getByData(data: QPTrie<ByteArray>): Iterator<QueryPathValue<V>> {
-        return if (this.root == null) {
-            EmptyIterator()
-        } else {
-            GetByDataIterator(this.root, data)
-        }
+        val root = this.root ?: return EmptyIterator()
+        return GetByDataIterator(root, data)
     }
 
     fun visitByData(data: QPTrie<ByteArray>, receiver: (result: QueryPathValue<V>) -> Unit) {
@@ -822,11 +785,8 @@ class QueryTree<V: SizeComputable> private constructor(
     }
 
     override fun iterator(): Iterator<QueryPathValue<V>> {
-        return if (this.root == null) {
-            EmptyIterator()
-        } else {
-            FullTreeIterator(this.root)
-        }
+        val root = this.root ?: return EmptyIterator()
+        return FullTreeIterator(root)
     }
 }
 
@@ -881,7 +841,7 @@ internal class GetTermsByDataIterator<V : SizeComputable> private constructor(
         val terms = this.terms
         val value = this.value
         val fullData = this.fullData
-        while (this.state != GetTermsByDataIteratorState.DONE) {
+        while (true) {
             when (this.state) {
                 GetTermsByDataIteratorState.EQUALITY -> {
                     this.state = GetTermsByDataIteratorState.LESS_THAN
@@ -945,7 +905,7 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
         if (this.state != GetByDataIteratorState.VALUE && this.fullData.size == 0L) {
             return null
         }
-        while (this.state != GetByDataIteratorState.DONE) {
+        while (true) {
             val node = this.node
             when (this.state) {
                 GetByDataIteratorState.VALUE -> {
@@ -992,7 +952,7 @@ internal class FullTermsByDataIterator<V : SizeComputable> private constructor (
     ): this(terms, GetTermsByDataIteratorState.EQUALITY)
 
     override fun iteratorForOffset(offset: Int): Iterator<QueryPathValue<V>>? {
-        while (this.state != GetTermsByDataIteratorState.DONE) {
+        while (true) {
             when (this.state) {
                 GetTermsByDataIteratorState.EQUALITY -> {
                     this.state = GetTermsByDataIteratorState.LESS_THAN
@@ -1045,7 +1005,7 @@ internal class FullTreeIterator<V: SizeComputable> private constructor(
 
     override fun iteratorForOffset(offset: Int): Iterator<QueryPathValue<V>>? {
         val node = this.node
-        while (this.state != GetByDataIteratorState.DONE) {
+        while (true) {
             when (this.state) {
                 GetByDataIteratorState.VALUE -> {
                     this.state = GetByDataIteratorState.TERMS

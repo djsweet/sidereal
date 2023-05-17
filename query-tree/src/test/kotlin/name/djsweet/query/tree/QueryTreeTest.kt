@@ -269,6 +269,14 @@ class QueryTreeTest {
             givenEqualityTerms.add(Pair(ByteArrayButComparable(key), ByteArrayButComparable(value)))
         }
         assertListOfByteArrayValuePairsEquals(expectedEqualityTerms, givenEqualityTerms)
+        if (querySpec.inequalityTerm == null) {
+            assertEquals(querySpec.equalityTerms.size, querySpec.cardinality.toLong())
+        } else {
+            assertEquals(querySpec.equalityTerms.size + 1, querySpec.cardinality.toLong())
+        }
+
+        // This isn't much of a test, but it does get coverage out of the way.
+        assertDoesNotThrow { querySpec.toString() }
 
         var removingQuerySpec = querySpec
         while (expectedEqualityTerms.size > 0) {
@@ -276,6 +284,7 @@ class QueryTreeTest {
             val (removeKey, _) = removeThis
             expectedEqualityTerms.removeAt(0)
             removingQuerySpec = removingQuerySpec.withoutEqualityTerm(removeKey.array)
+            assertNotEquals(removingQuerySpec, querySpec)
             givenEqualityTerms.clear()
             for ((keepKey, value) in removingQuerySpec.equalityTerms) {
                 givenEqualityTerms.add(Pair(ByteArrayButComparable(keepKey), ByteArrayButComparable(value)))
@@ -285,6 +294,9 @@ class QueryTreeTest {
             val removedAgain = removingQuerySpec.withoutEqualityTerm(removeKey.array)
             assertTrue(removedAgain === removingQuerySpec)
         }
+
+        // Again, not much of a test, but it ensures full line coverage.
+        assertFalse(querySpec.equals(1))
     }
 
     private fun intermediateQueryTermForEquality(): Arbitrary<IntermediateQueryTerm> {
@@ -590,6 +602,14 @@ class QueryTreeTest {
             }.toTypedArray()
             var givenResults = persistentListOf<SizeComputableInteger>()
             for ((path, result) in queryTree.getByData(dataEntry)) {
+                assertDoesNotThrow { path.toString() }
+                assertEquals(path.hashCode(), listHashCode(path.breadcrumbs))
+                if (path.breadcrumbs == null) {
+                    assertEquals(1, path.hashCode())
+                } else {
+                    assertTrue(path.hashCode() != 1)
+                }
+                assertFalse(path.equals(1)) // Only for super.equal() checks.
                 val pathIdx = findIndex(paths, path)
                 if (result != handles[pathIdx]) {
                     println("Expected to find ${handles[pathIdx]}")
@@ -1635,5 +1655,49 @@ class QueryTreeTest {
         )
         val testData = QueryTreeTestData(queries, listOf(dataPoint))
         this.queryTreeNonSet(testData)
+    }
+
+    @Test fun setWithCardinality() {
+        val set = SetWithCardinality<Int>().add(1).add(2).add(3)
+        assertEquals(3, set.computeSize())
+        assertDoesNotThrow { set.toString() }
+    }
+
+    @Test fun addQueryToSetTreeTwice() {
+        val query = QuerySpec().withEqualityTerm(byteArrayOf(), byteArrayOf(1))
+        val baseTree = QuerySetTree<Int>()
+        val (_, newTree) = baseTree.addElementByQuery(query, 2)
+        val (_, newerTree) = newTree.addElementByQuery(query, 2)
+        assertTrue(newTree === newerTree)
+    }
+
+    @Test fun addThenRemoveByQueryEquals() {
+        val query = QuerySpec().withEqualityTerm(byteArrayOf(), byteArrayOf(1))
+        val baseTree = QueryTree<SizeComputableInteger>()
+        val (_, newTree) = baseTree.updateByQuery(query) { SizeComputableInteger(1, 1) }
+        val (_, newerTree) = newTree.updateByQuery(query) { null }
+        assertFalse(newTree === newerTree)
+        assertEquals(1L, newTree.size)
+        assertEquals(0L, newerTree.size)
+    }
+
+    @Test fun addThenRemoveByQueryRange() {
+        val query = QuerySpec().withBetweenOrEqualToTerm(byteArrayOf(), byteArrayOf(1), byteArrayOf(2))
+        val baseTree = QueryTree<SizeComputableInteger>()
+        val (_, newTree) = baseTree.updateByQuery(query) { SizeComputableInteger(1, 1) }
+        val (_, newerTree) = newTree.updateByQuery(query) { null }
+        assertFalse(newTree === newerTree)
+        assertEquals(1L, newTree.size)
+        assertEquals(0L, newerTree.size)
+    }
+
+    @Test fun addThenRemoveByQueryStartsWith() {
+        val query = QuerySpec().withStartsWithTerm(byteArrayOf(), byteArrayOf(1))
+        val baseTree = QueryTree<SizeComputableInteger>()
+        val (_, newTree) = baseTree.updateByQuery(query) { SizeComputableInteger(1, 1) }
+        val (_, newerTree) = newTree.updateByQuery(query) { null }
+        assertFalse(newTree === newerTree)
+        assertEquals(1L, newTree.size)
+        assertEquals(0L, newerTree.size)
     }
 }

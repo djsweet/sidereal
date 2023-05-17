@@ -105,3 +105,13 @@ internal fun<T> listRemoveByIdentity(list: ListNode<T>?, item: T): ListNode<T>? 
     // If we get to this point, we didn't find the item in the list.
     return list
 }
+
+internal fun<T> listHashCode(list: ListNode<T>?): Int {
+    var hashCode = 1
+    var cur = list
+    while (cur != null) {
+        hashCode = hashCode * 31 + cur.value.hashCode()
+        cur = cur.tail
+    }
+    return hashCode
+}
