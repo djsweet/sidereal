@@ -2,22 +2,119 @@ package name.djsweet.query.tree
 
 import java.util.Arrays
 
+/*
+ * This is an immutable, persistent implementation of a QPTrie, as originally described in
+ * https://dotat.at/prog/qp/blog-2015-10-04.html. In addition to being persistent, and therefore immutable,
+ * this implementation also offers the following additional features:
+ *
+ * - Full iteration is supported, both with the java.lang.Iterable interface, and with a recursive "visit"
+ *   callback interface that is at least 8x faster in microbenchmarks. This iteration is possible both
+ *   in ascending and descending key order.
+ * - Inequality lookups in the form of "less than or equal" and "greater than or equal" are supported, both with
+ *   java.lang.Iterable interfaces and a recursive "visit" interface that performs similarly well to the full
+ *   iteration "visit" interface.
+ * - "starts-with" prefix matching lookups are supported, again both with java.lang.Iterable interfaces and
+ *   with a "visit" interface.
+ * - "prefix-of", i.e. "every entry with keys the given lookup starts with", lookups are supported, again both
+ *   with java.lang.Iterable interfaces and with a "visit" interface.
+ *
+ * In order to support inequality lookups, key prefixes are stored instead of lookup offset inside non-leaf nodes.
+ * This does mean that RAM usage is slightly higher than a standard QPTrie, with a worst-case overhead of 2x the
+ * key memory consumption.
+ *
+ * This implementation does not use `popcnt` instructions for its sparse arrays, but instead stores nybble values
+ * in a separate array of an equal length. The mechanism by which a nybble value is converted into an array offset
+ * is implemented in `QPTrieUtils.offsetForNybble`. On an Apple M1 Max, `popcnt` methods were slightly slower for
+ * lookups, and significantly slower when dealing with key removals, than the optimized "test every possible value"
+ * implementation used here. The worst-case RAM overhead is 20 bytes more per node than if an Int were used. (Up to 16
+ * bytes for the byte array, 8 bytes for the pointer on a 64-bit machine, vs 4 bytes.)
+ */
+
+/*
+ * A QPTrie operates over nybbles of a ByteArray. A nybble is half a byte, which means that for a given array of bytes
+ *   0x01 0x23 0x45 0x67 ...
+ *
+ * we have a node entry for each of 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07 ...
+ *
+ * If we suppose that we logically have an array of nybbles, and the array is 0 indexed, we'll have
+ * a logical array of nybbles
+ *   [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, ...]
+ *
+ * The QPTrie is always rooted at an "empty" nybble, without an entry in the 0-indexed array. This root
+ * nybble would logically have an array offset of -1.
+ *
+ * As a result of this, a QPTrie has a lookup path that can be broken up into odd nybbles and even nybbles,
+ * like so:
+ *   -1,   0,    1,    2,    3,    4,    5,    6,    7, ...
+ *     [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, ...]
+ *
+ * Every nybble at an odd index (including the empty root nybble) is represented by an OddNybble node,
+ * and every nybble at an even index is represented by an EvenNybble node. This simplifies several aspects
+ * of the QPTrie implementation:
+ *
+ * - Every invocation of `dispatchByte` is implicitly aware of which nybble in the byte it needs to address
+ * - Values are stored at integral byte boundaries, specifically in OddNybble nodes, so EvenNybble does not
+ *   even need to consider storing values.
+ * - Prefixes are also stored at integral byte boundaries, again specifically in OddNybble nodes, so EvenNybble
+ *   does not need to consider prefixes.
+ */
+
 // Here's hoping either the Kotlin compiler or the JVM running this
 // optimizes out these casts...
-internal fun evenNybbleFromByte(b: Byte): Byte {
-    return b.toInt().shr(4).toByte()
-}
-
 internal fun oddNybbleFromByte(b: Byte): Byte {
     return b.toInt().and(0xf).toByte()
+}
+
+/*
+ * A funny discontinuity exists in the transformed result of
+ *  evenNybbleFromByte if the highest bit is set, i.e. the byte
+ * is actually negative. The following argument assumes that the
+ * hardware endianness is Big Endian, but in practice, Little Endian
+ * architectures act as if they were Big Endian when performing
+ * bit-shift operations.
+ *
+ * In this case, we transform
+ *   1xxxyyyy -> 1111111111111111111111111xxxyyyy
+ *
+ * So the right shift becomes
+ *   00001111111111111111111111111xxx
+ *
+ * And when we convert that back into a byte we get
+ *   11111xxx
+ *
+ * Even though we _would_ have expected
+ *   00001xxx
+ *
+ * if this were an actual unsigned byte.
+ *
+ * However, this does not harm the correctness of nybblesToBytes, because
+ * the reverse-transform, assuming the odd nybble is 0000yyyy, is
+ *   11111xxx -> 11111111111111111111111111111xxx // Promotion of Byte to Int
+ *   11111111111111111111111111111xxx -> 1111111111111111111111111xxx0000 // Shift left
+ *   1111111111111111111111111xxx0000 -> 1111111111111111111111111xxxyyyy // Or with odd nybble
+ *   1111111111111111111111111xxxyyyy -> 1xxxyyyy // Conversion back to byte
+ *
+ * So we end up with 1xxxyyyy again, regardless of the discontinuity.
+ */
+internal fun evenNybbleFromByte(b: Byte): Byte {
+    return b.toInt().shr(4).toByte()
 }
 
 internal fun nybblesToBytes(highNybble: Byte, lowNybble: Byte): Byte {
     return highNybble.toInt().shl(4).or(lowNybble.toInt()).toByte()
 }
 
+// We end up working with empty byte arrays often enough that it makes sense to keep a single
+// instance around for this purpose. It's only ever used in immutable contexts, particularly
+// as a potential prefix array in OddNybble, so it's perfectly safe to use in multiple places.
 private val emptyByteArray = byteArrayOf()
 
+/**
+ * Represents a key/value pair held by a QPTrie.
+ *
+ * The returned `key` property may be shared with the supplying QPTrie if
+ * it was obtained from a method ending in `UnsafeSharedKey`.
+ */
 data class QPTrieKeyValue<V> internal constructor(
     val key: ByteArray,
     val value: V
@@ -40,7 +137,16 @@ data class QPTrieKeyValue<V> internal constructor(
     }
 }
 
-internal typealias RegisterChildIterator<V> = (it: ConcatenatedIterator<QPTrieKeyValue<V>>) -> ConcatenatedIterator<QPTrieKeyValue<V>>
+/**
+ * Signature for any callback that can receive a QPTrieKeyValue as its sole argument.
+ */
+typealias VisitReceiver<V> = (value: QPTrieKeyValue<V>) -> Unit
+
+// We will be registering children in ConcatenatedIterators quite a bit, and passing through the registration
+// as a callback in several places. Since these callbacks will all have the same type, we'll make a typealias
+// to reduce unnecessary typing redundancy.
+internal typealias RegisterChildIterator<V> =
+            (it: ConcatenatedIterator<QPTrieKeyValue<V>>) -> ConcatenatedIterator<QPTrieKeyValue<V>>
 
 private class OddNybble<V>(
     val prefix: ByteArray,
@@ -67,7 +173,7 @@ private class OddNybble<V>(
         )
     }
 
-    fun compareEqualLookupSliceToCurrentPrefixForStart(compareTo: ByteArray, compareOffset: Int): Boolean {
+    fun testEqualLookupSliceToCurrentPrefixForStartsWith(compareTo: ByteArray, compareOffset: Int): Boolean {
         val compareEnd = compareTo.size - compareOffset
         val prefix = this.prefix
         val prefixSize = prefix.size
@@ -599,7 +705,7 @@ private class OddNybble<V>(
         compareOffset: Int,
         registerIteratorAsChild: RegisterChildIterator<V>
     ): Iterator<QPTrieKeyValue<V>> {
-        val compareResult = this.compareEqualLookupSliceToCurrentPrefixForStart(compareTo, compareOffset)
+        val compareResult = this.testEqualLookupSliceToCurrentPrefixForStartsWith(compareTo, compareOffset)
         val endCompareOffset = compareOffset + this.prefix.size
         return if (!compareResult) {
             EmptyIterator()
@@ -921,15 +1027,19 @@ private tailrec fun<V> getValue(node: OddNybble<V>, key: ByteArray, offset: Int)
 }
 
 private tailrec fun<V> minKeyValue(node: OddNybble<V>): QPTrieKeyValue<V> {
-    return if (node.valuePair != null) {
-        node.valuePair
+    val valuePair = node.valuePair
+    return if (valuePair != null) {
+        // If the valuePair != null, the key is necessarily less than all keys
+        // present in nybbleDispatch, because it is a strict prefix of them.
+        valuePair
     } else {
+        // If node.valuePair == null, this node _must_ have children in the
+        // nybbleDispatch. Completely empty nodes are never stored as part
+        // of the update process.
         val nextNode = node.nybbleDispatch[0].nybbleDispatch[0]
         minKeyValue(nextNode)
     }
 }
-
-typealias VisitReceiver<V> = (value: QPTrieKeyValue<V>) -> Unit
 
 private fun<V> visitAscendingUnsafeSharedKeyImpl(node: OddNybble<V>, receiver: VisitReceiver<V>) {
     val valuePair = node.valuePair
@@ -1105,7 +1215,7 @@ private tailrec fun<V> visitStartsWithUnsafeSharedKeyImpl(
     compareOffset: Int,
     receiver: VisitReceiver<V>
 ) {
-    val compareResult = node.compareEqualLookupSliceToCurrentPrefixForStart(
+    val compareResult = node.testEqualLookupSliceToCurrentPrefixForStartsWith(
         compareTo,
         compareOffset - node.prefix.size
     )
@@ -1164,8 +1274,39 @@ private fun<V> keysInto(node: OddNybble<V>, result: ArrayList<ByteArray>) {
     }
 }
 
+/**
+ * An immutable, persistent, CPU and memory efficient ordered associative map from ByteArray keys to arbitrary values.
+ *
+ * This collection holds pairs of objects, keys mapping to values, and supports efficiently:
+ * - Adding, removing, and updated values corresponding to a given key
+ * - Retrieving the value corresponding to each key
+ * - Retrieving keys and values where the key is less than or equal to a given value
+ * - Retrieving keys and values where the key is greater than or equal to a given value
+ * - Retrieving keys and values where the key starts with a given value
+ * - Retrieving keys and values where the given value starts with the key
+ * - Retrieving the key/value pair with the minimum key value
+ *
+ * Despite the immutable nature of these collections, the internals attempt to avoid memory allocation unless it is
+ * strictly necessary. There are a few implications to this allocation avoidance:
+ * - Any method whose name ends with UnsafeSharedKey will return a `QPTrieKeyValue<V>` where the `key` is internally
+ *   used by `get`, so callers must not mutate this value.
+ * - `update` and most methods whose name starts with `visit` are implemented recursively. Sparse sets of keys might
+ *   not run into stack overflow situations, but dense sets of keys over 1KB in size do run the risk of stack
+ *   overflow. It may be necessary to tune the available stack size, or limit the maximum size of the stored keys.
+ *
+ * The name "QPTrie" is derived from "quadbit popcount patricia trie" as per its initial description in
+ * https://dotat.at/prog/qp/blog-2015-10-04.html. It is a radix-16 trie where much of the lookup operations occur
+ * at subsets of the lookup key.
+ *
+ */
 class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     private val root: OddNybble<V>?
+
+    /**
+     * Returns the number of key/value pairs in the QPTrie.
+     *
+     * This is a Long instead of the standard Int to support more than ~2 billion members.
+     */
     val size: Long
 
     private val noopRegisterChildIterator: RegisterChildIterator<V> = { it }
@@ -1186,6 +1327,9 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
         this.size = this.root?.size ?: 0
     }
 
+    /**
+     * Returns the value corresponding to the given [key], or `null` if such a key is not present in the QPTrie.
+     */
     fun get(key: ByteArray): V? {
         val root = this.root ?: return null
         return getValue(root, key, 0)
@@ -1215,6 +1359,25 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
         }
     }
 
+    /**
+     * Returns a new QPTrie, wherein the value for the given [key] is updated by the [updater] callback.
+     *
+     * This method is implemented recursively, so care should be taken to ensure that the keys present in the QPTrie
+     * are short enough, or sparse enough, to prevent [StackOverflowError]s.
+     *
+     * The new QPTrie will actually be the given QPTrie if the resulting `value` from `updater` is identity-equal to the
+     * value already present in the given QPTrie corresponding to the given key. This means that a `null` update to a
+     * QPTrie without a value corresponding to the given key will return the same QPTrie, and an update to a QPTrie
+     * where the value is identity-equal to the value corresponding to the given key will also return the same QPTrie.
+     * This is permissible because the QPTries would otherwise be functionally equivalent.
+     *
+     * @param key
+     * @param updater A function that takes the prior value for the given [key], or `null` if such a value was not
+     *   present, and returns either a new value for the given key, or `null` if the entry should be removed.
+     * @return A possibly new QPTrie; if [updater] returns a non-null value, it will be the value for the given [key] in
+     *   the resulting QPTrie; if `updater` returns `null` then the entry for the given key will be removed from the
+     *   resulting QPTrie.
+     */
     fun update(key: ByteArray, updater: (prev: V?) -> V?): QPTrie<V> {
         return this.updateMaybeWithKeyCopy(key, updater, true)
     }
@@ -1223,6 +1386,17 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
         return this.updateMaybeWithKeyCopy(key, updater, false)
     }
 
+    /**
+     * Returns a new QPTrie, wherein the value corresponding to the given [key] is now [value]. If the current QPTrie
+     * already has a corresponding value for the given key, this value is effectively replaced in the new QPTrie.
+     *
+     * This method is implemented recursively, so care should be taken to ensure that the keys present in the QPTrie
+     * are short enough, or sparse enough, to prevent [StackOverflowError]s.
+     *
+     * The new QPTrie will actually be the given QPTrie if the given value is identity-equal to the value already
+     * present in the given QPTrie corresponding to the given key. This is permissible because the QPTries would
+     * otherwise be functionally equivalent.
+     */
     fun put(key: ByteArray, value: V): QPTrie<V> {
         return this.update(key) { value }
     }
@@ -1231,6 +1405,15 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
         return this.updateNoCopy(key) { value }
     }
 
+    /**
+     * Returns a new QPTrie, wherein there is no value corresponding to the given [key].
+     *
+     * This method is implemented recursively, so care should be taken to ensure that the keys present in the QPTrie
+     * are short enough, or sparse enough, to prevent [StackOverflowError]s.
+     *
+     * The new QPTrie will actually be the given QPTrie if there was not already a value corresponding to the given
+     * key. This is permissible because the QPTries would otherwise be functionally equivalent.
+     */
     fun remove(key: ByteArray): QPTrie<V> {
         return this.update(key) { null }
     }
@@ -1241,79 +1424,233 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
         }
     }
 
+    /**
+     * Returns an iterator over the key/value pairs of this QPTrie.
+     *
+     * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
+     * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
+     * which is why such an unsafe method is exposed.
+     */
     fun iteratorUnsafeSharedKey(): Iterator<QPTrieKeyValue<V>> {
         return this.iteratorAscendingUnsafeSharedKey()
     }
 
+    /**
+     * Calls [receiver] for every key/value pair present in this QPTrie.
+     *
+     * This method of obtaining key/value pairs is significantly faster than using the equivalent
+     *  [iteratorUnsafeSharedKey] mechanism, but is implemented recursively, so care should be taken
+     * to ensure that the keys present in the QPTrie are short enough, or sparse enough, to prevent
+     * [StackOverflowError]s.
+     *
+     * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
+     * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
+     * which is why such an unsafe method is exposed.
+     */
     fun visitUnsafeSharedKey(receiver: VisitReceiver<V>) {
         return this.visitAscendingUnsafeSharedKey(receiver)
     }
 
+    /**
+     * Returns an iterator over the key/value pairs of this QPTrie, where the results are ordered by the internal keys
+     * sorted in ascending order.
+     *
+     * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
+     * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
+     * which is why such an unsafe method is exposed.
+     */
     fun iteratorAscendingUnsafeSharedKey(): Iterator<QPTrieKeyValue<V>> {
         val root = this.root ?: return EmptyIterator()
         return root .fullIteratorAscending(this.noopRegisterChildIterator)
     }
 
+    /**
+     * Calls [receiver] for every key/value pair present in this QPTrie, in ascending key order.
+     *
+     * This method of obtaining key/value pairs is significantly faster than using the equivalent
+     * [iteratorAscendingUnsafeSharedKey] mechanism, but is implemented recursively, so care should be taken
+     * to ensure that the keys present in the QPTrie are short enough, or sparse enough, to prevent
+     * [StackOverflowError]s.
+     *
+     * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
+     * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
+     * which is why such an unsafe method is exposed.
+     */
     fun visitAscendingUnsafeSharedKey(receiver: VisitReceiver<V>) {
         val root = this.root ?: return
         return visitAscendingUnsafeSharedKeyImpl(root, receiver)
     }
 
+    /**
+     * Returns an iterator over the key/value pairs of this QPTrie, where the results are ordered by the internal keys
+     * sorted in descending order.
+     *
+     * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
+     * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
+     * which is why such an unsafe method is exposed.
+     */
     fun iteratorDescendingUnsafeSharedKey(): Iterator<QPTrieKeyValue<V>> {
         val root = this.root ?: return EmptyIterator()
         return root.fullIteratorDescending(this.noopRegisterChildIterator)
     }
 
+    /**
+     * Calls [receiver] for every key/value pair present in this QPTrie, in descending key order.
+     *
+     * This method of obtaining key/value pairs is significantly faster than using the equivalent
+     * [iteratorDescendingUnsafeSharedKey] mechanism, but is implemented recursively, so care should be taken
+     * to ensure that the keys present in the QPTrie are short enough, or sparse enough, to prevent
+     * [StackOverflowError]s.
+     *
+     * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
+     * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
+     * which is why such an unsafe method is exposed.
+     */
     fun visitDescendingUnsafeSharedKey(receiver: VisitReceiver<V>) {
         val root = this.root ?: return
         return visitDescendingUnsafeSharedKeyImpl(root, receiver)
     }
 
+    /**
+     * Returns an iterator over the key/value pairs of this QPTrie, where the results have keys less than or equal to
+     * the given [key], and are ordered by the internal keys sorted in descending order.
+     *
+     * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
+     * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
+     * which is why such an unsafe method is exposed.
+     */
     fun iteratorLessThanOrEqualUnsafeSharedKey(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
         val root = this.root ?: return EmptyIterator()
         return root.iteratorForLessThanOrEqual(key, 0, this.noopRegisterChildIterator)
     }
 
+    /**
+     * Calls [receiver] for every key/value pair present in this QPTrie which is less than or equal to the given [key],
+     * in descending key order.
+     *
+     * This method of obtaining key/value pairs is significantly faster than using the equivalent
+     * [iteratorLessThanOrEqualUnsafeSharedKey] mechanism, but is implemented recursively, so care should be taken
+     * to ensure that the keys present in the QPTrie are short enough, or sparse enough, to prevent
+     * [StackOverflowError]s.
+     *
+     * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
+     * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
+     * which is why such an unsafe method is exposed.
+     */
     fun visitLessThanOrEqualUnsafeSharedKey(key: ByteArray, receiver: VisitReceiver<V>) {
         val root = this.root ?: return
         visitLessThanOrEqualUnsafeSharedKeyImpl(root, key, root.prefix.size, receiver)
     }
 
+    /**
+     * Returns an iterator over the key/value pairs of this QPTrie, where the results have keys greater than or equal to
+     * the given [key], and are ordered by the internal keys sorted in ascending order.
+     *
+     * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
+     * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
+     * which is why such an unsafe method is exposed.
+     */
     fun iteratorGreaterThanOrEqualUnsafeSharedKey(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
         val root = this.root ?: return EmptyIterator()
         return root.iteratorForGreaterThanOrEqual(key, 0, this.noopRegisterChildIterator)
     }
 
+    /**
+     * Calls [receiver] for every key/value pair present in this QPTrie which is greater than or equal to the given [key],
+     * in ascending key order.
+     *
+     * This method of obtaining key/value pairs is significantly faster than using the equivalent
+     * [iteratorGreaterThanOrEqualUnsafeSharedKey] mechanism, but is implemented recursively, so care should be taken
+     * to ensure that the keys present in the QPTrie are short enough, or sparse enough, to prevent
+     * [StackOverflowError]s.
+     *
+     * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
+     * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
+     * which is why such an unsafe method is exposed.
+     */
     fun visitGreaterThanOrEqualUnsafeSharedKey(key: ByteArray, receiver: VisitReceiver<V>) {
         val root = this.root ?: return
         visitGreaterThanOrEqualUnsafeSharedKeyImpl(root, key, root.prefix.size, receiver)
     }
 
+    /**
+     * Returns an iterator over the key/value pairs of this QPTrie, where the results have keys which start with, or
+     * are equal to, the given [key], and are ordered by the internal keys sorted in ascending order.
+     *
+     * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
+     * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
+     * which is why such an unsafe method is exposed.
+     */
     fun iteratorStartsWithUnsafeSharedKey(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
         val root = this.root ?: return EmptyIterator()
         return root.iteratorForStartsWith(key, 0, this.noopRegisterChildIterator)
     }
 
+    /**
+     * Calls [receiver] for every key/value pair present in this QPTrie which starts with, or is equal to, the given
+     * [key].
+     *
+     * This method of obtaining key/value pairs is significantly faster than using the equivalent
+     * [iteratorStartsWithUnsafeSharedKey] mechanism.
+     *
+     * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
+     * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
+     * which is why such an unsafe method is exposed.
+     */
     fun visitStartsWithUnsafeSharedKey(key: ByteArray, receiver: VisitReceiver<V>) {
         val root = this.root ?: return
         return visitStartsWithUnsafeSharedKeyImpl(root, key, root.prefix.size, receiver)
     }
 
+    /**
+     * Returns an iterator over the key/value pairs of this QPTrie, where the results have keys which are prefixes of,
+     * or are equal to, the given [key], and are ordered by the internal keys sorted in ascending order.
+     *
+     * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
+     * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
+     * which is why such an unsafe method is exposed.
+     */
     fun iteratorPrefixOfOrEqualToUnsafeSharedKey(key: ByteArray): Iterator<QPTrieKeyValue<V>> {
         val root = this.root ?: return EmptyIterator()
         return LookupPrefixOfOrEqualToIterator(key, root)
     }
 
+    /**
+     * Calls [receiver] for every key/value pair present in this QPTrie whose key is a prefix of, or equal to, the given
+     * [key].
+     *
+     * This method of obtaining key/value pairs is significantly faster than using the equivalent
+     * [iteratorPrefixOfOrEqualToUnsafeSharedKey] mechanism.
+     *
+     * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
+     * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
+     * which is why such an unsafe method is exposed.
+     */
     fun visitPrefixOfOrEqualToUnsafeSharedKey(key: ByteArray, receiver: VisitReceiver<V>) {
         val root = this.root ?: return
         return visitPrefixOfOrEqualToUnsafeSharedKeyImpl(root, key, root.prefix.size, receiver)
     }
 
+    /**
+     * Returns the key/value pair with the minimum key if any key/value pairs are present, or `null` if no
+     * key/value pairs are present.
+     *
+     * The `key` member of the resulting pair is internally used by the QPTrie and must not be modified. Sharing this
+     * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
+     * which is why such an unsafe method is exposed.
+     */
     fun minKeyValueUnsafeSharedKey(): QPTrieKeyValue<V>? {
         val root = this.root ?: return null
         return minKeyValue(root)
     }
 
+    /**
+     * Copies references to the keys present in this QPTrie into the [result] ArrayList.
+     *
+     * The byte arrays referred to in [result] are internally used by the QPTrie and must not be modified. Sharing these
+     * byte arrays in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC
+     * pressure, which is why such an unsafe method is exposed.
+     */
     fun keysIntoUnsafeSharedKey(result: ArrayList<ByteArray>): ArrayList<ByteArray> {
         result.ensureCapacity(this.size.toInt())
         val root = this.root ?: return result

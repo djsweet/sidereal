@@ -2,15 +2,17 @@ package name.djsweet.query.tree;
 
 // These would all be in Kotlin, except for limitations in
 // the design of Kotlin as mentioned in the per-item comments.
-public final class QPTrieUtils {
-    // Kotlin does not have a way to express switch fallthrough,
-    // hence this being written in Java.
-    //
-    // The hope with this crazy switch dispatch is that modern
-    // CPUs will be able to speculatively execute their way to
-    // victory over multiple if statements. The switch is used
-    // to effectively jump over potential out-of-bounds access
-    // without otherwise incurring weird branches.
+final class QPTrieUtils {
+    /*
+     * Kotlin does not have a way to express switch fallthrough,
+     * hence this being written in Java.
+     *
+     * The hope with this crazy switch dispatch is that modern
+     * CPUs will be able to speculatively execute their way to
+     * victory over multiple if statements. The switch is used
+     * to effectively jump over potential out-of-bounds access
+     * without otherwise incurring weird branches.
+     */
     public static int offsetForNybble(byte[] values, byte nybble) {
         switch (values.length) {
             case 16:
