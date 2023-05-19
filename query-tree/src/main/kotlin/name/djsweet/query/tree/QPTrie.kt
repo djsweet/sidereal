@@ -1303,7 +1303,7 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     private val root: OddNybble<V>?
 
     /**
-     * Returns the number of key/value pairs in the QPTrie.
+     * Returns the number of key/value pairs present in this QPTrie.
      *
      * This is a Long instead of the standard Int to support more than ~2 billion members.
      */
@@ -1425,7 +1425,7 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     }
 
     /**
-     * Returns an iterator over the key/value pairs of this QPTrie.
+     * Returns an iterator over the key/value pairs present in this QPTrie.
      *
      * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
      * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
@@ -1452,8 +1452,8 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     }
 
     /**
-     * Returns an iterator over the key/value pairs of this QPTrie, where the results are ordered by the internal keys
-     * sorted in ascending order.
+     * Returns an iterator over the key/value pairs present in this QPTrie, where the results are ordered by the
+     * internal keys sorted in ascending order.
      *
      * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
      * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
@@ -1482,8 +1482,8 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     }
 
     /**
-     * Returns an iterator over the key/value pairs of this QPTrie, where the results are ordered by the internal keys
-     * sorted in descending order.
+     * Returns an iterator over the key/value pairs present in this QPTrie, where the results are ordered by the
+     * internal keys sorted in descending order.
      *
      * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
      * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
@@ -1512,8 +1512,8 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     }
 
     /**
-     * Returns an iterator over the key/value pairs of this QPTrie, where the results have keys less than or equal to
-     * the given [key], and are ordered by the internal keys sorted in descending order.
+     * Returns an iterator over the key/value pairs present in this QPTrie, where the results have keys less than or
+     * equal to the given [key], and are ordered by the internal keys sorted in descending order.
      *
      * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
      * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
@@ -1543,8 +1543,8 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     }
 
     /**
-     * Returns an iterator over the key/value pairs of this QPTrie, where the results have keys greater than or equal to
-     * the given [key], and are ordered by the internal keys sorted in ascending order.
+     * Returns an iterator over the key/value pairs present in this QPTrie, where the results have keys greater than or
+     * equal to the given [key], and are ordered by the internal keys sorted in ascending order.
      *
      * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
      * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
@@ -1556,8 +1556,8 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     }
 
     /**
-     * Calls [receiver] for every key/value pair present in this QPTrie which is greater than or equal to the given [key],
-     * in ascending key order.
+     * Calls [receiver] for every key/value pair present in this QPTrie which is greater than or equal to the given
+     * [key], in ascending key order.
      *
      * This method of obtaining key/value pairs is significantly faster than using the equivalent
      * [iteratorGreaterThanOrEqualUnsafeSharedKey] mechanism, but is implemented recursively, so care should be taken
@@ -1574,8 +1574,8 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     }
 
     /**
-     * Returns an iterator over the key/value pairs of this QPTrie, where the results have keys which start with, or
-     * are equal to, the given [key], and are ordered by the internal keys sorted in ascending order.
+     * Returns an iterator over the key/value pairs present in this QPTrie, where the results have keys which start
+     * with, or are equal to, the given [key], and are ordered by the internal keys sorted in ascending order.
      *
      * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
      * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
@@ -1603,8 +1603,8 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     }
 
     /**
-     * Returns an iterator over the key/value pairs of this QPTrie, where the results have keys which are prefixes of,
-     * or are equal to, the given [key], and are ordered by the internal keys sorted in ascending order.
+     * Returns an iterator over the key/value pairs present in this QPTrie, where the results have keys which are
+     * prefixes of, or are equal to, the given [key], and are ordered by the internal keys sorted in ascending order.
      *
      * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
      * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
