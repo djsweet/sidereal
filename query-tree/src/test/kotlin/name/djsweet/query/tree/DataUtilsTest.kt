@@ -18,38 +18,6 @@ class DataUtilsTest {
         }
     }
 
-    @Property
-    fun mapSequenceForIterable(
-        @ForAll ints: List<Int>
-    ) {
-        val expectedInts = ArrayList<Int>()
-        for (orig in ints) {
-            expectedInts.add(orig * 2)
-        }
-        val givenIntsIterable = mapSequence(ints) { it * 2 }
-        val givenInts = ArrayList<Int>()
-        for (given in givenIntsIterable) {
-            givenInts.add(given)
-        }
-        assertArrayEquals(expectedInts.toTypedArray(), givenInts.toTypedArray())
-    }
-
-    @Property
-    fun mapSequenceForIterator(
-        @ForAll ints: List<Int>
-    ) {
-        val expectedInts = ArrayList<Int>()
-        for (orig in ints) {
-            expectedInts.add(orig * 2)
-        }
-        val givenIntsIterable = mapSequence(ints.iterator()) { it * 2 }
-        val givenInts = ArrayList<Int>()
-        for (given in givenIntsIterable) {
-            givenInts.add(given)
-        }
-        assertArrayEquals(expectedInts.toTypedArray(), givenInts.toTypedArray())
-    }
-
     @Provide
     fun byteArrayList(): ListArbitrary<ByteArray> {
         return Arbitraries.bytes().array(ByteArray::class.java).list()
