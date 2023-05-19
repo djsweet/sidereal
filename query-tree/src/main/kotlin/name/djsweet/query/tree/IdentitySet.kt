@@ -18,39 +18,85 @@ private fun<T> updateTrieForElem(trie: QPTrie<ListNode<T>>, elem: T): QPTrie<Lis
     }
 }
 
-class IdentitySet<T> private constructor(private val trie: QPTrie<ListNode<T>>): Iterable<T> {
-    constructor(): this(QPTrie())
-    constructor(elems: Iterable<T>): this(elems.fold(QPTrie()) { trie, elem -> updateTrieForElem(trie, elem) })
+private fun<T> identitySetForIterable(elements: Iterable<T>): Pair<QPTrie<ListNode<T>>, Long> {
+    var trie = QPTrie<ListNode<T>>()
+    var size: Long = 0
+    for (elem in elements) {
+        val nextTrie = updateTrieForElem(trie, elem)
+        if (nextTrie !== trie) {
+            size += 1
+        }
+        trie = nextTrie
+    }
+    return Pair(trie, size)
+}
 
-    val size: Long get() = this.trie.size
+/**
+ * A persistent, immutable, unordered collection of items wherein each item is contained exactly once, and duplicate
+ * items are not possible.
+ *
+ * Duplicate detection is based on two aspects:
+ * 1. An item's [hashCode] is used to select an appropriate hash bucket
+ * 2. Elements of the hash bucket are compared using object identity checks
+ *
+ * Note that [equals] is not used. Equivalent but non-identical items are treated as distinct in an IdentitySet.
+ */
+class IdentitySet<T> internal constructor(
+    private val trie: QPTrie<ListNode<T>>,
+    /**
+     * Returns the number of items present in this IdentitySet.
+     *
+     * This is a Long instead of the standard Int to support more than ~2 billion members.
+     */
+    val size: Long
+): Iterable<T> {
+    constructor(): this(QPTrie(), 0)
 
-    fun contains(elem: T): Boolean {
-        val forHash = this.trie.get(byteArrayForInt(elem.hashCode()))
-        return listHasByIdentity(forHash, elem)
+    private constructor(trieSize: Pair<QPTrie<ListNode<T>>, Long>): this(trieSize.first, trieSize.second)
+    constructor(elements: Iterable<T>): this(identitySetForIterable(elements))
+
+    /**
+     * Checks if the given [element] is contained in this IdentitySet.
+     */
+    fun contains(element: T): Boolean {
+        val forHash = this.trie.get(byteArrayForInt(element.hashCode()))
+        return listHasByIdentity(forHash, element)
     }
 
-    fun add(elem: T): IdentitySet<T> {
-        val newTrie = updateTrieForElem(this.trie, elem)
+    /**
+     * Returns a new IdentitySet containing the given [element].
+     *
+     * The returned IdentitySet will actually be the given IdentitySet if the given IdentitySet already contains
+     * the given element. This is permissible because the IdentitySets would otherwise be functionally equivalent.
+     */
+    fun add(element: T): IdentitySet<T> {
+        val newTrie = updateTrieForElem(this.trie, element)
         return if (newTrie === this.trie) {
             this
         } else {
-            IdentitySet(newTrie)
+            IdentitySet(newTrie, this.size + 1)
         }
     }
 
-    fun remove(elem: T): IdentitySet<T> {
-        val hashCode = byteArrayForInt(elem.hashCode())
+    /**
+     * Returns a new IdentitySet that does not contain the given [element].
+     *
+     * The returned IdentitySet will actually be the given IdentitySet if the given IdentitySet does not contain
+     * the given element. This is permissible because the IdentitySets would otherwise be functionally equivalent.
+     */
+    fun remove(element: T): IdentitySet<T> {
+        val hashCode = byteArrayForInt(element.hashCode())
         val newTrie = this.trie.update(hashCode) {
             if (it == null) {
                 null
             } else {
-                listRemoveByIdentity(it, elem)
+                listRemoveByIdentity(it, element)
             }
         }
         return if (newTrie === this.trie) {
             this
         } else {
-            IdentitySet(newTrie)
+            IdentitySet(newTrie, this.size - 1)
         }
     }
 
@@ -60,6 +106,9 @@ class IdentitySet<T> private constructor(private val trie: QPTrie<ListNode<T>>):
         })
     }
 
+    /**
+     * Calls [receiver] for every item contained in this IdentitySet.
+     */
     fun visitAll(receiver: (value: T) -> Unit) {
         this.trie.visitUnsafeSharedKey {
             var node: ListNode<T>? = it.value
