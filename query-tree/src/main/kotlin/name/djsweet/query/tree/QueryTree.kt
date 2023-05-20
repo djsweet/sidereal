@@ -428,7 +428,7 @@ internal class QueryTreeNode<V  : SizeComputable>(
         val rangeTerms = termsByKey.rangeTerms
         val lowerBoundComparable = ByteArrayButComparable(lowerBound)
         val upperBoundComparable = ByteArrayButComparable(upperBound)
-        val rangeValue = lowerBoundComparable to upperBoundComparable
+        val rangeValue = IntervalRange.fromBounds(lowerBoundComparable, upperBoundComparable)
         val existingResultByValue = rangeTerms?.lookupExactRange(rangeValue)
         val existingResultValueByValue = existingResultByValue?.value
         val newResult = updater(existingResultValueByValue)
@@ -569,7 +569,7 @@ internal class QueryTreeNode<V  : SizeComputable>(
                 if (currentPath.lowerBound != null && currentPath.upperBound != null) {
                     val lowerBoundComparable = ByteArrayButComparable(currentPath.lowerBound)
                     val upperBoundComparable = ByteArrayButComparable(currentPath.upperBound)
-                    val targetRange = Pair(lowerBoundComparable, upperBoundComparable)
+                    val targetRange = IntervalRange.fromBounds(lowerBoundComparable, upperBoundComparable)
                     this.keys.get(currentPath.key)?.rangeTerms?.lookupExactRange(targetRange)?.value
                 } else if (currentPath.lowerBound != null) {
                     // currentPath.upperBound == null
@@ -973,7 +973,7 @@ internal class FullTermsByDataIterator<V : SizeComputable> private constructor (
                 GetTermsByDataIteratorState.RANGE -> {
                     this.state = GetTermsByDataIteratorState.GREATER_THAN
                     val rangeTerms = this.terms.rangeTerms ?: continue
-                    return mapSequence(rangeTerms) { it.second }
+                    return mapSequence(rangeTerms) { it.value }
                 }
 
                 GetTermsByDataIteratorState.GREATER_THAN -> {

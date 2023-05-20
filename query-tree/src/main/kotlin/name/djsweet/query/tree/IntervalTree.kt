@@ -20,16 +20,96 @@ internal fun <T: Comparable<T>>enforceRangeInvariants(range: Pair<T, T>): Pair<T
     }
 }
 
-data class IntervalRange<T: Comparable<T>> internal constructor(val lowerBound: T, val upperBound: T): Comparable<IntervalRange<T>> {
+internal fun <T: Comparable<T>>rangeOverlaps(leftLow: T, leftHigh: T, rightLow: T, rightHigh: T): Boolean {
+    val rangeLowNodeLow = leftLow.compareTo(rightLow)
+    val rangeLowNodeHigh = leftLow.compareTo(rightHigh)
+    val rangeHighNodeLow = leftHigh.compareTo(rightLow)
+    val rangeHighNodeHigh = leftHigh.compareTo(rightHigh)
+
+    // This low between other range
+    var overlaps = rangeLowNodeLow >= 0 && rangeLowNodeHigh <= 0
+    // This high between other range
+    overlaps = overlaps || (rangeHighNodeLow >= 0 && rangeHighNodeHigh <= 0)
+    // Other range low between this
+    overlaps = overlaps || (rangeLowNodeLow <= 0 && rangeHighNodeLow >= 0)
+    // Other range high between this
+    overlaps = overlaps || (rangeHighNodeLow <= 0 && rangeHighNodeHigh >= 0)
+    return overlaps
+}
+
+/**
+ * Represents an ordered pair of two values, interpreted as a closed-interval range.
+ *
+ * This type is used extensively inside an [IntervalTree] to encode keys.
+ */
+data class IntervalRange<T: Comparable<T>> internal constructor(
+    /**
+     * One of the two values in an [IntervalRange], either equal to or less than [upperBound].
+     */
+    val lowerBound: T,
+    /**
+     * One of the two values in an [IntervalRange], either equal to or greater than [lowerBound].
+     */
+    val upperBound: T
+): Comparable<IntervalRange<T>> {
     companion object {
-        internal fun <T: Comparable<T>> fromPair(p: Pair<T, T>): IntervalRange<T> {
+        /**
+         * Creates an [IntervalRange] from a [Pair].
+         *
+         * The values of the pair are automatically reordered in the resulting
+         * IntervalRange such that [lowerBound] is always less than or equal to
+         * [upperBound], which is to say that if [Pair.first] is greater than
+         * [Pair.second], `lowerBound` will be set to `Pair.second` and `upperBound`
+         * will be set to `Pair.first`.
+         */
+        fun <T: Comparable<T>> fromPair(p: Pair<T, T>): IntervalRange<T> {
             val (lowerBound, upperBound) = enforceRangeInvariants(p)
             return IntervalRange(lowerBound, upperBound)
         }
+
+        /**
+         * Creates an [IntervalRange] given potential bounds.
+         *
+         * The values of the given bounds are automatically reordered in the resulting
+         * IntervalRange such that [lowerBound] is always less than or equal to
+         * [upperBound], which is to say that if [maybeLower] is greater than [maybeUpper],
+         * `lowerBound` will be set to `maybeUpper` and `upperBound` will be set to
+         * `maybeLower`.
+         */
+        fun <T: Comparable<T>> fromBounds(maybeLower: T, maybeUpper: T): IntervalRange<T> {
+            val rangeCompare = maybeLower.compareTo(maybeUpper)
+            return if (rangeCompare > 0) {
+                IntervalRange(maybeUpper, maybeLower)
+            } else {
+                IntervalRange(maybeLower, maybeUpper)
+            }
+        }
     }
 
+    /**
+     * Converts this [IntervalRange] to a [Pair].
+     *
+     * [Pair.first] is set to [lowerBound] and [Pair.second] is set to [upperBound].
+     */
     fun toPair(): Pair<T, T> {
         return Pair(this.lowerBound, this.upperBound)
+    }
+
+    /**
+     * Checks whether this [IntervalRange] overlaps with the [other] IntervalRange.
+     *
+     * Overlapping is closed-interval, meaning that
+     * - If both bounds of this interval range are between or equal to either bound
+     *   of the other IntervalRange, the ranges overlap.
+     * - If both bounds of the other interval range are between or equal to either bound
+     *   of this IntervalRange, the ranges overlap.
+     * - If either bound of this IntervalRange is between or equal to either bound
+     *   of the other IntervalRange, the ranges overlap.
+     *
+     * If none of these conditions hold, the ranges do not overlap.
+     */
+    fun overlaps(other: IntervalRange<T>): Boolean {
+        return rangeOverlaps(this.lowerBound, this.upperBound, other.lowerBound, other.upperBound)
     }
 
     override fun compareTo(other: IntervalRange<T>): Int {
@@ -37,8 +117,36 @@ data class IntervalRange<T: Comparable<T>> internal constructor(val lowerBound: 
     }
 }
 
+/**
+ * Represents a key/value pair held by an [IntervalTree].
+ */
 data class IntervalTreeKeyValue<T: Comparable<T>, V> internal constructor(val key: IntervalRange<T>, val value: V)
 
+/**
+ * Represents a key/value pair held by an [IntervalTree], with an additional [balance] member.
+ *
+ * The semantics of [key] and [value] in this type are identical to those of [IntervalTreeKeyValue]. The [balance]
+ * member indicates the relative "weight" of the node corresponding to this key/value pair in the IntervalTree.
+ * A balance of 0 indicates that both the left and right children of the corresponding node have the same weight,
+ * a balance less than 0 indicates that the left child of the corresponding node has a greater weight than the
+ * right child, and a balance greater than 0 indicates that the right child of the corresponding node has a balance
+ * greater than the left child.
+ *
+ * Consumers typically will not need to consider the `balance` during normal operation. It is exposed for testing
+ * purposes, to verify that no node in the tree ever has a balance with an absolute value greater than 1, but can
+ * otherwise be safely ignored.
+ */
+data class IntervalTreeKeyValueWithNodeBalance<T: Comparable<T>, V> internal constructor(
+    val key: IntervalRange<T>,
+    val value: V,
+    val balance: Int
+)
+
+/*
+ * IntervalTree is an AVL tree, augmented according to the description of an augmented Red-Black Tree in
+ *    Introduction to Algorithms (3rd Ed.) (2009)
+ *    Cormen, Thomas H.; Leiserson, Charles E.; Rivest, Ronald L.; Stein, Clifford
+ */
 internal class TreeNode<T : Comparable<T>, V>(
     val leftKey: T,
     val rightKey: T,
@@ -240,16 +348,12 @@ internal class TreeNode<T : Comparable<T>, V>(
         }
         if (rangeCompare > 0) {
             // We were greater than range, so look left
-            if (this.leftNode == null) {
-                return null
-            }
-            return this.leftNode.lookupExactRange(rangeLow, rangeHigh)
+            val leftNode = this.leftNode ?: return null
+            return leftNode.lookupExactRange(rangeLow, rangeHigh)
         } else {
             // We were less than range, so look right
-            if (this.rightNode == null) {
-                return null
-            }
-            return this.rightNode.lookupExactRange(rangeLow, rangeHigh)
+            val rightNode = this.rightNode ?: return null
+            return rightNode.lookupExactRange(rangeLow, rangeHigh)
         }
     }
 
@@ -387,7 +491,9 @@ private data class IntervalTreeIteratorState<T: Comparable<T>, V> (
     var nextStep: IntervalTreeIteratorNextStep
 )
 
-private abstract class IntervalTreeCommonIterator<T : Comparable<T>, V, R>(private val t: IntervalTree<T, V>): Iterator<R> {
+private abstract class IntervalTreeCommonIterator<T : Comparable<T>, V, R>(
+    private val t: IntervalTree<T, V>
+): Iterator<R> {
     protected val iterationStack: ArrayListStack<IntervalTreeIteratorState<T, V>> = ArrayListStack()
     private var nextUp: R? = null
     private var didInitialPush = false
@@ -457,17 +563,18 @@ private abstract class IntervalTreeCommonIterator<T : Comparable<T>, V, R>(priva
     }
 }
 
-private abstract class IntervalTreePairIterator<T : Comparable<T>, V>(t: IntervalTree<T, V>) :
-    IntervalTreeCommonIterator<T, V, IntervalTreeKeyValue<T, V>>(t) {
-
+private abstract class IntervalTreePairIterator<T : Comparable<T>, V>(
+    t: IntervalTree<T, V>
+) : IntervalTreeCommonIterator<T, V, IntervalTreeKeyValue<T, V>>(t) {
     override fun transformNode(n: TreeNode<T, V>): IntervalTreeKeyValue<T, V> {
         return n.value
     }
 }
 
-private class IntervalTreePointLookupIterator<T: Comparable<T>, V>(t: IntervalTree<T, V>, private val lookup: T) :
-    IntervalTreePairIterator<T, V>(t) {
-
+private class IntervalTreePointLookupIterator<T: Comparable<T>, V>(
+    t: IntervalTree<T, V>,
+    private val lookup: T
+) : IntervalTreePairIterator<T, V>(t) {
     override fun iterateLeft(n: TreeNode<T, V>): Boolean {
         return this.lookup <= n.maxRightKey
     }
@@ -481,25 +588,11 @@ private class IntervalTreePointLookupIterator<T: Comparable<T>, V>(t: IntervalTr
     }
 }
 
-internal fun <T: Comparable<T>>rangeOverlaps(leftLow: T, leftHigh: T, rightLow: T, rightHigh: T): Boolean {
-    val rangeLowNodeLow = leftLow.compareTo(rightLow)
-    val rangeLowNodeHigh = leftLow.compareTo(rightHigh)
-    val rangeHighNodeLow = leftHigh.compareTo(rightLow)
-    val rangeHighNodeHigh = leftHigh.compareTo(rightHigh)
-
-    // This low between other range
-    var overlaps = rangeLowNodeLow >= 0 && rangeLowNodeHigh <= 0
-    // This high between other range
-    overlaps = overlaps || (rangeHighNodeLow >= 0 && rangeHighNodeHigh <= 0)
-    // Other range low between this
-    overlaps = overlaps || (rangeLowNodeLow <= 0 && rangeHighNodeLow >= 0)
-    // Other range high between this
-    overlaps = overlaps || (rangeHighNodeLow <= 0 && rangeHighNodeHigh >= 0)
-    return overlaps
-}
-
-private class IntervalTreeRangeLookupIterator<T: Comparable<T>, V>(t: IntervalTree<T, V>, val lookupLow: T, val lookupHigh: T) :
-    IntervalTreePairIterator<T, V>(t) {
+private class IntervalTreeRangeLookupIterator<T: Comparable<T>, V>(
+    t: IntervalTree<T, V>,
+    val lookupLow: T,
+    val lookupHigh: T
+) : IntervalTreePairIterator<T, V>(t) {
     private fun rangeOverlaps(otherLow: T, otherHigh: T): Boolean {
         return rangeOverlaps(this.lookupLow, this.lookupHigh, otherLow, otherHigh)
     }
@@ -517,7 +610,9 @@ private class IntervalTreeRangeLookupIterator<T: Comparable<T>, V>(t: IntervalTr
     }
 }
 
-private class IntervalTreeIterator<T : Comparable<T>, V>(t: IntervalTree<T, V>) : IntervalTreeCommonIterator<T, V, Triple<IntervalRange<T>, V, Int>>(t) {
+private class IntervalTreeIterator<T : Comparable<T>, V>(
+    t: IntervalTree<T, V>
+) : IntervalTreeCommonIterator<T, V, IntervalTreeKeyValueWithNodeBalance<T, V>>(t) {
     override fun iterateLeft(n: TreeNode<T, V>): Boolean {
         return true
     }
@@ -530,37 +625,38 @@ private class IntervalTreeIterator<T : Comparable<T>, V>(t: IntervalTree<T, V>) 
         return true
     }
 
-    override fun transformNode(n: TreeNode<T, V>): Triple<IntervalRange<T>, V, Int> {
+    override fun transformNode(n: TreeNode<T, V>): IntervalTreeKeyValueWithNodeBalance<T, V> {
         val (key, value) = n.value
-        return Triple(key, value, n.weight())
+        return IntervalTreeKeyValueWithNodeBalance(key, value, n.weight())
     }
 }
 
-
-private fun <T: Comparable<T>, V> sizeTreePairFromIterable(entries: Iterable<Pair<Pair<T, T>, V>>): Pair<Long, TreeNode<T, V>?> {
+private fun <T: Comparable<T>, V> sizeTreePairFromIterable(
+    entries: Iterable<Pair<IntervalRange<T>, V>>
+): Pair<TreeNode<T, V>?, Long> {
     val it = entries.iterator()
     var root: TreeNode<T, V>
     var size: Long = 1
     if (it.hasNext()) {
         val (key, value) = it.next()
         root = TreeNode.newInstance(
-            IntervalRange.fromPair(key),
+            key,
             value,
             null,
             null
         )
     } else {
-        return Pair(0, null)
+        return Pair(null, 0)
     }
     for ((key, value) in it) {
-        val enforcedRange = enforceRangeInvariants(key)
-        val prior = root.lookupExactRange(enforcedRange.first, enforcedRange.second)
-        root = root.put(enforcedRange.first, enforcedRange.second, value)
+        val (lowerBound, upperBound) = key
+        val prior = root.lookupExactRange(lowerBound, upperBound)
+        root = root.put(lowerBound, upperBound, value)
         if (prior == null) {
             size += 1
         }
     }
-    return Pair(size, root)
+    return Pair(root, size)
 }
 
 private enum class IntervalTreeInOrderIteratorNextStep { SELF, LEFT, RIGHT, DONE }
@@ -571,14 +667,22 @@ private data class IntervalTreeInOrderIteratorState<T: Comparable<T>, V> (
     val fromDirection: String
 )
 
-private class InOrderIterator<T: Comparable<T>, V>(tree: IntervalTree<T, V>): Iterator<Triple<IntervalRange<T>, V, Pair<Int, String>>> {
+private class InOrderIterator<T: Comparable<T>, V>(
+    tree: IntervalTree<T, V>
+): Iterator<Triple<IntervalRange<T>, V, Pair<Int, String>>> {
     private val iterationStack: ArrayListStack<IntervalTreeInOrderIteratorState<T, V>> = ArrayListStack()
 
     private var nextUp: Triple<IntervalRange<T>, V, Pair<Int, String>>? = null
 
     init {
         if (tree.root != null) {
-            this.iterationStack.push(IntervalTreeInOrderIteratorState(tree.root, IntervalTreeInOrderIteratorNextStep.SELF, "root"))
+            this.iterationStack.push(
+                IntervalTreeInOrderIteratorState(
+                    tree.root,
+                    IntervalTreeInOrderIteratorNextStep.SELF,
+                    "root"
+                )
+            )
             this.computeNextUp()
         }
     }
@@ -598,18 +702,48 @@ private class InOrderIterator<T: Comparable<T>, V>(tree: IntervalTree<T, V>): It
             if (cur.nextStep == IntervalTreeInOrderIteratorNextStep.SELF) {
                 val (key, value) = curNode.value
                 this.nextUp = Triple(key, value, Pair(this.iterationStack.size, cur.fromDirection))
-                this.iterationStack.push(IntervalTreeInOrderIteratorState(curNode, IntervalTreeInOrderIteratorNextStep.LEFT, cur.fromDirection))
+                this.iterationStack.push(
+                    IntervalTreeInOrderIteratorState(
+                        curNode,
+                        IntervalTreeInOrderIteratorNextStep.LEFT,
+                        cur.fromDirection
+                    )
+                )
                 return
             }
             if (cur.nextStep == IntervalTreeInOrderIteratorNextStep.LEFT && curNode.leftNode != null) {
-                this.iterationStack.push(IntervalTreeInOrderIteratorState(curNode, IntervalTreeInOrderIteratorNextStep.RIGHT, cur.fromDirection))
-                this.iterationStack.push(IntervalTreeInOrderIteratorState(curNode.leftNode, IntervalTreeInOrderIteratorNextStep.SELF, "left"))
+                this.iterationStack.push(
+                    IntervalTreeInOrderIteratorState(
+                        curNode,
+                        IntervalTreeInOrderIteratorNextStep.RIGHT,
+                        cur.fromDirection
+                    )
+                )
+                this.iterationStack.push(
+                    IntervalTreeInOrderIteratorState(
+                        curNode.leftNode,
+                        IntervalTreeInOrderIteratorNextStep.SELF,
+                        "left"
+                    )
+                )
                 continue
             }
             // cur.nextStep == IntervalTreeInOrderIteratorNextStep.RIGHT
             if (curNode.rightNode != null) {
-                this.iterationStack.push(IntervalTreeInOrderIteratorState(curNode, IntervalTreeInOrderIteratorNextStep.DONE, cur.fromDirection))
-                this.iterationStack.push(IntervalTreeInOrderIteratorState(curNode.rightNode, IntervalTreeInOrderIteratorNextStep.SELF, "right"))
+                this.iterationStack.push(
+                    IntervalTreeInOrderIteratorState(
+                        curNode,
+                        IntervalTreeInOrderIteratorNextStep.DONE,
+                        cur.fromDirection
+                    )
+                )
+                this.iterationStack.push(
+                    IntervalTreeInOrderIteratorState(
+                        curNode.rightNode,
+                        IntervalTreeInOrderIteratorNextStep.SELF,
+                        "right"
+                    )
+                )
                 continue
             }
         }
@@ -648,7 +782,7 @@ private fun<T: Comparable<T>, V> visitFromIterator(
 private fun<T: Comparable<T>, V> visitFromIteratorForFull(
     node: TreeNode<T, V>,
     iterator: IntervalTreeIterator<T, V>,
-    receiver: (result: Triple<IntervalRange<T>, V, Int>) -> Unit
+    receiver: (result: IntervalTreeKeyValueWithNodeBalance<T, V>) -> Unit
 ) {
     val left = node.leftNode
     if (left != null) {
@@ -662,98 +796,168 @@ private fun<T: Comparable<T>, V> visitFromIteratorForFull(
     visitFromIteratorForFull(right, iterator, receiver)
 }
 
+/**
+ * A persistent, immutable associative map from keys of ordered pairs to arbitrary values.
+ *
+ * An IntervalTree stores values for ranges of keys, and supports lookups either by key ranges overlapping
+ * a point, or key ranges overlapping another range. The semantics of "overlapping" are described in
+ * [IntervalRange.overlaps].
+ */
 class IntervalTree<T: Comparable<T>, V> private constructor(
+    internal val root: TreeNode<T, V>?,
     val size: Long,
-    internal val root: TreeNode<T, V>?
-): Iterable<Triple<IntervalRange<T>, V, Int>> {
-    constructor(): this(0, null)
+): Iterable<IntervalTreeKeyValueWithNodeBalance<T, V>> {
+    constructor(): this(null, 0)
 
-    private constructor(treeSizePair: Pair<Long, TreeNode<T, V>?>): this(treeSizePair.first, treeSizePair.second)
+    private constructor(treeSizePair: Pair<TreeNode<T, V>?, Long>): this(treeSizePair.first, treeSizePair.second)
 
-    constructor(entries: Iterable<Pair<Pair<T, T>, V>>) : this(sizeTreePairFromIterable(entries))
+    constructor(entries: Iterable<Pair<IntervalRange<T>, V>>) : this(sizeTreePairFromIterable(entries))
 
+    /**
+     * Returns an iterator over all key/value pairs contained in this [IntervalTree] whose key ranges
+     * contain [at].
+     *
+     * [at] can be considered an [IntervalRange] where both the [IntervalRange.lowerBound] and
+     * [IntervalRange.upperBound] are equal to [at], and "contains" is a synonym for
+     * [IntervalRange.overlaps].
+     */
     fun lookupPoint(at: T): Iterator<IntervalTreeKeyValue<T, V>> {
         return IntervalTreePointLookupIterator(this, at)
     }
 
+    /**
+     * Calls [receiver] with every key/value pair contained in this [IntervalTree] whose key ranges
+     * contain [at].
+     *
+     * [at] can be considered an [IntervalRange] where both the [IntervalRange.lowerBound] and
+     * [IntervalRange.upperBound] are equal to [at], and "contains" is a synonym for
+     * [IntervalRange.overlaps].
+     */
     fun lookupPointVisit(at: T, receiver: (value: IntervalTreeKeyValue<T, V>) -> Unit) {
         val root = this.root ?: return
         visitFromIterator(root, IntervalTreePointLookupIterator(this, at), receiver)
     }
 
-    fun lookupRange(maybeRange: Pair<T, T>): Iterator<IntervalTreeKeyValue<T, V>> {
-        val enforced = enforceRangeInvariants(maybeRange)
-        return IntervalTreeRangeLookupIterator(this, enforced.first, enforced.second)
+    /**
+     * Returns an iterator over all key/value pairs contained in this [IntervalTree] whose key ranges
+     * overlap [range].
+     *
+     * The semantics of "overlap" are described in [IntervalRange.overlaps].
+     */
+    fun lookupRange(range: IntervalRange<T>): Iterator<IntervalTreeKeyValue<T, V>> {
+        return IntervalTreeRangeLookupIterator(this, range.lowerBound, range.upperBound)
     }
 
-    fun lookupRangeVisit(maybeRange: Pair<T, T>, receiver: (value: IntervalTreeKeyValue<T, V>) -> Unit) {
+    /**
+     * Calls [receiver] with every key/value pair contained in this [IntervalTree] whose key ranges
+     * overlap [range].
+     *
+     * The semantics of "overlap" are described in [IntervalRange.overlaps].
+     */
+    fun lookupRangeVisit(range: IntervalRange<T>, receiver: (value: IntervalTreeKeyValue<T, V>) -> Unit) {
         val root = this.root ?: return
-        val enforced = enforceRangeInvariants(maybeRange)
-        visitFromIterator(root, IntervalTreeRangeLookupIterator(this, enforced.first, enforced.second), receiver)
+        visitFromIterator(root, IntervalTreeRangeLookupIterator(this, range.lowerBound, range.upperBound), receiver)
     }
 
-    fun lookupExactRange(maybeRange: Pair<T, T>): V? {
-        val enforcedRange = enforceRangeInvariants(maybeRange)
-        return this.root?.lookupExactRange(enforcedRange.first, enforcedRange.second)
+    /**
+     * Returns the value corresponding to the key exactly equal to [range], if such a value is contained in this
+     * [IntervalTree], or `null` otherwise.
+     */
+    fun lookupExactRange(range: IntervalRange<T>): V? {
+        return this.root?.lookupExactRange(range.lowerBound, range.upperBound)
     }
 
-    fun lookupExactRange(maybeRange: IntervalRange<T>): V? {
-        return this.root?.lookupExactRange(maybeRange.lowerBound, maybeRange.upperBound)
-    }
-
-    fun put(range: Pair<T, T>, value: V): IntervalTree<T, V> {
-        val enforcedRange = IntervalRange.fromPair(range)
-        if (this.root == null) {
-            return IntervalTree(1, TreeNode.newInstance(enforcedRange, value, null, null))
-        }
-        val preexisting = this.lookupExactRange(enforcedRange)
+    /**
+     * Returns a new [IntervalTree] containing all of this IntervalTree's key/value pairs, excepting the key/value
+     * pair where the key is equal to [range] if such a pair exists, but with an additional key/value pair mapping
+     * the key `range` to [value].
+     *
+     * If a key/value pair exists for `range` in this IntervalTree, and the `value` for this pair is identical
+     * to the given `value`, the result will be this IntervalTree. This is permissible because the resulting
+     * IntervalTree would otherwise be equivalent.
+     */
+    fun put(range: IntervalRange<T>, value: V): IntervalTree<T, V> {
+        val root = this.root ?: return IntervalTree(
+            TreeNode.newInstance(
+                range,
+                value,
+                null,
+                null
+            ),
+            1,
+        )
+        val preexisting = this.lookupExactRange(range)
         if (preexisting === value) {
             return this
         }
         return IntervalTree(
+            root.put(range.lowerBound, range.upperBound, value),
             if (preexisting == null) { this.size + 1 } else { this.size },
-            this.root.put(enforcedRange.lowerBound, enforcedRange.upperBound, value)
         )
     }
 
-    fun remove(range: Pair<T, T>): IntervalTree<T, V> {
+    /**
+     * Returns a new [IntervalTree] containing all of this IntervalTree's key/value pairs, excepting the key/value
+     * pair where the key is equal to [range] if such a pair exists.
+     *
+     * If a key/value pair does not exist for `range` in this IntervalTree, the resulting value will be this
+     * IntervalTree. This is permissible because the resulting IntervalTree would otherwise be equivalent.
+     */
+    fun remove(range: IntervalRange<T>): IntervalTree<T, V> {
         val root = this.root ?: return this
-        val enforcedRange = enforceRangeInvariants(range)
-        val removedRoot = root.remove(enforcedRange.first, enforcedRange.second)
+        val removedRoot = root.remove(range.lowerBound, range.upperBound)
         return if (removedRoot === root) {
             this
         } else {
-            IntervalTree(this.size - 1, removedRoot)
+            IntervalTree(removedRoot, this.size - 1)
         }
     }
 
-    fun update(maybeRange: Pair<T, T>, updater: (value: V?) -> V?): IntervalTree<T, V> {
-        val prev = this.lookupExactRange(maybeRange)
+    /**
+     * Calls [updater] with the key/value pair contained in this [IntervalTree] where the key is equal to [range],
+     * if such a pair exists, or `null` otherwise, and returns a new IntervalTree with the updated results.
+     *
+     * `updater` may return `null`; in this case, the key/value pair for the given `range` is removed from the resulting
+     * IntervalTree.
+     *
+     * Semantics for the return value are described in [IntervalTree.put] for the case of the non-null return from
+     * `updater`, and in [IntervalTree.remove] for the case of the null return from `updater`.
+     */
+    fun update(range: IntervalRange<T>, updater: (value: V?) -> V?): IntervalTree<T, V> {
+        val prev = this.lookupExactRange(range)
         val repl = updater(prev)
         if (prev === repl) {
             return this
         }
-        val removed = this.remove(maybeRange)
+        val removed = this.remove(range)
         return if (repl == null) {
             removed
         } else {
-            removed.put(maybeRange, repl)
+            removed.put(range, repl)
         }
     }
 
-    override fun iterator(): Iterator<Triple<IntervalRange<T>, V, Int>> {
+    override fun iterator(): Iterator<IntervalTreeKeyValueWithNodeBalance<T, V>> {
         return IntervalTreeIterator(this)
     }
 
-    fun visitAll(receiver: (value: Triple<IntervalRange<T>, V, Int>) -> Unit) {
+    /**
+     * Calls [receiver] with every key/value pair in this [IntervalTree].
+     */
+    fun visitAll(receiver: (value: IntervalTreeKeyValueWithNodeBalance<T, V>) -> Unit) {
         val root = this.root ?: return
         visitFromIteratorForFull(root, IntervalTreeIterator(this), receiver)
     }
 
+    // This is only used for testing purposes.
     internal fun inOrderIterator(): Iterator<Triple<IntervalRange<T>, V, Pair<Int, String>>> {
         return InOrderIterator(this)
     }
 
+    /**
+     * Returns the [IntervalRange] with the minimum [IntervalRange.lowerBound] in this [IntervalTree], or
+     * `null` if this IntervalTree does not contain any entries.
+     */
     fun minRange(): IntervalRange<T>? {
         var cur = this.root
         while (cur != null) {
@@ -766,6 +970,10 @@ class IntervalTree<T: Comparable<T>, V> private constructor(
         return null
     }
 
+    /**
+     * Returns the [IntervalRange] with the maximum [IntervalRange.lowerBound] in this [IntervalTree], or
+     * `null` if this IntervalTree does not contain any entries.
+     */
     fun maxRange(): IntervalRange<T>? {
         var cur = this.root
         while (cur != null) {

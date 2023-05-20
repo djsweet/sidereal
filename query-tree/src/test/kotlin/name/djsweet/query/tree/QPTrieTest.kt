@@ -39,7 +39,7 @@ private fun <T> fixIteratorForInvariants(it: Iterator<QPTrieKeyValue<T>>): List<
 }
 
 private fun <V> verifyIteratorInvariants(t: QPTrie<V>, spec: IntervalTree<ByteArrayButComparable, V>) {
-    val expectedAscending = spec.iterator().asSequence().map { Pair(it.first.lowerBound, it.second) }.toList()
+    val expectedAscending = spec.iterator().asSequence().map { Pair(it.key.lowerBound, it.value) }.toList()
     val expectedDescending = expectedAscending.reversed()
 
     val minKeyValue = t.minKeyValueUnsafeSharedKey()
@@ -89,7 +89,9 @@ private fun <V> verifyIteratorInvariants(t: QPTrie<V>, spec: IntervalTree<ByteAr
 
     // Less than or equal checks
     for (element in expectedAscending) {
-        val expectedUpTo = spec.lookupRange(Pair(minItem.lowerBound, element.first)).asSequence().map { (key, value) ->
+        val expectedUpTo = spec.lookupRange(
+            IntervalRange.fromBounds(minItem.lowerBound, element.first)
+        ).asSequence().map { (key, value) ->
             Pair(key.lowerBound, value)
         }.toList().reversed()
         val minRanges = fixIteratorForInvariants(t.iteratorLessThanOrEqualUnsafeSharedKey(element.first.array))
@@ -104,7 +106,9 @@ private fun <V> verifyIteratorInvariants(t: QPTrie<V>, spec: IntervalTree<ByteAr
 
     // Greater than or equal checks
     for (element in expectedAscending) {
-        val expectedDownTo = spec.lookupRange(Pair(element.first, maxItem.lowerBound)).asSequence().map { (key, value) ->
+        val expectedDownTo = spec.lookupRange(
+            IntervalRange.fromBounds(element.first, maxItem.lowerBound)
+        ).asSequence().map { (key, value) ->
             Pair(key.lowerBound, value)
         }.toList()
         val maxRanges = fixIteratorForInvariants(t.iteratorGreaterThanOrEqualUnsafeSharedKey(element.first.array))
@@ -382,13 +386,13 @@ class QPTrieTest {
         val arr1 = ByteArrayButComparable(byteArrayOf())
         val arr2 = ByteArrayButComparable(byteArrayOf())
         val map = IntervalTree(listOf(
-            Pair(arr1, arr1) to "bad",
-            Pair(arr2, arr2) to "good",
+            IntervalRange.fromBounds(arr1, arr1) to "bad",
+            IntervalRange.fromBounds(arr2, arr2) to "good",
         ))
         assertEquals(
             "good",
             map.lookupExactRange(
-                Pair(
+                IntervalRange.fromBounds(
                     ByteArrayButComparable(byteArrayOf()),
                     ByteArrayButComparable(byteArrayOf())
                 )
@@ -422,7 +426,7 @@ class QPTrieTest {
 
         var distinct = IntervalTree<ByteArrayButComparable, String>()
         for ((publicByteArray, value) in initialEntries) {
-            distinct = distinct.put(Pair(publicByteArray.actual, publicByteArray.actual), value)
+            distinct = distinct.put(IntervalRange.fromBounds(publicByteArray.actual, publicByteArray.actual), value)
         }
         var trie = QPTrie<String>()
         var expectedSize = 0
@@ -440,8 +444,8 @@ class QPTrieTest {
         for (i in 0 until spec.second) {
             val (publicArray, value) = initialEntries[initialEntries.size - i - 1]
             val actual = publicArray.actual
-            distinct = distinct.remove(Pair(actual, actual))
-            distinctRemoved = distinctRemoved.put(Pair(actual, actual), value)
+            distinct = distinct.remove(IntervalRange.fromBounds(actual, actual))
+            distinctRemoved = distinctRemoved.put(IntervalRange.fromBounds(actual, actual), value)
             trie = trie.remove(actual.array)
         }
         expectedSize -= distinctRemoved.size.toInt()
