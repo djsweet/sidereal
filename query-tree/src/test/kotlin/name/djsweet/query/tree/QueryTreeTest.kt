@@ -194,10 +194,10 @@ class QueryTreeTest {
         val subsetSize = Arbitraries.integers().between(0, keySpace.size).sample()
         val subset = keySpace.shuffled().subList(0, subsetSize)
         if (subset.isEmpty()) {
-            return Arbitraries.just(Triple(QuerySpec(), arrayListOf(), null))
+            return Arbitraries.just(Triple(QuerySpec.empty, arrayListOf(), null))
         }
 
-        val firstQuery = this.generateEqualityQuery(subset.last(), QuerySpec()).map { (querySpec, term) ->
+        val firstQuery = this.generateEqualityQuery(subset.last(), QuerySpec.empty).map { (querySpec, term) ->
             Triple(querySpec, persistentListOf(term), null as IntermediateQueryTerm?)
         }.sample()
         val (querySpec, reverseTerms, inequality) = subset.subList(1, subset.size).foldRight(firstQuery) { key, (querySpec, terms, inequality) ->
@@ -219,7 +219,7 @@ class QueryTreeTest {
 
     private fun querySpecJustInequality(keySpace: List<ByteArray>): Arbitrary<Triple<QuerySpec, ArrayList<IntermediateQueryTerm>, IntermediateQueryTerm?>> {
         val key = keySpace.shuffled().first()
-        return this.generateInequalityQuery(key, QuerySpec()).map {(querySpec, inequalityTerm) ->
+        return this.generateInequalityQuery(key, QuerySpec.empty).map {(querySpec, inequalityTerm) ->
             Triple(querySpec, arrayListOf(), inequalityTerm)
         }
     }
@@ -821,7 +821,7 @@ class QueryTreeTest {
 
     @Test
     fun queryTreeJustLessThan() {
-        val querySpec = QuerySpec().withLessThanOrEqualToTerm(byteArrayOf(12), byteArrayOf(13))
+        val querySpec = QuerySpec.withLessThanOrEqualToTerm(byteArrayOf(12), byteArrayOf(13))
         val handle = SizeComputableInteger(1, 1)
 
         val (path, tree) = QueryTree<SizeComputableInteger>().updateByQuery(querySpec) { handle }
@@ -843,7 +843,7 @@ class QueryTreeTest {
 
     @Test
     fun queryTreeJustGreaterThan() {
-        val querySpec = QuerySpec().withGreaterThanOrEqualToTerm(byteArrayOf(12), byteArrayOf(13))
+        val querySpec = QuerySpec.withGreaterThanOrEqualToTerm(byteArrayOf(12), byteArrayOf(13))
         val handle = SizeComputableInteger(1, 1)
 
         val (path, tree) = QueryTree<SizeComputableInteger>().updateByQuery(querySpec) { handle }
@@ -1108,7 +1108,7 @@ class QueryTreeTest {
         // These specs caused a failure in queryTreeSet as "Sample arg0".
         // This was actually fine.
         val firstSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withEqualityTerm(
                     byteArrayOf(4, -34, 56, -13, -127, -12, 4, -50, 19, -55, -69, 32),
                     byteArrayOf(75)
@@ -1140,7 +1140,7 @@ class QueryTreeTest {
             1
         ) // 1
         val secondSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withBetweenOrEqualToTerm(
                     byteArrayOf( -3, 75, 1, 22, 74, -127, 31),
                     byteArrayOf(1),
@@ -1149,7 +1149,7 @@ class QueryTreeTest {
             6
         ) // 7
         val thirdSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withEqualityTerm(
                     byteArrayOf(4, -34, 56, -13, -127, -12, 4, -50, 19, -55, -69, 32),
                     byteArrayOf(75)
@@ -1181,7 +1181,7 @@ class QueryTreeTest {
             2
         ) // 9
         val fourthSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withGreaterThanOrEqualToTerm(
                     byteArrayOf(-3, 75, 1, 22, 74, -127, 31),
                     byteArrayOf(-47, 31, -3)
@@ -1189,7 +1189,7 @@ class QueryTreeTest {
             5
         ) // 14
         val fifthSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withBetweenOrEqualToTerm(
                     byteArrayOf(-3, 75, 1, 22, 74, -127, 31),
                     byteArrayOf(-55, 10, 44, 69, 0, 82, -39, 0, 121),
@@ -1198,7 +1198,7 @@ class QueryTreeTest {
             5
         ) // 19
         val sixthSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withBetweenOrEqualToTerm(
                     byteArrayOf(-3, 75, 1, 22, 74, -127, 31),
                     byteArrayOf(8, 78, -47, 23, -72, 5, 5, -18, -33),
@@ -1207,7 +1207,7 @@ class QueryTreeTest {
             4
         ) // 23
         val seventhSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withEqualityTerm(
                     byteArrayOf(4, -34, 56, -13, -127, -12, 4, -50, 19, -55, -69, 32),
                     byteArrayOf(75)
@@ -1239,7 +1239,7 @@ class QueryTreeTest {
             2
         ) // 25
         val eighthSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withBetweenOrEqualToTerm(
                     byteArrayOf(-3, 75, 1, 22, 74, -127, 31),
                     byteArrayOf(0),
@@ -1248,7 +1248,7 @@ class QueryTreeTest {
             3
         ) // 28
         val ninthSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withEqualityTerm(
                     byteArrayOf(),
                     byteArrayOf(17, 114)
@@ -1272,7 +1272,7 @@ class QueryTreeTest {
             5
         ) // 33
         val tenthSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withEqualityTerm(
                     byteArrayOf(4, -34, 56, -13, -127, -12, 4, -50, 19, -55, -69, 32),
                     byteArrayOf(75)
@@ -1304,7 +1304,7 @@ class QueryTreeTest {
             4
         ) // 37
         val eleventhSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withBetweenOrEqualToTerm(
                     byteArrayOf(-3, 75, 1, 22, 74, -127, 31),
                     byteArrayOf(1),
@@ -1313,7 +1313,7 @@ class QueryTreeTest {
             4
         ) // 41
         val twelfthSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withEqualityTerm(
                     byteArrayOf(4, -34, 56, -13, -127, -12, 4, -50, 19, -55, -69, 32),
                     byteArrayOf(75)
@@ -1345,7 +1345,7 @@ class QueryTreeTest {
             1,
         ) // 42
         val thirteenthSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withGreaterThanOrEqualToTerm(
                     byteArrayOf(-3, 75, 1, 22, 74, -127, 31),
                     byteArrayOf(-66, -11, 2, 15, -84, -11, 93, -9, 34, 114)
@@ -1353,7 +1353,7 @@ class QueryTreeTest {
             2
         ) // 44
         val fourteenthSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withBetweenOrEqualToTerm(
                     byteArrayOf(-3, 75, 1, 22, 74, -127, 31),
                     byteArrayOf(-128),
@@ -1393,7 +1393,7 @@ class QueryTreeTest {
         val fifthKey = byteArrayOf(-3, 75, 1, 22, 74, -127, 31)
 
         val firstSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withEqualityTerm(firstKey, firstValue)
                 .withEqualityTerm(secondKey, secondValue)
                 .withEqualityTerm(thirdKey, thirdValue)
@@ -1401,12 +1401,12 @@ class QueryTreeTest {
             6
         )
         val secondSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withBetweenOrEqualToTerm(fifthKey, byteArrayOf(1), byteArrayOf(-2)),
             5
         ) // 11
         val thirdSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withEqualityTerm(firstKey, firstValue)
                 .withEqualityTerm(secondKey, secondValue)
                 .withEqualityTerm(thirdKey, thirdValue)
@@ -1414,12 +1414,12 @@ class QueryTreeTest {
             2
         ) // 13
         val fourthSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withGreaterThanOrEqualToTerm(fifthKey, byteArrayOf(-47, 31, -3)),
             2
         ) // 15
         val fifthSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withBetweenOrEqualToTerm(
                     fifthKey,
                     byteArrayOf(-55, 10, 44, 69, 0, 82, -39, 0, 121),
@@ -1428,7 +1428,7 @@ class QueryTreeTest {
             3
         ) // 18
         val sixthSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withBetweenOrEqualToTerm(
                     fifthKey,
                     byteArrayOf(8, 78, -47, 23, -72, 5, 5, -18, -33),
@@ -1437,7 +1437,7 @@ class QueryTreeTest {
             1
         ) // 19
         val seventhSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withEqualityTerm(firstKey, firstValue)
                 .withEqualityTerm(secondKey, secondValue)
                 .withEqualityTerm(thirdKey, thirdValue)
@@ -1445,7 +1445,7 @@ class QueryTreeTest {
             2
         ) // 21
         val eighthSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withBetweenOrEqualToTerm(
                     fifthKey,
                     byteArrayOf(0),
@@ -1454,7 +1454,7 @@ class QueryTreeTest {
             6
         ) // 27
         val ninthSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withEqualityTerm(secondKey, secondValue)
                 .withEqualityTerm(thirdKey, byteArrayOf(127, -117, -37, 0, -127, 47, -33))
                 .withEqualityTerm(
@@ -1493,7 +1493,7 @@ class QueryTreeTest {
             6
         ) // 33
         val tenthSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withEqualityTerm(firstKey, firstValue)
                 .withEqualityTerm(secondKey, secondValue)
                 .withEqualityTerm(thirdKey, thirdValue)
@@ -1501,7 +1501,7 @@ class QueryTreeTest {
             5
         ) // 38
         val eleventhSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withBetweenOrEqualToTerm(
                     fifthKey,
                     byteArrayOf(1),
@@ -1510,7 +1510,7 @@ class QueryTreeTest {
             6
         ) // 44
         val twelfthSpec = Pair(
-            QuerySpec()
+            QuerySpec
                 .withEqualityTerm(firstKey, firstValue)
                 .withEqualityTerm(secondKey, secondValue)
                 .withEqualityTerm(thirdKey, thirdValue)
@@ -1537,7 +1537,7 @@ class QueryTreeTest {
     @Test fun queryTreeNonSetVisitationMissingData() {
         val testData = QueryTreeTestData(
             queries=listOf(
-                QuerySpec().withLessThanOrEqualToTerm(byteArrayOf(), byteArrayOf(0))
+                QuerySpec.withLessThanOrEqualToTerm(byteArrayOf(), byteArrayOf(0))
             ),
             data=listOf(
                 QPTrie(listOf(byteArrayOf() to byteArrayOf(0))),
@@ -1550,7 +1550,7 @@ class QueryTreeTest {
     @Test fun queryTreeNonSetVisitationStillMissingData() {
         val testData = QueryTreeTestData(
             queries = listOf(
-                QuerySpec().withGreaterThanOrEqualToTerm(byteArrayOf(), byteArrayOf(0, 0, 3))
+                QuerySpec.withGreaterThanOrEqualToTerm(byteArrayOf(), byteArrayOf(0, 0, 3))
             ),
             data = listOf(
                 QPTrie(listOf(byteArrayOf() to byteArrayOf(-22)))
@@ -1562,7 +1562,7 @@ class QueryTreeTest {
     @Test fun queryTreeNonSetVisitationsTooMuchData() {
         val testData = QueryTreeTestData(
             queries = listOf(
-                QuerySpec().withLessThanOrEqualToTerm(byteArrayOf(), byteArrayOf(0, 0, 0, -41, 28, 7))
+                QuerySpec.withLessThanOrEqualToTerm(byteArrayOf(), byteArrayOf(0, 0, 0, -41, 28, 7))
             ),
             data = listOf(
                 QPTrie(listOf(byteArrayOf() to byteArrayOf(106, -10, -7, -52, 3, 2)))
@@ -1580,7 +1580,7 @@ class QueryTreeTest {
             byteArrayOf(-3, 7, 106, -2, 41, -94) to byteArrayOf(126)
         ))
 
-        val mostCommonEqualityTerms = QuerySpec()
+        val mostCommonEqualityTerms = QuerySpec
             .withEqualityTerm(
                 byteArrayOf(4, 16, 25, 29, -13, 6),
                 byteArrayOf()
@@ -1595,7 +1595,7 @@ class QueryTreeTest {
             )
         val mostCommonBetweenKey = byteArrayOf(17, 68, -9, -14, 97, -77, 81, -6)
         val queries = listOf(
-            QuerySpec().withBetweenOrEqualToTerm(
+            QuerySpec.withBetweenOrEqualToTerm(
                 byteArrayOf(-9, -37, 24, 84, -128, 35, -42, -50, 75),
                 byteArrayOf(0),
                 byteArrayOf(126)
@@ -1605,7 +1605,7 @@ class QueryTreeTest {
                 byteArrayOf(),
                 byteArrayOf(127)
             ),
-            QuerySpec().withBetweenOrEqualToTerm(
+            QuerySpec.withBetweenOrEqualToTerm(
                 byteArrayOf(-9, -37, 24, 84, -128, 35, -42, -50, 75),
                 byteArrayOf(-128),
                 byteArrayOf(-9, 17, 5, 60)
@@ -1615,11 +1615,11 @@ class QueryTreeTest {
                 byteArrayOf(4, -17, -17),
                 byteArrayOf(36, 19, -26, -8, -11, 12, 6, -1)
             ),
-            QuerySpec().withEqualityTerm(
+            QuerySpec.withEqualityTerm(
                 byteArrayOf(4, 16, 25, 29, -13, 6),
                 byteArrayOf()
             ),
-            QuerySpec().withStartsWithTerm(
+            QuerySpec.withStartsWithTerm(
                 byteArrayOf(-9, -37, 24, 84, -128, 35, -42, -50, 75),
                 byteArrayOf(-110, -37, -40, 20, 126, -127)
             ),
@@ -1638,7 +1638,7 @@ class QueryTreeTest {
                 byteArrayOf(127),
                 byteArrayOf(-1)
             ),
-            QuerySpec().withBetweenOrEqualToTerm(
+            QuerySpec.withBetweenOrEqualToTerm(
                 byteArrayOf(-9, -37, 24, 84, -128, 35, -42, -50, 75),
                 byteArrayOf(27, 17, -18, 1, -41, 73, 41, -104),
                 byteArrayOf(-11)
@@ -1664,7 +1664,7 @@ class QueryTreeTest {
     }
 
     @Test fun addQueryToSetTreeTwice() {
-        val query = QuerySpec().withEqualityTerm(byteArrayOf(), byteArrayOf(1))
+        val query = QuerySpec.withEqualityTerm(byteArrayOf(), byteArrayOf(1))
         val baseTree = QuerySetTree<Int>()
         val (_, newTree) = baseTree.addElementByQuery(query, 2)
         val (_, newerTree) = newTree.addElementByQuery(query, 2)
@@ -1672,7 +1672,7 @@ class QueryTreeTest {
     }
 
     @Test fun addThenRemoveByQueryEquals() {
-        val query = QuerySpec().withEqualityTerm(byteArrayOf(), byteArrayOf(1))
+        val query = QuerySpec.withEqualityTerm(byteArrayOf(), byteArrayOf(1))
         val baseTree = QueryTree<SizeComputableInteger>()
         val (_, newTree) = baseTree.updateByQuery(query) { SizeComputableInteger(1, 1) }
         val (_, newerTree) = newTree.updateByQuery(query) { null }
@@ -1682,7 +1682,7 @@ class QueryTreeTest {
     }
 
     @Test fun addThenRemoveByQueryRange() {
-        val query = QuerySpec().withBetweenOrEqualToTerm(byteArrayOf(), byteArrayOf(1), byteArrayOf(2))
+        val query = QuerySpec.withBetweenOrEqualToTerm(byteArrayOf(), byteArrayOf(1), byteArrayOf(2))
         val baseTree = QueryTree<SizeComputableInteger>()
         val (_, newTree) = baseTree.updateByQuery(query) { SizeComputableInteger(1, 1) }
         val (_, newerTree) = newTree.updateByQuery(query) { null }
@@ -1692,12 +1692,24 @@ class QueryTreeTest {
     }
 
     @Test fun addThenRemoveByQueryStartsWith() {
-        val query = QuerySpec().withStartsWithTerm(byteArrayOf(), byteArrayOf(1))
+        val query = QuerySpec.withStartsWithTerm(byteArrayOf(), byteArrayOf(1))
         val baseTree = QueryTree<SizeComputableInteger>()
         val (_, newTree) = baseTree.updateByQuery(query) { SizeComputableInteger(1, 1) }
         val (_, newerTree) = newTree.updateByQuery(query) { null }
         assertFalse(newTree === newerTree)
         assertEquals(1L, newTree.size)
         assertEquals(0L, newerTree.size)
+    }
+
+    @Test fun querySpecEqualityRemovesInequalityForSameKey() {
+        val query = QuerySpec.withLessThanOrEqualToTerm(byteArrayOf(), byteArrayOf())
+        val nextQuery = query.withEqualityTerm(byteArrayOf(), byteArrayOf())
+        assertFalse(nextQuery === query)
+        assertEquals(1, query.cardinality)
+        assertEquals(1, nextQuery.cardinality)
+        assertEquals(0L, query.equalityTerms.size)
+        assertNotNull(query.inequalityTerm)
+        assertEquals(1L, nextQuery.equalityTerms.size)
+        assertNull(nextQuery.inequalityTerm)
     }
 }

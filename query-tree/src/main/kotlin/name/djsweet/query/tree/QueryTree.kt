@@ -2,6 +2,48 @@ package name.djsweet.query.tree
 
 import java.util.*
 
+/*
+ * QueryTree: A Reactive Reverse-Index for Simplified Data Queries.
+ *
+ * Traditional databases index persistent data to accelerate the evaluation of queries. QueryTree indexes persistent
+ * queries to accelerate their evaluation with transient, streaming data.
+ *
+ * Data is defined to be a [QPTrie<ByteArray>] from ByteArray keys to ByteArray values. A query over this data can
+ * include zero or more "equality terms" of key=value, and up to one "inequality term" of the form:
+ * - Less than or equal to
+ * - Between in an inclusive closed interval
+ * - Greater than or equal to
+ * - Starts with or equal to
+ *
+ * See the definition of [QuerySpec] for more details regarding the specification of queries.
+ *
+ * Consider that this query encoding logically takes the form
+ *
+ *   (k1=v1) ^ (k2=v2) ^ (k3=v3) ^ ... ^ (kN-1=vN-1) ^ (kN?vN), where ? is not =
+ *
+ * If we do not immediately consider the ? term, we can see that every = term needs to be matched for the query
+ * to succeed. This means we can index the terms such that we can disregard all queries where any constituent term
+ * does not evaluate to `true`. The order of equality terms additionally does not matter, so we are free to reorder
+ * these terms in the construction of the index.
+ *
+ * Attempting to index every possible permutation of the terms would require N! space, which quickly becomes
+ * untenable. However, because we can reorder all terms without altering the semantics of the query, and because
+ * every term needs to evaluate to `true` in order to service the query, we can choose an arbitrary ordering of
+ * the equality terms, establish a singular "path" for these terms in the tree, and add the query exactly once.
+ *
+ * We decide where in the tree to anchor this "path" with the following heuristics, starting with the root node:
+ * - Any terms previously used to decide the "path" prefix are ignored.
+ * - If there are no available keys corresponding to either equality or inequality terms, we save the query as the value
+ *   of the current node in the tree.
+ * - If there are no available keys corresponding to equality terms, but there is an available key corresponding to an
+ *   inequality term, we save the query in the corresponding map for the kind of inequality term.
+ * - If none of the available keys corresponding to the equality terms are present in this node, we create a new child
+ *   node with the lexicographically lowest equality key, store this child node as a child of the current node, and
+ *   recurse into this new node, removing the chosen key as an "available key".
+ * - Otherwise, we choose the available equality key that corresponds to the child node with the lowest cardinality,
+ *   and recurse into this child node, removing this equality key as an "available key".
+ */
+
 internal enum class IntermediateQueryTermKind {
     EQUALS,
     GREATER_OR_LESS,
@@ -91,19 +133,102 @@ internal data class IntermediateQueryTerm(
     }
 }
 
+/**
+ * Describes a query to be indexed in a [QueryTree].
+ *
+ * Queries indexed by QueryTree can contain zero or more "equality" terms, and zero or one of the following
+ * kinds of terms:
+ * - Less than or equal to the given value
+ * - Between the given closed-interval range
+ * - Greater than or equal to the given value
+ * - Starting with or equal to the given value
+ *
+ * However, a `key` can only be present once in a QuerySpec. Mutating methods that refer to a key already used
+ * by a contained term will remove the prior term.
+ */
 class QuerySpec private constructor(
     internal val equalityTerms: QPTrie<ByteArray>,
     internal val inequalityTerm: IntermediateQueryTerm?
 ) {
-    constructor(): this(QPTrie(), null)
+    companion object {
+        /**
+         * A [QuerySpec] with no terms.
+         *
+         * [QuerySpec.matchesData] will return `true` for any data passed to this instance.
+         */
+        val empty = QuerySpec(QPTrie(), null)
 
+        /**
+         * Returns a [QuerySpec] expecting the data at the given [key] to be equal to the given [value].
+         */
+        fun withEqualityTerm(key: ByteArray, value: ByteArray): QuerySpec {
+            return this.empty.withEqualityTerm(key, value)
+        }
+
+        /**
+         * Returns a [QuerySpec] expecting the data at the given [key] to be less than or equal to the given
+         * [lessThanOrEqualTo].
+         */
+        fun withLessThanOrEqualToTerm(key: ByteArray, lessThanOrEqualTo: ByteArray): QuerySpec {
+            return this.empty.withLessThanOrEqualToTerm(key, lessThanOrEqualTo)
+        }
+
+        /**
+         * Returns a [QuerySpec] expecting the data at the given [key] to be between the bounds established
+         * by [maybeLowerBound] and [maybeUpperBound], including equal to `maybeLowerBound` or `maybeUpperBound`.
+         *
+         * If `maybeLowerBound` > `maybeUpperBound`, the resulting term considers the range between `maybeUpperBound`
+         * and `maybeLowerBound` instead, such that the expected lower bound is always less than or equal to the
+         * expected upper bound.
+         */
+        fun withBetweenOrEqualToTerm(
+            key: ByteArray,
+            maybeLowerBound: ByteArray,
+            maybeUpperBound: ByteArray
+        ): QuerySpec {
+            return this.empty.withBetweenOrEqualToTerm(key, maybeLowerBound, maybeUpperBound)
+        }
+
+        /**
+         * Returns a [QuerySpec] expecting the data at the given [key] to be greater than or equal to the given
+         * [greaterThanOrEqualTo].
+         */
+        fun withGreaterThanOrEqualToTerm(key: ByteArray, greaterThanOrEqualTo: ByteArray): QuerySpec {
+            return this.empty.withGreaterThanOrEqualToTerm(key, greaterThanOrEqualTo)
+        }
+
+        /**
+         * Returns a [QuerySpec] expecting the data at the given [key] to start with or equal the given
+         * [startsWith].
+         */
+        fun withStartsWithTerm(key: ByteArray, startsWith: ByteArray): QuerySpec {
+            return this.empty.withStartsWithTerm(key, startsWith)
+        }
+    }
+
+    /**
+     * Returns the count of the number of terms encoded in this [QuerySpec].
+     */
     val cardinality: Int
         get() = this.equalityTerms.size.toInt() + if (this.inequalityTerm == null) { 0 } else { 1 }
 
+    /**
+     * Returns a new [QuerySpec] containing the terms of this QuerySpec, but with an equality term expecting
+     * the value at [key] to equal [value].
+     *
+     * If this QuerySpec already contains an equality term corresponding to `key`, this term is replaced with
+     * the new term in the new QuerySpec. If this QuerySpec contains an inequality term corresponding to `key`, it is
+     * removed in the new QuerySpec.
+     */
     fun withEqualityTerm(key: ByteArray, value: ByteArray): QuerySpec {
-        return QuerySpec(this.equalityTerms.put(key, value), this.inequalityTerm)
+        var nextInequalityTerm = this.inequalityTerm
+        if (nextInequalityTerm != null && nextInequalityTerm.key.contentEquals(key)) {
+            nextInequalityTerm = null
+        }
+        return QuerySpec(this.equalityTerms.put(key, value), nextInequalityTerm)
     }
 
+    // Used to construct entries in the QueryTree
     internal fun withoutEqualityTerm(key: ByteArray): QuerySpec {
         val replacement = this.equalityTerms.remove(key)
         return if (replacement === this.equalityTerms) {
@@ -113,11 +238,31 @@ class QuerySpec private constructor(
         }
     }
 
+    /**
+     * Returns a new [QuerySpec] containing the terms of this QuerySpec, but with an inequality term expecting
+     * the value at [key] to be less than or equal to [lessThanOrEqualTo].
+     *
+     * If this QuerySpec already contains an equality term corresponding to `key`, this term is removed in the new
+     * QuerySpec. If this QuerySpec already contains an inequality term, it is replaced with the new inequality term
+     * in the new QuerySpec.
+     */
     fun withLessThanOrEqualToTerm(key: ByteArray, lessThanOrEqualTo: ByteArray): QuerySpec {
         val term = IntermediateQueryTerm.greaterOrLessTerm(key.copyOf(), null, lessThanOrEqualTo)
         return QuerySpec(this.equalityTerms.remove(key), term)
     }
 
+    /**
+     * Returns a new [QuerySpec] containing the terms of this QuerySpec, but with an inequality term expecting the
+     * value at [key] to be between the interval bounded by [maybeLowerBound] and [maybeUpperBound], closed at both
+     * points.
+     *
+     * If `maybeLowerBound` > `maybeUpperBound`, the interval is considered to be bounded by `maybeUpperBound` to
+     * `maybeLowerBound` instead.
+     *
+     * If this QuerySpec already contains an equality term corresponding to `key`, this term is removed in the new
+     * QuerySpec. If this QuerySpec already contains an inequality term, it is replaced with the new inequality term
+     * in the new QuerySpec.
+     */
     fun withBetweenOrEqualToTerm(key: ByteArray, maybeLowerBound: ByteArray, maybeUpperBound: ByteArray): QuerySpec {
         val swapBounds = Arrays.compareUnsigned(maybeLowerBound, maybeUpperBound) == 1
         val lowerBound = if (swapBounds) { maybeUpperBound } else { maybeLowerBound }
@@ -126,16 +271,35 @@ class QuerySpec private constructor(
         return QuerySpec(this.equalityTerms.remove(key), term)
     }
 
+    /**
+     * Returns a new [QuerySpec] containing the terms of this QuerySpec, but with an inequality term expecting
+     * the value at [key] to be greater than or equal to [greaterThanOrEqualTo].
+     *
+     * If this QuerySpec already contains an equality term corresponding to `key`, this term is removed in the new
+     * QuerySpec. If this QuerySpec already contains an inequality term, it is replaced with the new inequality term
+     * in the new QuerySpec.
+     */
     fun withGreaterThanOrEqualToTerm(key: ByteArray, greaterThanOrEqualTo: ByteArray): QuerySpec {
         val term = IntermediateQueryTerm.greaterOrLessTerm(key.copyOf(), greaterThanOrEqualTo, null)
         return QuerySpec(this.equalityTerms.remove(key), term)
     }
 
+    /**
+     * Returns a new [QuerySpec] containing the terms of this QuerySpec, but with an inequality term expecting
+     * the value at [key] to start with or be equal to [startsWith].
+     *
+     * If this QuerySpec already contains an equality term corresponding to `key`, this term is removed in the new
+     * QuerySpec. If this QuerySpec already contains an inequality term, it is replaced with the new inequality term
+     * in the new QuerySpec.
+     */
     fun withStartsWithTerm(key: ByteArray, startsWith: ByteArray): QuerySpec {
         val term = IntermediateQueryTerm.startsWithTerm(key.copyOf(), startsWith)
         return QuerySpec(this.equalityTerms.remove(key), term)
     }
 
+    /**
+     * Returns `true` if the given [data] satisfies all terms of this [QuerySpec], or `false` otherwise.
+     */
     fun matchesData(data: QPTrie<ByteArray>): Boolean {
         for ((key, value) in this.equalityTerms) {
             val dataAtKey = data.get(key) ?: return false
@@ -210,6 +374,13 @@ class QuerySpec private constructor(
     }
 }
 
+/**
+ * Represents an opaque evaluation path for which a [QueryTree] stores a value.
+ *
+ * [QueryTree.updateByQuery] will update values in a non-deterministic fashion from the perspective of the caller.
+ * It returns a [QueryPath] instance that can be used to address this value using [QueryTree.getByPath] and
+ * [QueryTree.updateByPath].
+ */
 class QueryPath internal constructor(internal val breadcrumbs: ListNode<IntermediateQueryTerm>?) {
     internal constructor(path: Iterable<IntermediateQueryTerm>): this(listFromIterable(path))
     internal constructor(): this(null)
@@ -245,20 +416,32 @@ class QueryPath internal constructor(internal val breadcrumbs: ListNode<Intermed
     }
 }
 
+/**
+ * Exposes per-value cardinality, for use with the query indexing heuristic used by [QueryTree].
+ */
 interface SizeComputable {
     fun computeSize(): Long
 }
 
+/**
+ * Represents a key/value pair held by a [QueryTree], corresponding to an indexed query.
+ */
 data class QueryPathValue<V> internal constructor (val path: QueryPath, val value: V)
 
-internal class QueryTreeTerms<V: SizeComputable>(
+private class QueryTreeTerms<V: SizeComputable>(
     val equalityTerms: QPTrie<QueryTreeNode<V>>?,
     val lessThanTerms: QPTrie<QueryPathValue<V>>?,
     val rangeTerms: IntervalTree<ByteArrayButComparable, QueryPathValue<V>>?,
     val greaterThanTerms: QPTrie<QueryPathValue<V>>?,
     val startsWithTerms: QPTrie<QueryPathValue<V>>?,
 ) {
-    constructor(): this(null, null, null, null, null)
+     constructor(): this(
+        null,
+        null,
+        null,
+        null,
+        null
+    )
 
     private fun hasAnyTerms(): Boolean {
         return when {
@@ -347,7 +530,7 @@ internal class QueryTreeTerms<V: SizeComputable>(
     }
 }
 
-internal class QueryTreeNode<V  : SizeComputable>(
+private class QueryTreeNode<V  : SizeComputable> private constructor(
     val path: QueryPath,
     val value: V?,
     val keys: QPTrie<QueryTreeTerms<V>>,
@@ -562,7 +745,11 @@ internal class QueryTreeNode<V  : SizeComputable>(
         val currentPath = queryPath.first() ?: return this.value
         return when (currentPath.kind) {
             IntermediateQueryTermKind.EQUALS -> {
-                val subNode = this.keys.get(currentPath.key)?.equalityTerms?.get(currentPath.lowerBound!!) ?: return null
+                val subNode = this.keys.get(
+                    currentPath.key
+                )?.equalityTerms?.get(
+                    currentPath.lowerBound!!
+                ) ?: return null
                 subNode.getByPath(queryPath.rest())
             }
             IntermediateQueryTermKind.GREATER_OR_LESS -> {
@@ -629,7 +816,11 @@ internal class QueryTreeNode<V  : SizeComputable>(
         }
     }
 
-    fun updateByQuery(querySpec: QuerySpec, reversePath: ListNode<IntermediateQueryTerm>?, updater: (prior: V?) -> V?): Pair<QueryPath, QueryTreeNode<V>>? {
+    fun updateByQuery(
+        querySpec: QuerySpec,
+        reversePath: ListNode<IntermediateQueryTerm>?,
+        updater: (prior: V?) -> V?
+    ): Pair<QueryPath, QueryTreeNode<V>>? {
         val currentTerms = querySpec.equalityTerms
         if (currentTerms.size == 0L) {
             val inequalityTerm = querySpec.inequalityTerm
@@ -735,20 +926,58 @@ internal class QueryTreeNode<V  : SizeComputable>(
     }
 }
 
+/**
+ * A persistent, immutable map from [QuerySpec] or [QueryPath] to arbitrary values, with [QuerySpec] being converted
+ * into a [QueryPath] using a simplified cardinality-minimizing heuristic.
+ *
+ * The heuristic for converting a [QuerySpec] into a [QueryPath], as used by [QueryTree.updateByQuery], is:
+ * - Any terms previously used to decide the "path" prefix are ignored.
+ * - If there are no available keys corresponding to either equality or inequality terms, we save the query as the value
+ *   of the current node in the tree.
+ * - If there are no available keys corresponding to equality terms, but there is an available key corresponding to an
+ *   inequality term, we save the query in the corresponding map for the kind of inequality term.
+ * - If none of the available keys corresponding to the equality terms are present in this node, we create a new child
+ *   node with the lexicographically lowest equality key, store this child node as a child of the current node, and
+ *   recurse into this new node, removing the chosen key as an "available key".
+ * - Otherwise, we choose the available equality key that corresponds to the child node with the lowest cardinality,
+ *   and recurse into this child node, removing this equality key as an "available key".
+ *
+ */
 class QueryTree<V: SizeComputable> private constructor(
     private val root: QueryTreeNode<V>?
 ): Iterable<QueryPathValue<V>> {
     data class PathTreeResult<V: SizeComputable> internal constructor(val path: QueryPath, val tree: QueryTree<V>)
 
+    /**
+     * Returns the number of key/value pairs present in this [QueryTree].
+     *
+     * This is a Long instead of the standard Int to support more than ~2 billion members.
+     */
     val size: Long = this.root?.size ?: 0
 
     constructor(): this(null)
 
+    /**
+     * Returns the value corresponding to the given [queryPath], or `null` if such a `queryPath` is not present in
+     * this [QueryTree].
+     */
     fun getByPath(queryPath: QueryPath): V? {
         val root = this.root ?: return null
         return root.getByPath(queryPath)
     }
 
+    /**
+     * Returns a new [QueryTree] representing the result of replacing the prior value at [queryPath]
+     * with the value computed by [updater].
+     *
+     * [updater] is passed the current value of this QueryTree at the given `queryPath` as its sole argument. If this
+     * QueryTree does not have a value corresponding to the given `queryPath`, this argument is `null`. If `updater`
+     * returns `null` instead of a value, this is treated as a request to remove the corresponding value.
+     *
+     * The resulting QueryTree may be this QueryTree if the value returned by `updater` is identical to the value
+     * in this QueryTree corresponding to `updatePath`. This is permissible because the two QueryTrees would otherwise
+     * be functionally equivalent.
+     */
     fun updateByPath(queryPath: QueryPath, updater: (prior: V?) -> V?): QueryTree<V> {
         val oldRoot = (this.root ?: QueryTreeNode.emptyInstance(QueryPath()))
         val newRoot = oldRoot.updateByPath(queryPath, null, queryPath, updater)
@@ -761,6 +990,13 @@ class QueryTree<V: SizeComputable> private constructor(
         )
     }
 
+    /**
+     * Returns a new [QueryTree] updated with the same semantics as [QueryTree.updateByPath], converting [querySpec]
+     * into a [QueryPath] based on the documented conversion heuristics.
+     *
+     * Note that if [updater] returns `null`, this is treated as a request to remove the value corresponding to the
+     * converted QueryPath in this QueryTree.
+     */
     fun updateByQuery(querySpec: QuerySpec, updater: (prior: V?) -> V?): PathTreeResult<V> {
         val oldRoot = (this.root ?: QueryTreeNode.emptyInstance(QueryPath()))
         val (newPath, newRoot) = oldRoot.updateByQuery(querySpec, null, updater) ?: return PathTreeResult(
@@ -774,11 +1010,23 @@ class QueryTree<V: SizeComputable> private constructor(
         }
     }
 
+    /**
+     * Returns an iterator over all query/value pairs contained in this [QueryTree] whose underlying query matched the
+     * given [data] according to the definition of [QuerySpec.matchesData].
+     */
     fun getByData(data: QPTrie<ByteArray>): Iterator<QueryPathValue<V>> {
         val root = this.root ?: return EmptyIterator()
         return GetByDataIterator(root, data)
     }
 
+    /**
+     * Calls [receiver] for all query/value pairs contained in this [QueryTree] whose underlying query matched the
+     * given [data] according to the definition of [QuerySpec.matchesData].
+     *
+     * This is functionally similar to [QueryTree.getByData], but is significantly faster. However, it is implemented
+     * recursively, so care must be taken to ensure that the underlying [QueryPath] is small enough to prevent
+     * [StackOverflowError]s.
+     */
     fun visitByData(data: QPTrie<ByteArray>, receiver: (result: QueryPathValue<V>) -> Unit) {
         val root = this.root ?: return
         visitTermsByDataImpl(root, data, receiver)
@@ -795,13 +1043,16 @@ private fun<V: SizeComputable> visitTermsByDataImpl(
     fullData: QPTrie<ByteArray>,
     receiver: (result: QueryPathValue<V>) -> Unit
 ) {
-    if (node.value != null) {
-        receiver(QueryPathValue(node.path, node.value))
+    val nodeValue = node.value
+    if (nodeValue != null) {
+        receiver(QueryPathValue(node.path, nodeValue))
     }
     val nodeKeys = node.keys
     val keys = workingDataForAvailableKeys(fullData, nodeKeys).keysIntoUnsafeSharedKey(ArrayList())
     val handleTrieResult = { value: QPTrieKeyValue<QueryPathValue<V>> -> receiver(value.value) }
-    val handleRangeResult = { value: IntervalTreeKeyValue<ByteArrayButComparable, QueryPathValue<V>> -> receiver(value.value) }
+    val handleRangeResult = { value: IntervalTreeKeyValue<ByteArrayButComparable, QueryPathValue<V>> ->
+        receiver(value.value)
+    }
     for (targetKey in keys) {
         val terms = nodeKeys.get(targetKey) ?: continue
         val fullDataValue = fullData.get(targetKey)!!
@@ -816,7 +1067,7 @@ private fun<V: SizeComputable> visitTermsByDataImpl(
     }
 }
 
-internal enum class GetTermsByDataIteratorState {
+private enum class GetTermsByDataIteratorState {
     EQUALITY,
     LESS_THAN,
     RANGE,
@@ -825,7 +1076,7 @@ internal enum class GetTermsByDataIteratorState {
     DONE
 }
 
-internal class GetTermsByDataIterator<V : SizeComputable> private constructor(
+private class GetTermsByDataIterator<V : SizeComputable> private constructor(
     private val value: ByteArray,
     private val terms: QueryTreeTerms<V>,
     private val fullData: QPTrie<ByteArray>,
@@ -882,13 +1133,13 @@ internal class GetTermsByDataIterator<V : SizeComputable> private constructor(
     }
 }
 
-internal enum class GetByDataIteratorState {
+private enum class GetByDataIteratorState {
     VALUE,
     TERMS,
     DONE
 }
 
-internal class GetByDataIterator<V: SizeComputable> private constructor(
+private class GetByDataIterator<V: SizeComputable> private constructor(
     private val node: QueryTreeNode<V>,
     private val fullData: QPTrie<ByteArray>,
     private var state: GetByDataIteratorState,
@@ -910,8 +1161,9 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
             when (this.state) {
                 GetByDataIteratorState.VALUE -> {
                     this.state = GetByDataIteratorState.TERMS
-                    if (node.value != null) {
-                        return SingleElementIterator(QueryPathValue(node.path, node.value))
+                    val nodeValue = node.value
+                    if (nodeValue != null) {
+                        return SingleElementIterator(QueryPathValue(node.path, nodeValue))
                     }
                 }
 
@@ -943,7 +1195,7 @@ internal class GetByDataIterator<V: SizeComputable> private constructor(
     }
 }
 
-internal class FullTermsByDataIterator<V : SizeComputable> private constructor (
+private class FullTermsByDataIterator<V : SizeComputable> private constructor (
     private val terms: QueryTreeTerms<V>,
     private var state: GetTermsByDataIteratorState
 ): ConcatenatedIterator<QueryPathValue<V>>() {
@@ -997,7 +1249,7 @@ internal class FullTermsByDataIterator<V : SizeComputable> private constructor (
     }
 }
 
-internal class FullTreeIterator<V: SizeComputable> private constructor(
+private class FullTreeIterator<V: SizeComputable> private constructor(
     private val node: QueryTreeNode<V>,
     private var state: GetByDataIteratorState
 ): ConcatenatedIterator<QueryPathValue<V>>() {
@@ -1068,20 +1320,46 @@ internal class SetWithCardinality<V> private constructor(
     }
 }
 
+/**
+ * A persistent, immutable multimap from [QuerySpec] or [QueryPath] to arbitrary values, with [QuerySpec] being
+ * converted into a [QueryPath] using a simplified cardinality-minimizing heuristic.
+ *
+ * The difference between a [QuerySetTree] and a [QueryTree] is that a QuerySetTree saves a set of entries as a
+ * value instead of a single entry.
+ *
+ * The heuristic used by [QuerySetTree] to convert a QuerySpec into a QueryPath is as described for [QueryTree].
+ * The only difference is in the interface: [QueryTree.updateByPath] is instead [QuerySetTree.addElementByPath] and
+ * [QuerySetTree.removeElementByPath], and [QueryTree.updateByQuery] is instead [QuerySetTree.addElementByQuery].
+ */
 class QuerySetTree<V> private constructor(
     private val queryTree: QueryTree<SetWithCardinality<V>>,
 ): Iterable<QueryPathValue<V>> {
     data class PathTreeResult<V> internal constructor(val path: QueryPath, val tree: QuerySetTree<V>)
 
+    /**
+     * Returns the number of key/value pairs present in this [QuerySetTree].
+     *
+     * This is a Long instead of the standard Int to support more than ~2 billion members.
+     */
     val size: Long = this.queryTree.size
 
     constructor(): this(QueryTree())
 
+    /**
+     * Returns the values corresponding to the given [queryPath] in this [QuerySetTree].
+     */
     fun getByPath(queryPath: QueryPath): Iterator<V> {
         val setResult = this.queryTree.getByPath(queryPath)
         return setResult?.iterator() ?: EmptyIterator()
     }
 
+    /**
+     * Returns a new [QuerySetTree], wherein the entry set at [queryPath] in the new tree contains [elem].
+     *
+     * The new QuerySetTree will actually be this QuerySetTree if the current QuerySetTree already has an entry set
+     * corresponding to `queryPath`, and this entry set already `contains` elem. This is permissible because the
+     * QuerySetTrees would otherwise be equivalent.
+     */
     fun addElementByPath(queryPath: QueryPath, elem: V): QuerySetTree<V> {
         val newTree = this.queryTree.updateByPath(queryPath) { prior ->
             (prior ?: SetWithCardinality()).add(elem)
@@ -1093,6 +1371,16 @@ class QuerySetTree<V> private constructor(
         }
     }
 
+    /**
+     * Returns a new [QuerySetTree], wherein the entry set at [queryPath] in the new tree does not contain [elem].
+     *
+     * If the entry set resulting from the removal of `elem` is empty, this entry set is removed from the new
+     * QuerySetTree.
+     *
+     * The new QuerySetTree will actually be this QuerySetTree if either there was already not an entry set
+     * corresponding to `queryPath`, or the entry set corresponding to `queryPath` did not contain `elem`. This is
+     * permissible because the QuerySetTrees would otherwise be equivalent.
+     */
     fun removeElementByPath(queryPath: QueryPath, elem: V): QuerySetTree<V> {
         val newTree = this.queryTree.updateByPath(queryPath) { prior ->
             if (prior == null) {
@@ -1113,6 +1401,10 @@ class QuerySetTree<V> private constructor(
         }
     }
 
+    /**
+     * Returns a new [QuerySetTree] updated with the same semantics as [QuerySetTree.addElementByPath], converting
+     * [querySpec] into a [QueryPath] based on the documented conversion heuristics.
+     */
     fun addElementByQuery(querySpec: QuerySpec, elem: V): PathTreeResult<V> {
         val (newPath, newTree) = this.queryTree.updateByQuery(querySpec) { prior ->
             (prior ?: SetWithCardinality()).add(elem)
@@ -1124,13 +1416,27 @@ class QuerySetTree<V> private constructor(
         }
     }
 
+    /**
+     * Returns an iterator over all query/value pairs contained in this [QuerySetTree] whose underlying query matched
+     * the given [data] according to the definition of [QuerySpec.matchesData].
+     */
     fun getByData(data: QPTrie<ByteArray>): Iterator<QueryPathValue<V>> {
         return FlattenIterator(mapSequence(this.queryTree.getByData(data)) { (path, valueSet) ->
             mapSequence(valueSet) { QueryPathValue(path, it) }
         })
     }
 
-    // For performance reasons, we yield the path and the value separately.
+    /**
+     * Calls [receiver] for all query/value pairs contained in this [QuerySetTree] whose underlying query matched the
+     * given [data] according to the definition of [QuerySpec.matchesData].
+     *
+     * Unlike [QuerySetTree.getByData] and [QueryTree.visitByData], `receiver` receives `path` and `value` as separate
+     * arguments. This is an unfortunate inconsistency, but is necessary to avoid extra memory allocations.
+     *
+     * This is functionally similar to [QuerySetTree.getByData], but is significantly faster. However, it is implemented
+     * recursively, so care must be taken to ensure that the underlying [QueryPath] is small enough to prevent
+     * [StackOverflowError]s.
+     */
     fun visitByData(data: QPTrie<ByteArray>, receiver: (path: QueryPath, value: V) -> Unit) {
         this.queryTree.visitByData(data) { queryTreeResult ->
             val (path, value) = queryTreeResult
