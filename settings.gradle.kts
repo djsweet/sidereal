@@ -7,5 +7,5 @@
  * in the user manual at https://docs.gradle.org/7.5/userguide/multi_project_builds.html
  */
 
-rootProject.name = "name.djsweet.query-listener"
-include("app", "query-tree")
+rootProject.name = "name.djsweet.thorium"
+include("thorium", "query-tree")

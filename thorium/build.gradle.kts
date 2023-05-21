@@ -3,7 +3,7 @@
  */
 
 plugins {
-    id("name.djsweet.query.listener.kotlin-application-conventions")
+    id("name.djsweet.thorium.kotlin-application-conventions")
 }
 
 dependencies {
@@ -13,5 +13,5 @@ dependencies {
 
 application {
     // Define the main class for the application.
-    mainClass.set("name.djsweet.query.listener.app.AppKt")
+    mainClass.set("name.djsweet.thorium.AppKt")
 }

@@ -3,7 +3,7 @@
 import kotlinx.benchmark.gradle.*
 
 plugins {
-    id("name.djsweet.query.listener.kotlin-library-conventions")
+    id("name.djsweet.thorium.kotlin-library-conventions")
     id("org.jetbrains.kotlinx.benchmark") version "0.4.7"
     id("org.jetbrains.kotlin.plugin.allopen") version "1.8.21"
 }
