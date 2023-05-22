@@ -19,7 +19,7 @@ fun<T> workingDataForAvailableKeys(fullData: QPTrie<ByteArray>, keyDispatch: QPT
     for (key in keyBasis.keysIntoUnsafeSharedKey(workingKeysArray)) {
         val fromFullData = fullData.get(key) ?: continue
         if (keyDispatch.get(key) != null) {
-            result = result.putNoCopy(key, fromFullData)
+            result = result.putUnsafeSharedKey(key, fromFullData)
         }
     }
     return result

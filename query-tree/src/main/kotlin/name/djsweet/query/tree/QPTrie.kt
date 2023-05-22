@@ -1405,7 +1405,23 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
         return this.update(key) { value }
     }
 
-    internal fun putNoCopy(key: ByteArray, value: V): QPTrie<V> {
+    /**
+     * Returns a new [QPTrie], wherein the value corresponding to the given [key] is now [value]. If the current QPTrie
+     * already has a corresponding value for the given key, this value is effectively replaced in the new QPTrie.
+     *
+     * The `key` will be stored directly inside this QPTrie for future usage. This does elide a potentially expensive
+     * allocation and copy operation, but callers must not modify the `key` array after this method has been called.
+     * If the `key` may be modified later, callers should use [QPTrie.put] instead, which copies the `key` for internal
+     * usage.
+     *
+     * This method is implemented recursively, so care should be taken to ensure that the keys present in the QPTrie
+     * are short enough, or sparse enough, to prevent [StackOverflowError]s.
+     *
+     * The new QPTrie will actually be the given QPTrie if the given value is identity-equal to the value already
+     * present in the given QPTrie corresponding to the given key. This is permissible because the QPTries would
+     * otherwise be functionally equivalent.
+     */
+    fun putUnsafeSharedKey(key: ByteArray, value: V): QPTrie<V> {
         return this.updateNoCopy(key) { value }
     }
 
