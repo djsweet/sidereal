@@ -3,7 +3,6 @@
  */
 package name.djsweet.thorium
 
-import name.djsweet.thorium.MessageUtils
 import org.junit.jupiter.api.Test
 
 import org.junit.jupiter.api.Assertions.assertEquals
