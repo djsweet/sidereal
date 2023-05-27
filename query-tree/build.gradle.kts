@@ -111,6 +111,9 @@ benchmark {
         create("queryTreeOnly") {
             include("QueryTreeBenchmark\\.point01.*")
         }
+        create("queryTreeVisitArrayOnly") {
+            include("QueryTreeBenchmark\\.point04VisitUsingTreeIntoArray")
+        }
     }
     targets {
         register("benchmarks") {
