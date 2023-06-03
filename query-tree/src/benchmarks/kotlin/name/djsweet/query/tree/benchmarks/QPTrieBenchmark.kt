@@ -178,7 +178,7 @@ class QPTrieBenchmark {
 
 class ComparableByteArray(val array: ByteArray): Comparable<ComparableByteArray> {
     override fun compareTo(other: ComparableByteArray): Int {
-        return Arrays.compare(this.array, other.array)
+        return Arrays.compareUnsigned(this.array, other.array)
     }
 
     override fun equals(other: Any?): Boolean {
