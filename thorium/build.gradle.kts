@@ -14,7 +14,6 @@ dependencies {
     implementation("io.vertx:vertx-core:${vertxVersion}")
     implementation("io.vertx:vertx-lang-kotlin:${vertxVersion}")
     implementation("io.vertx:vertx-lang-kotlin-coroutines:${vertxVersion}")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.1")
     implementation("net.openhft:zero-allocation-hashing:0.16")
 
     if (operatingSystem.isMacOsX) {
