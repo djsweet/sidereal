@@ -32,6 +32,10 @@ dependencies {
     implementation(project(":query-tree"))
     annotationProcessor("info.picocli:picocli-codegen:${picocliVersion}")
     kapt("info.picocli:picocli-codegen:${picocliVersion}")
+
+    testImplementation(platform("org.junit:junit-bom:5.9.2"))
+    testImplementation("org.junit.jupiter:junit-jupiter:5.9.2")
+    testImplementation("net.jqwik:jqwik:1.7.3")
 }
 
 kapt {
@@ -43,4 +47,20 @@ kapt {
 application {
     // Define the main class for the application.
     mainClass.set("name.djsweet.thorium.AppKt")
+}
+
+tasks.test {
+    // As silly as this looks, Gradle sometimes gets very confused about
+    // whether it needs to run the `test` task, because the artifacts
+    // of the last test run get dumped, and it thinks "oh well these artifacts
+    // are here so I don't need to do this."
+    outputs.upToDateWhen { false }
+    useJUnitPlatform {
+        includeEngines("jqwik", "junit-jupiter")
+    }
+    testLogging {
+        events("passed", "skipped", "failed")
+    }
+    minHeapSize = "512m"
+    maxHeapSize = "2048m"
 }
