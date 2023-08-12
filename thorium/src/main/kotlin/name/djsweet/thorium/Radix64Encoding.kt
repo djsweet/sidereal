@@ -126,7 +126,7 @@ internal class Radix64LowLevelEncoder : Radix64Encoder() {
     }
 
     fun addString(s: String): Radix64LowLevelEncoder {
-        return this.addByteArray(s.encodeToByteArray())
+        return this.addByteArray(convertStringToByteArray(s))
     }
 
     fun addSubArray(e: Radix64Encoder): Radix64LowLevelEncoder {
@@ -156,7 +156,7 @@ internal class Radix64LowLevelEncoder : Radix64Encoder() {
 
 internal fun fitStringIntoRemainingBytes(s: String, byteBudget: Int): Pair<Int, ByteArray> {
     // Initial allocation. If ba.size <= bs, we can just return here.
-    var result = s.encodeToByteArray()
+    var result = convertStringToByteArray(s)
     if (result.size <= byteBudget) {
         return result.size to result
     }
@@ -168,7 +168,7 @@ internal fun fitStringIntoRemainingBytes(s: String, byteBudget: Int): Pair<Int, 
     var upperBound = s.length
     while (lowerBound < upperBound) {
         val testPoint = lowerBound + ((upperBound - lowerBound) / 2)
-        result = s.encodeToByteArray(0, testPoint)
+        result = convertStringToByteArray(s, testPoint)
 
         if (result.size == byteBudget) {
             return initialSize to result
@@ -180,7 +180,7 @@ internal fun fitStringIntoRemainingBytes(s: String, byteBudget: Int): Pair<Int, 
         }
     }
     val lowerResult = result
-    val higherResult = s.encodeToByteArray(0, upperBound)
+    val higherResult = convertStringToByteArray(s, upperBound)
     return if (higherResult.size <= byteBudget) {
         initialSize to higherResult
     } else {
@@ -231,28 +231,19 @@ internal class Radix64JsonEncoder : Radix64Encoder() {
     }
 
     private fun longIntoNumberEncodeScratch(l: Long) {
-        this.numberEncodeScratch[0] = (l shr 56).toByte()
-        this.numberEncodeScratch[1] = ((l shr 48) and 0xff).toByte()
-        this.numberEncodeScratch[2] = ((l shr 40) and 0xff).toByte()
-        this.numberEncodeScratch[3] = ((l shr 32) and 0xff).toByte()
-        this.numberEncodeScratch[4] = ((l shr 24) and 0xff).toByte()
-        this.numberEncodeScratch[5] = ((l shr 16) and 0xff).toByte()
-        this.numberEncodeScratch[6] = ((l shr 8) and 0xff).toByte()
-        this.numberEncodeScratch[7] = (l and 0xff).toByte()
-
-        if (this.numberEncodeScratch[0] < 0) {
-            // Negative bit is active, we need to ones complement everything
-            this.numberEncodeScratch[0] = this.numberEncodeScratch[0].toInt().and(0xff).xor(0xff).toByte()
-            this.numberEncodeScratch[1] = this.numberEncodeScratch[1].toInt().and(0xff).xor(0xff).toByte()
-            this.numberEncodeScratch[2] = this.numberEncodeScratch[2].toInt().and(0xff).xor(0xff).toByte()
-            this.numberEncodeScratch[3] = this.numberEncodeScratch[3].toInt().and(0xff).xor(0xff).toByte()
-            this.numberEncodeScratch[4] = this.numberEncodeScratch[4].toInt().and(0xff).xor(0xff).toByte()
-            this.numberEncodeScratch[5] = this.numberEncodeScratch[5].toInt().and(0xff).xor(0xff).toByte()
-            this.numberEncodeScratch[6] = this.numberEncodeScratch[6].toInt().and(0xff).xor(0xff).toByte()
-            this.numberEncodeScratch[7] = this.numberEncodeScratch[7].toInt().and(0xff).xor(0xff).toByte()
-        } else {
-            this.numberEncodeScratch[0] = this.numberEncodeScratch[0].toInt().and(0xff).or(0x80).toByte()
-        }
+        // It's a negative value, we have to xor everything before passing in the full double.
+        // But, Kotlin won't let us xor the full 64 set bits without complaining. So we'll instead
+        // leverage the two's complement operation of negation, which is:
+        // 1. Inverting all the bits (this is what we want)
+        // 2. Adding 1 to the number
+        //
+        // All we have to do to mitigate 2 is subtract 1 from the result.
+        //
+        // Similarly, if it's a positive value, we have to or in the highest bit. Kotlin is not ok
+        // with this being represented as a bit pattern, but _is_ ok with us using the equivalent
+        // Long.MIN_VALUE here.
+        val writing = if (l < 0) { -l - 1 } else { l.or(Long.MIN_VALUE) }
+        convertLongIntoGivenByteArray(writing, this.numberEncodeScratch)
     }
 
     fun addNumber(n: Double): Radix64JsonEncoder {

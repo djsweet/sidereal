@@ -372,23 +372,8 @@ internal class Radix64JsonDecoder(bytes: ByteArray) {
             return false
         }
 
-        val byte0 = value[0].toLong().and(0xff).shl(56)
-        val byte1 = value[1].toLong().and(0xff).shl(48)
-        val byte2 = value[2].toLong().and(0xff).shl(40)
-        val byte3 = value[3].toLong().and(0xff).shl(32)
-        val byte4 = value[4].toLong().and(0xff).shl(24)
-        val byte5 = value[5].toLong().and(0xff).shl(16)
-        val byte6 = value[6].toLong().and(0xff).shl(8)
-        val byte7 = value[7].toLong().and(0xff)
-
-        val byte01 = byte0.or(byte1)
-        val byte23 = byte2.or(byte3)
-        val byte45 = byte4.or(byte5)
-        val byte67 = byte6.or(byte7)
-        val byte03 = byte01.or(byte23)
-        val byte47 = byte45.or(byte67)
-        val almost = byte03.or(byte47)
-        val asDouble = if (byte0.shr(56).and(0x80) == 0L) {
+        val almost = convertByteArrayToLong(value)
+        val asDouble = if (almost >= 0) {
             // It's a negative value, we have to xor everything before passing in the full double.
             // But, Kotlin won't let us xor the full 64 set bits without complaining. So we'll instead
             // leverage the two's complement operation of negation, which is:
