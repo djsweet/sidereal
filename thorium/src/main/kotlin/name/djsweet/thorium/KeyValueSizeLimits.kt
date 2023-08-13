@@ -72,6 +72,14 @@ private suspend fun maxSafeKeyValueSizeWithIterationsAsync(vertx: Vertx, iterati
     return maxKeySize / MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR
 }
 
+private fun maxSafeKeyValueSizeWithIterations(iterations: Int): Int {
+    var maxKeySize = MAX_POSSIBLE_KEY_VALUE_SIZE * MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR
+    for (i in 0 until iterations) {
+        maxKeySize = maxKeySize.coerceAtMost(maxSafeKeyValueSizeSingleIteration(maxKeySize))
+    }
+    return maxKeySize / MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR
+}
+
 private fun ensureMinPossibleKeyValueSize(keySize: Int) {
     if (keySize < MIN_POSSIBLE_KEY_VALUE_SIZE) {
         throw Error("Insufficient stack size for search operations: needed $MIN_POSSIBLE_KEY_VALUE_SIZE, got $keySize")
@@ -79,7 +87,7 @@ private fun ensureMinPossibleKeyValueSize(keySize: Int) {
 }
 
 internal fun maxSafeKeyValueSizeSync(vertx: Vertx): Int {
-    // Bootup seems to impose a much lower stack size than we'll have during actual runtime.
+    // Boot up seems to impose a much lower stack size than we'll have during actual runtime.
     // We'll sort of work around that by performing some warm-up iterations.
     val maxSafeSizeWarmUp = runBlocking {
         maxSafeKeyValueSizeWithIterationsAsync(vertx, MAX_POSSIBLE_KEY_VALUE_SIZE_WARMUP_ITERATIONS)
@@ -90,4 +98,11 @@ internal fun maxSafeKeyValueSizeSync(vertx: Vertx): Int {
     }
     ensureMinPossibleKeyValueSize(maxSafeSizeInVertx)
     return maxSafeSizeInVertx
+}
+
+// This only exists for testing purposes, where we're not running in Vertx.
+internal fun maxSafeKeyValueSizeSync(): Int {
+    val maxSafeKeyValueSize = maxSafeKeyValueSizeWithIterations(MAX_POSSIBLE_KEY_VALUE_SIZE_ITERATIONS)
+    ensureMinPossibleKeyValueSize(maxSafeKeyValueSize)
+    return maxSafeKeyValueSize
 }
