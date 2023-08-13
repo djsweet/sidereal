@@ -22,25 +22,37 @@ class ArrayUtilsTest {
     @Test fun byteArraysEqualUpToZeroForTwoEmptyArrays() {
         val leftEmpty = ByteArray(0)
         val rightEmpty = ByteArray(0)
-        assertEquals(0, byteArraysEqualUpTo(leftEmpty, rightEmpty, 0, 0))
+        assertEquals(
+            0,
+            byteArraysEqualUpTo(leftEmpty, 0, 0, rightEmpty, 0, 0)
+        )
     }
 
     @Test fun byteArraysEqualUpToZeroForLeftEmptyArrays() {
         val leftArray = ByteArray(0)
         val rightArray = byteArrayOf(0x1, 0x2, 0x3)
-        assertEquals(0, byteArraysEqualUpTo(leftArray, rightArray, 0, rightArray.size))
+        assertEquals(
+            0,
+            byteArraysEqualUpTo(leftArray, 0, leftArray.size, rightArray, 0, rightArray.size)
+        )
     }
 
     @Test fun byteArraysEqualUpToZeroForRightEmptyArrays() {
         val leftArray = byteArrayOf(0x1, 0x2, 0x3)
         val rightArray = ByteArray(0)
-        assertEquals(0, byteArraysEqualUpTo(leftArray, rightArray, 0, rightArray.size))
+        assertEquals(
+            0,
+            byteArraysEqualUpTo(leftArray, 0, leftArray.size, rightArray, 0, rightArray.size)
+        )
     }
 
     @Property
     fun equalByteArraysAlwaysEqualUpToLength(@ForAll target: ByteArray) {
         val copyTarget = target.clone()
-        assertEquals(target.size, byteArraysEqualUpTo(target, copyTarget, 0, copyTarget.size))
+        assertEquals(
+            target.size,
+            byteArraysEqualUpTo(target, 0, target.size, copyTarget, 0, copyTarget.size)
+        )
     }
 
     @Property
@@ -49,7 +61,10 @@ class ArrayUtilsTest {
         @ForAll right: ByteArray
     ) {
         val equalUpTo = slowEqualUpTo(left, right, 0, right.size)
-        assertEquals(equalUpTo, byteArraysEqualUpTo(left, right, 0, right.size))
+        assertEquals(
+            equalUpTo,
+            byteArraysEqualUpTo(left,0, left.size , right, 0, right.size)
+        )
     }
 
     @Provide
@@ -68,7 +83,10 @@ class ArrayUtilsTest {
         val right = rightSpec.first
         val rightSize = rightSpec.second
         val equalUpTo = slowEqualUpTo(left, right, 0, rightSize)
-        assertEquals(equalUpTo, byteArraysEqualUpTo(left, right, 0, rightSize))
+        assertEquals(
+            equalUpTo,
+            byteArraysEqualUpTo(left, 0, left.size, right, 0, rightSize)
+        )
     }
 
     @Provide
@@ -92,7 +110,10 @@ class ArrayUtilsTest {
         val rightStart = rightSpec.second
         val rightSize = rightSpec.third
         val equalUpTo = slowEqualUpTo(left, right, rightStart, rightSize)
-        assertEquals(equalUpTo, byteArraysEqualUpTo(left, right, rightStart, rightSize))
+        assertEquals(
+            equalUpTo,
+            byteArraysEqualUpTo(left, 0, left.size, right, rightStart, rightSize)
+        )
     }
 
     @Provide

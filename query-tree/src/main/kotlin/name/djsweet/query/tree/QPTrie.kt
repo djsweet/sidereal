@@ -100,10 +100,6 @@ internal fun evenNybbleFromByte(b: Byte): Byte {
     return b.toInt().shr(4).toByte()
 }
 
-internal fun nybblesToBytes(highNybble: Byte, lowNybble: Byte): Byte {
-    return highNybble.toInt().shl(4).or(lowNybble.toInt()).toByte()
-}
-
 // We end up working with empty byte arrays often enough that it makes sense to keep a single
 // instance around for this purpose. It's only ever used in immutable contexts, particularly
 // as a potential prefix array in OddNybble, so it's perfectly safe to use in multiple places.
@@ -148,8 +144,68 @@ typealias VisitReceiver<V> = (value: QPTrieKeyValue<V>) -> Unit
 internal typealias RegisterChildIterator<V> =
             (it: ConcatenatedIterator<QPTrieKeyValue<V>>) -> ConcatenatedIterator<QPTrieKeyValue<V>>
 
+private class ByteSlice(
+    val backing: ByteArray,
+    val offset: Int,
+    val size: Int
+) {
+    constructor(full: ByteArray): this(full, 0, full.size)
+
+    constructor(prefix: ByteArray, offset: Int): this(prefix, offset, prefix.size - offset)
+
+    fun compareToByteArray(byteArray: ByteArray, compareOffset: Int): Int {
+        val size = this.size
+        val offset = this.offset
+        val byteArrayEnd = (compareOffset + size).coerceAtMost(byteArray.size)
+        return Arrays.compareUnsigned(this.backing, offset, offset + size, byteArray, compareOffset, byteArrayEnd)
+    }
+
+    fun prefixEqualToByteArrayAtOffset(byteArray: ByteArray, compareOffset: Int): Boolean {
+        val size = this.size
+        val offset = this.offset
+        val compareEnd = byteArray.size - compareOffset
+        val compareSize = size.coerceAtMost(compareEnd)
+        return Arrays.equals(
+            this.backing,
+            offset,
+            offset + compareSize,
+            byteArray,
+            compareOffset,
+            compareOffset + compareSize
+        )
+    }
+
+    fun elementAt(index: Int): Byte {
+        return this.backing[this.offset + index]
+    }
+}
+
+private fun<V> byteSliceForOddNybble(
+    existingPrefix: ByteSlice,
+    valuePair: QPTrieKeyValue<V>?,
+    evenNybbles: Array<EvenNybble<V>>
+): ByteSlice {
+    return if (valuePair != null) {
+        val valuePairKey = valuePair.key
+        if (existingPrefix.backing === valuePairKey) {
+            existingPrefix
+        } else {
+            ByteSlice(valuePairKey, existingPrefix.offset, existingPrefix.size)
+        }
+    } else {
+        val oddNybbles = evenNybbles[0].nybbleDispatch
+        val oddPrefix = oddNybbles[0].prefix
+        val oddPrefixBacking = oddPrefix.backing
+        if (existingPrefix.backing === oddPrefixBacking) {
+            existingPrefix
+        } else {
+            ByteSlice(oddPrefixBacking, existingPrefix.offset, existingPrefix.size)
+        }
+    }
+}
+
 private class OddNybble<V>(
-    val prefix: ByteArray,
+    val prefix: ByteSlice,
     val valuePair: QPTrieKeyValue<V>?,
     val size: Long,
     val nybbleValues: ByteArray,
@@ -162,37 +218,17 @@ private class OddNybble<V>(
 
     fun compareLookupSliceToCurrentPrefix(compareTo: ByteArray, compareOffset: Int): Int {
         val prefix = this.prefix
-        val prefixSize = prefix.size
-        return Arrays.compareUnsigned(
-            prefix,
-            0,
-            prefixSize,
-            compareTo,
-            compareOffset,
-            (compareOffset + prefixSize).coerceAtMost(compareTo.size)
-        )
+        return prefix.compareToByteArray(compareTo, compareOffset)
     }
 
     fun testEqualLookupSliceToCurrentPrefixForStartsWith(compareTo: ByteArray, compareOffset: Int): Boolean {
-        val compareEnd = compareTo.size - compareOffset
-        val prefix = this.prefix
-        val prefixSize = prefix.size
-        val compareSize = prefixSize.coerceAtMost(compareEnd)
-        return Arrays.equals(
-            prefix,
-            0,
-            compareSize,
-            compareTo,
-            compareOffset,
-            compareOffset + compareSize
-        )
+        return this.prefix.prefixEqualToByteArrayAtOffset(compareTo, compareOffset)
     }
 
     private fun updateEvenOdd(
         key: ByteArray,
         keyOffset: Int,
         updater: (prev: V?) -> V?,
-        childTarget: Byte,
         evenNode: EvenNybble<V>,
         evenOffset: Int,
         oddNode: OddNybble<V>,
@@ -218,39 +254,30 @@ private class OddNybble<V>(
             if (this.size == 2L && this.valuePair == null) {
                 // We can promote the only remaining child to be the resulting
                 // node, as there's no reason for this node to exist anymore.
-                val returnedValue: OddNybble<V>
-                val highNybble: Byte
-                val lowNybble: Byte
-                if (nybbleDispatch.size == 1) {
-                    highNybble = evenNybbleFromByte(childTarget)
+                val returnedValue = if (nybbleDispatch.size == 1) {
                     if (evenNode.nybbleDispatch[0] === oddNode) {
-                        lowNybble = evenNode.nybbleValues[1]
-                        returnedValue = evenNode.nybbleDispatch[1]
+                        evenNode.nybbleDispatch[1]
                     } else {
-                        lowNybble = evenNode.nybbleValues[0]
-                        returnedValue = evenNode.nybbleDispatch[0]
+                        evenNode.nybbleDispatch[0]
                     }
                 } else if (nybbleDispatch[0] === evenNode) {
-                    highNybble = nybbleValues[1]
                     val remainingEvenNybble = nybbleDispatch[1]
-                    lowNybble = remainingEvenNybble.nybbleValues[0]
-                    returnedValue = remainingEvenNybble.nybbleDispatch[0]
+                    remainingEvenNybble.nybbleDispatch[0]
                 } else {
-                    highNybble = nybbleValues[0]
                     val remainingEvenNybble = nybbleDispatch[0]
-                    lowNybble = remainingEvenNybble.nybbleValues[0]
-                    returnedValue = remainingEvenNybble.nybbleDispatch[0]
+                    remainingEvenNybble.nybbleDispatch[0]
                 }
                 // The prefix of the resulting node will be the concatenation of:
                 // 1. Our prefix
                 // 2. The dispatching byte
                 // 3. Their prefix
+                // Since we're keeping slices, and the returned value strictly shares a prefix
+                // with the node we're removing, all we have to do is update our slice to use
+                // their backing but our offset.
+                val returnedPrefix = returnedValue.prefix
+                val thisPrefix = this.prefix
                 return OddNybble(
-                    concatByteArraysWithMiddleByte(
-                        this.prefix,
-                        nybblesToBytes(highNybble, lowNybble),
-                        returnedValue.prefix
-                    ),
+                    ByteSlice(returnedPrefix.backing, thisPrefix.offset, thisPrefix.size + returnedPrefix.size + 1),
                     returnedValue.valuePair,
                     this.size - 1,
                     returnedValue.nybbleValues,
@@ -273,7 +300,7 @@ private class OddNybble<V>(
                 val nextEvenDispatch = Array(nybbleDispatch.size - 1) { evenNode }
                 removeArray(nybbleDispatch, nextEvenDispatch, evenOffset)
                 return OddNybble(
-                    this.prefix,
+                    byteSliceForOddNybble(this.prefix, this.valuePair, nextEvenDispatch),
                     this.valuePair,
                     this.size - 1,
                     nextEvenValues,
@@ -283,7 +310,7 @@ private class OddNybble<V>(
                 val nextEvenDispatch = nybbleDispatch.clone()
                 nextEvenDispatch[evenOffset] = nextEvenNode
                 return OddNybble(
-                    this.prefix,
+                    byteSliceForOddNybble(this.prefix, this.valuePair, nextEvenDispatch),
                     this.valuePair,
                     this.size - 1,
                     this.nybbleValues,
@@ -310,7 +337,7 @@ private class OddNybble<V>(
                 this.size + 1
             }
             return OddNybble(
-                this.prefix,
+                byteSliceForOddNybble(this.prefix, this.valuePair, nextEvenDispatch),
                 this.valuePair,
                 nextSize,
                 this.nybbleValues,
@@ -325,10 +352,12 @@ private class OddNybble<V>(
     // the keys would be equal. There may be remaining aspects of the key.
     private fun maybeKeyOffsetForAccess(key: ByteArray, offset: Int): Int {
         val remainder = key.size - offset
-        val prefixSize = this.prefix.size
+        val thisPrefix = this.prefix
+        val prefixSize = thisPrefix.size
+        val prefixOffset = thisPrefix.offset
         // There's not enough bytes in the array to compare as equal.
         // This might indicate that we need to introduce a new node.
-        val equalUpTo = byteArraysEqualUpTo(this.prefix, key, offset, prefixSize)
+        val equalUpTo = byteArraysEqualUpTo(thisPrefix.backing, prefixOffset, prefixSize, key, offset, prefixSize)
         if (equalUpTo < prefixSize) {
             return -(equalUpTo + 2) // equalUpTo == 0 -> -2, 1 -> -3, etc
         }
@@ -373,9 +402,10 @@ private class OddNybble<V>(
                     val evenNode = this.nybbleDispatch[0]
                     if (evenNode.nybbleDispatch.size == 1) {
                         val oddNode = evenNode.nybbleDispatch[0]
-                        val childTarget = nybblesToBytes(this.nybbleValues[0],  evenNode.nybbleValues[0])
+                        val oddPrefix = oddNode.prefix
+                        val thisPrefix = this.prefix
                         return OddNybble(
-                            concatByteArraysWithMiddleByte(this.prefix, childTarget, oddNode.prefix),
+                            ByteSlice(oddPrefix.backing, thisPrefix.offset, thisPrefix.size + oddPrefix.size + 1),
                             oddNode.valuePair,
                             oddNode.size,
                             oddNode.nybbleValues,
@@ -384,17 +414,28 @@ private class OddNybble<V>(
                     }
                 }
             }
-            return OddNybble(
-                this.prefix,
-                if (result == null) {
-                    null
-                } else {
-                    QPTrieKeyValue(valuePair?.key ?: if (copyKey) { key.copyOf() } else { key }, result)
-                },
-                nextSize,
-                this.nybbleValues,
-                this.nybbleDispatch
-            )
+            return if (result == null) {
+                val evenNode = this.nybbleDispatch[0]
+                val oddNode = evenNode.nybbleDispatch[0]
+                val oddPrefix = oddNode.prefix
+                val thisPrefix = this.prefix
+                OddNybble(
+                    ByteSlice(oddPrefix.backing, thisPrefix.offset, thisPrefix.size),
+                    null,
+                    nextSize,
+                    this.nybbleValues,
+                    this.nybbleDispatch
+                )
+            } else {
+                val keySave = valuePair?.key ?: if (copyKey) { key.copyOf() } else { key }
+                OddNybble(
+                    ByteSlice(keySave, this.prefix.offset),
+                    QPTrieKeyValue(keySave, result),
+                    nextSize,
+                    this.nybbleValues,
+                    this.nybbleDispatch
+                )
+            }
         }
         // We didn't match, but the equal portion of the key is shorter than our prefix.
         // If this is an addition we'll need to introduce a new node.
@@ -404,25 +445,32 @@ private class OddNybble<V>(
                 return this
             val topOffset = -(keyOffset + 2)
             val startOffset = offset + topOffset
+            val thisPrefix = this.prefix
+            val incumbentSliceOffset = topOffset + 1
             val incumbentNode = OddNybble(
                 // Note that target is already a dispatched byte, so we skip the very
                 // first prefix byte.
-                this.prefix.copyOfRange(topOffset + 1, this.prefix.size),
+                ByteSlice(
+                    thisPrefix.backing,
+                    thisPrefix.offset + incumbentSliceOffset,
+                    thisPrefix.size - incumbentSliceOffset
+                ),
                 this.valuePair,
                 this.size,
                 this.nybbleValues,
                 this.nybbleDispatch
             )
+            val keySave = if (copyKey) { key.copyOf() } else { key }
             // If the startOffset is just beyond the actual key length, we have to insert a node "above" us.
             if (startOffset >= key.size) {
-                val target = this.prefix[topOffset]
+                val target = this.prefix.elementAt(topOffset)
                 val evenNode = EvenNybble(
                     byteArrayOf(oddNybbleFromByte(target)),
                     arrayOf(incumbentNode)
                 )
                 return OddNybble(
-                    key.copyOfRange(offset, startOffset),
-                    QPTrieKeyValue(if (copyKey) { key.copyOf() } else { key }, result),
+                    ByteSlice(keySave, offset, startOffset - offset),
+                    QPTrieKeyValue(keySave, result),
                     this.size + 1,
                     byteArrayOf(evenNybbleFromByte(target)),
                     arrayOf(evenNode)
@@ -430,10 +478,10 @@ private class OddNybble<V>(
             } else {
                 val target = key[startOffset]
                 // We now need an intermediate node that dispatches to both new nodes.
-                val priorByte = this.prefix[topOffset]
+                val priorByte = this.prefix.elementAt(topOffset)
                 val newNode = OddNybble(
-                    key.copyOfRange(startOffset + 1, key.size),
-                    QPTrieKeyValue(if (copyKey) { key.copyOf() } else { key }, result),
+                    ByteSlice(keySave, startOffset + 1),
+                    QPTrieKeyValue(keySave, result),
                     1,
                     emptyByteArray,
                     emptyEvenNybbleArray
@@ -468,8 +516,12 @@ private class OddNybble<V>(
                         EvenNybble(byteArrayOf(oddNybbleFromByte(priorByte)), arrayOf(incumbentNode))
                     )
                 }
+                val firstNewEven = newEvenDispatch[0]
+                val firstNewOdd = firstNewEven.nybbleDispatch[0]
+                val firstNewOddPrefix = firstNewOdd.prefix
+                val nextPrefix = ByteSlice(firstNewOddPrefix.backing, offset, startOffset - offset)
                 return OddNybble(
-                    key.copyOfRange(offset, startOffset),
+                    nextPrefix,
                     null,
                     this.size + 1,
                     newEvenValues,
@@ -492,7 +544,6 @@ private class OddNybble<V>(
                     key,
                     keyOffset,
                     updater,
-                    childTarget,
                     evenNode,
                     evenOffset,
                     oddNode,
@@ -507,9 +558,10 @@ private class OddNybble<V>(
         // Note that by the time we're here, we're always inserting a new node.
         val result = updater(null) ?: return this
 
+        val keySave = if (copyKey) { key.copyOf() } else { key }
         val bottomNode = OddNybble(
-            key.copyOfRange(keyOffset + 1, key.size),
-            QPTrieKeyValue(if (copyKey) { key.copyOf() } else { key }, result),
+            ByteSlice(keySave, keyOffset + 1),
+            QPTrieKeyValue(keySave, result),
             1,
             emptyByteArray,
             emptyEvenNybbleArray
@@ -534,12 +586,13 @@ private class OddNybble<V>(
             )
         }
         return if (this.nybbleValues.isEmpty()) {
+            val nextEvenDispatch = arrayOf(newEvenNode)
             OddNybble(
-                this.prefix,
+                byteSliceForOddNybble(this.prefix, this.valuePair, nextEvenDispatch),
                 this.valuePair,
                 this.size + 1,
                 byteArrayOf(evenNybbleFromByte(childTarget)),
-                arrayOf(newEvenNode)
+                nextEvenDispatch
             )
         } else {
             val targetHighNybble = evenNybbleFromByte(childTarget)
@@ -550,7 +603,7 @@ private class OddNybble<V>(
                 val newNybbleDispatch = Array(this.nybbleDispatch.size + 1) { newEvenNode }
                 insertArray(this.nybbleDispatch, newNybbleDispatch, insertOffset, newEvenNode)
                 OddNybble(
-                    this.prefix,
+                    byteSliceForOddNybble(this.prefix, this.valuePair, newNybbleDispatch),
                     this.valuePair,
                     this.size + 1,
                     newNybbleValues,
@@ -560,7 +613,7 @@ private class OddNybble<V>(
                 val newNybbleDispatch = this.nybbleDispatch.clone()
                 newNybbleDispatch[foundOffset] = newEvenNode
                 return OddNybble(
-                    this.prefix,
+                    byteSliceForOddNybble(this.prefix, this.valuePair, newNybbleDispatch),
                     this.valuePair,
                     this.size + 1,
                     this.nybbleValues,
@@ -1346,7 +1399,7 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
             val keyCopy = if (copyKey) { key.copyOf() } else { key }
             QPTrie(
                 OddNybble(
-                    keyCopy,
+                    ByteSlice(keyCopy),
                     QPTrieKeyValue(keyCopy, value),
                     1,
                     emptyByteArray,
@@ -1731,7 +1784,7 @@ private fun <V> sizeNodeFromIterable(items: Iterable<Pair<ByteArray, V>>): OddNy
         val (key, value) = it.next()
         val keyCopy = key.copyOf()
         root = OddNybble(
-            keyCopy,
+            ByteSlice(keyCopy),
             QPTrieKeyValue(keyCopy, value),
             1,
             emptyByteArray,

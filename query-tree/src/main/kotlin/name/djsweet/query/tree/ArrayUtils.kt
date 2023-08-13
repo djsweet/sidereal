@@ -2,12 +2,19 @@ package name.djsweet.query.tree
 
 import java.util.Arrays
 
-internal fun byteArraysEqualUpTo(left: ByteArray, right: ByteArray, rightFrom: Int, rightEntries: Int): Int {
-    val leftSize = left.size.coerceAtMost(rightEntries)
-    val rightSize = (rightFrom + rightEntries).coerceAtMost(right.size)
-    val ret = Arrays.mismatch(left, 0, leftSize, right, rightFrom, rightSize)
+internal fun byteArraysEqualUpTo(
+    left: ByteArray,
+    leftFrom: Int,
+    leftEntries: Int,
+    right: ByteArray,
+    rightFrom: Int,
+    rightEntries: Int
+): Int {
+    val leftTo = (leftFrom + leftEntries.coerceAtMost(rightEntries)).coerceAtMost(left.size)
+    val rightTo = (rightFrom + rightEntries).coerceAtMost(right.size)
+    val ret = Arrays.mismatch(left, leftFrom, leftTo, right, rightFrom, rightTo)
     return if (ret < 0) {
-        leftSize.coerceAtMost(rightSize - rightFrom)
+        leftTo.coerceAtMost(rightTo - rightFrom)
     } else {
         ret
     }
