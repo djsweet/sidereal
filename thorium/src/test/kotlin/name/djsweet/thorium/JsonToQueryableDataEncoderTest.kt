@@ -9,17 +9,16 @@ import java.nio.charset.Charset
 
 class JsonToQueryableDataEncoderTest {
     companion object {
-        private var maxKeySize = 0
+        private var byteBudget = 0
         @JvmStatic
         @BeforeAll
         fun setup() {
-            this.maxKeySize = maxSafeKeyValueSizeSync()
+            this.byteBudget = maxSafeKeyValueSizeSync()
         }
     }
 
     private val keyLength = 16
     private val stringLength = 128
-    private val byteBudget = this.stringLength * 8
 
     private fun generateJsonObject(subObjectDepth: Int): Arbitrary<JsonObject> {
         val strings = Arbitraries.strings().ofMaxLength(this.stringLength)
@@ -28,6 +27,10 @@ class JsonToQueryableDataEncoderTest {
                 Arbitraries.just(null),
                 Arbitraries.oneOf(listOf(Arbitraries.just(true), Arbitraries.just(false))),
                 Arbitraries.doubles(),
+                // It's unclear from the Vertx documentation whether all unspecified number types come back
+                // as a Double with `getValue`, so we're going to test the hypothesis that `getValue` will give
+                // you back a Double even when given a string integer.
+                Arbitraries.integers(),
                 strings,
                 this.generateJsonObject(subObjectDepth - 1)
             ))
@@ -36,6 +39,10 @@ class JsonToQueryableDataEncoderTest {
                 Arbitraries.just(null),
                 Arbitraries.oneOf(listOf(Arbitraries.just(true), Arbitraries.just(false))),
                 Arbitraries.doubles(),
+                // It's unclear from the Vertx documentation whether all unspecified number types come back
+                // as a Double with `getValue`, so we're going to test the hypothesis that `getValue` will give
+                // you back a Double even when given a string integer.
+                Arbitraries.integers(),
                 strings
             ))
         }
@@ -97,7 +104,9 @@ class JsonToQueryableDataEncoderTest {
                 break
             }
             if (valueDecoder.withNumber {
-                assertEquals(it, testValue)
+                assertTrue(testValue is Number)
+                testValue as Number
+                assertEquals(it, testValue.toDouble())
             }) {
                 break
             }
@@ -121,7 +130,7 @@ class JsonToQueryableDataEncoderTest {
     fun recursiveOnlyJsonEncoding(
         @ForAll @From("generateJsonObjectDepth5") obj: JsonObject
     ) {
-        val (trie) = encodeJsonToQueryableData(obj, this.byteBudget, 6)
+        val (trie) = encodeJsonToQueryableData(obj, byteBudget, 6)
         this.ensureTrieEncodesJsonObject(trie, obj)
     }
 
@@ -129,7 +138,7 @@ class JsonToQueryableDataEncoderTest {
     fun iterativeOnlyJsonEncoding(
         @ForAll @From("generateJsonObjectDepth5") obj: JsonObject
     ) {
-        val (trie) = encodeJsonToQueryableData(obj, this.byteBudget, 0)
+        val (trie) = encodeJsonToQueryableData(obj, byteBudget, 0)
         this.ensureTrieEncodesJsonObject(trie, obj)
     }
 
@@ -137,7 +146,7 @@ class JsonToQueryableDataEncoderTest {
     fun hybridJsonEncoding(
         @ForAll @From("generateJsonObjectDepth8") obj: JsonObject
     ) {
-        val (trie) = encodeJsonToQueryableData(obj, this.byteBudget, 3)
+        val (trie) = encodeJsonToQueryableData(obj, byteBudget, 3)
         this.ensureTrieEncodesJsonObject(trie, obj)
     }
 }
