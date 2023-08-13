@@ -168,6 +168,9 @@ internal fun fitStringIntoRemainingBytes(s: String, byteBudget: Int): Pair<Int, 
     var upperBound = s.length
     while (lowerBound < upperBound) {
         val testPoint = lowerBound + ((upperBound - lowerBound) / 2)
+        if (testPoint == lowerBound) {
+            break
+        }
         result = convertStringToByteArray(s, testPoint)
 
         if (result.size == byteBudget) {
@@ -190,98 +193,105 @@ internal fun fitStringIntoRemainingBytes(s: String, byteBudget: Int): Pair<Int, 
 
 internal class Radix64JsonEncoder : Radix64Encoder() {
     companion object {
+        private val numberEncodeScratch = ThreadLocal.withInitial { ByteArray(8) }
+
+        private fun longIntoNumberEncodeScratch(l: Long) {
+            // It's a negative value, we have to xor everything before passing in the full double.
+            // But, Kotlin won't let us xor the full 64 set bits without complaining. So we'll instead
+            // leverage the two's complement operation of negation, which is:
+            // 1. Inverting all the bits (this is what we want)
+            // 2. Adding 1 to the number
+            //
+            // All we have to do to mitigate 2 is subtract 1 from the result.
+            //
+            // Similarly, if it's a positive value, we have to or in the highest bit. Kotlin is not ok
+            // with this being represented as a bit pattern, but _is_ ok with us using the equivalent
+            // Long.MIN_VALUE here.
+            val writing = if (l < 0) { -l - 1 } else { l.or(Long.MIN_VALUE) }
+            convertLongIntoGivenByteArray(writing, this.numberEncodeScratch.get())
+        }
+
         const val NULL_TAG = 0x00.toByte()
         const val BOOLEAN_TAG = 0x01.toByte()
         const val NUMBER_TAG = 0x02.toByte()
         const val STRING_TAG = 0x03.toByte()
 
         private val ARRAY_START = byteArrayOf(arrayStartElement)
-        internal val ARRAY_END = byteArrayOf(arrayEndElement)
+        private val ARRAY_END = byteArrayOf(arrayEndElement)
         internal val NULL_VALUE = ARRAY_START + encodeSingleByteArray(byteArrayOf(NULL_TAG)) + byteArrayOf(arrayEndElement)
-        internal val BOOLEAN_PREFIX = ARRAY_START + encodeSingleByteArray(byteArrayOf(BOOLEAN_TAG))
-        internal val NUMBER_PREFIX = ARRAY_START + encodeSingleByteArray(byteArrayOf(NUMBER_TAG))
-        internal val STRING_PREFIX = ARRAY_START + encodeSingleByteArray(byteArrayOf(STRING_TAG))
+        private val BOOLEAN_PREFIX = ARRAY_START + encodeSingleByteArray(byteArrayOf(BOOLEAN_TAG))
+        private val NUMBER_PREFIX = ARRAY_START + encodeSingleByteArray(byteArrayOf(NUMBER_TAG))
+        private val STRING_PREFIX = ARRAY_START + encodeSingleByteArray(byteArrayOf(STRING_TAG))
 
-        internal val FALSE_SUFFIX = encodeSingleByteArray(byteArrayOf(0x00)) + ARRAY_END
-        internal val TRUE_SUFFIX = encodeSingleByteArray(byteArrayOf(0x01)) + ARRAY_END
+        private val FALSE_VALUE = BOOLEAN_PREFIX + encodeSingleByteArray(byteArrayOf(0x00)) + ARRAY_END
+        private val TRUE_VALUE = BOOLEAN_PREFIX + encodeSingleByteArray(byteArrayOf(0x01)) + ARRAY_END
 
-        internal val NUMBER_SUFFIX_SIZE = requiredLengthForRadix64Array(8)  + 1
+        private val NUMBER_SUFFIX_SIZE = requiredLengthForRadix64Array(8)  + 1
+
+        fun ofNull(): ByteArray {
+            return NULL_VALUE
+        }
+
+        fun ofBoolean(b: Boolean): ByteArray {
+            return if (b) { TRUE_VALUE } else { FALSE_VALUE }
+        }
+
+        fun ofNumber(n: Double): ByteArray {
+            // IEEE 754 has a bit of a weird positive-negative situation: unlike virtually every CPU architecture's
+            // treatment of signed integrals, it's not any sort of complemented, it's just a "negative" bit.
+            //
+            // We need to ensure that positive values are greater than negative values, and higher negative values are less
+            // than lower negative values. So we run the complement ourselves, but only a one's complement; two's complement
+            // exists to ensure no ambiguity with respect to zero but that ambiguity is baked into the IEEE 754 definition.
+            //
+            // This same trick is used by various FoundationDB layer libraries, which is where we got this idea.
+            val result = ByteArray(NUMBER_PREFIX.size + NUMBER_SUFFIX_SIZE)
+            NUMBER_PREFIX.copyInto(result, 0)
+            result[result.size - 1] = arrayEndElement
+            longIntoNumberEncodeScratch(java.lang.Double.doubleToLongBits(n))
+
+            encodeByteArray(this.numberEncodeScratch.get(), result, NUMBER_PREFIX.size)
+            return result
+        }
+
+        fun ofString(s: String, byteBudget: Int): ByteArray {
+            val (fullByteLength, result) = fitStringIntoRemainingBytes(s, byteBudget)
+            val encodedResult = encodeSingleByteArray(result)
+
+            return STRING_PREFIX + if (fullByteLength <= result.size) {
+                longIntoNumberEncodeScratch(s.length.toLong())
+                val sizeEnd = encodeSingleByteArray(this.numberEncodeScratch.get())
+                encodedResult + sizeEnd
+            } else {
+                encodedResult
+            } + ARRAY_END
+        }
     }
 
-    private val numberEncodeScratch = ByteArray(8)
-
     fun addNull(): Radix64JsonEncoder {
-        this.contents = Radix64EncoderComponent(NULL_VALUE, this.contents)
+        this.contents = Radix64EncoderComponent(ofNull(), this.contents)
         this.contentLength += NULL_VALUE.size
         return this
     }
 
     fun addBoolean(b: Boolean): Radix64JsonEncoder {
-        var addedLength = BOOLEAN_PREFIX.size
-        this.contents = Radix64EncoderComponent(BOOLEAN_PREFIX, this.contents)
-        if (b) {
-            addedLength += TRUE_SUFFIX.size
-            this.contents = Radix64EncoderComponent(TRUE_SUFFIX, this.contents)
-        } else {
-            addedLength += FALSE_SUFFIX.size
-            this.contents = Radix64EncoderComponent(FALSE_SUFFIX, this.contents)
-        }
-        this.contentLength += addedLength
+        val value = ofBoolean(b)
+        this.contents = Radix64EncoderComponent(value, this.contents)
+        this.contentLength += value.size
         return this
     }
 
-    private fun longIntoNumberEncodeScratch(l: Long) {
-        // It's a negative value, we have to xor everything before passing in the full double.
-        // But, Kotlin won't let us xor the full 64 set bits without complaining. So we'll instead
-        // leverage the two's complement operation of negation, which is:
-        // 1. Inverting all the bits (this is what we want)
-        // 2. Adding 1 to the number
-        //
-        // All we have to do to mitigate 2 is subtract 1 from the result.
-        //
-        // Similarly, if it's a positive value, we have to or in the highest bit. Kotlin is not ok
-        // with this being represented as a bit pattern, but _is_ ok with us using the equivalent
-        // Long.MIN_VALUE here.
-        val writing = if (l < 0) { -l - 1 } else { l.or(Long.MIN_VALUE) }
-        convertLongIntoGivenByteArray(writing, this.numberEncodeScratch)
-    }
-
     fun addNumber(n: Double): Radix64JsonEncoder {
-        // IEEE 754 has a bit of a weird positive-negative situation: unlike virtually every CPU architecture's
-        // treatment of signed integrals, it's not any sort of complemented, it's just a "negative" bit.
-        //
-        // We need to ensure that positive values are greater than negative values, and higher negative values are less
-        // than lower negative values. So we run the complement ourselves, but only a one's complement; two's complement
-        // exists to ensure no ambiguity with respect to zero but that ambiguity is baked into the IEEE 754 definition.
-        //
-        // This same trick is used by various FoundationDB layer libraries, which is where we got this idea.
-        val result = ByteArray(NUMBER_PREFIX.size + NUMBER_SUFFIX_SIZE)
-        NUMBER_PREFIX.copyInto(result, 0)
-        result[result.size - 1] = arrayEndElement
-        this.longIntoNumberEncodeScratch(java.lang.Double.doubleToLongBits(n))
-
-        encodeByteArray(this.numberEncodeScratch, result, NUMBER_PREFIX.size)
-        this.contents = Radix64EncoderComponent(result, this.contents)
-        this.contentLength += result.size
+        val value = ofNumber(n)
+        this.contents = Radix64EncoderComponent(value, this.contents)
+        this.contentLength += value.size
         return this
     }
 
     fun addString(s: String, byteBudget: Int): Radix64JsonEncoder {
-        var addedLength = STRING_PREFIX.size
-        val (fullByteLength, result) = fitStringIntoRemainingBytes(s, byteBudget)
-        val encodedResult = encodeSingleByteArray(result)
-        addedLength += encodedResult.size
-        this.contents = Radix64EncoderComponent(STRING_PREFIX, this.contents)
-        this.contents = Radix64EncoderComponent(encodeSingleByteArray(result), this.contents)
-        if (fullByteLength <= result.size) {
-            this.longIntoNumberEncodeScratch(s.length.toLong())
-            val sizeEnd = encodeSingleByteArray(this.numberEncodeScratch)
-            addedLength += sizeEnd.size
-            this.contents = Radix64EncoderComponent(sizeEnd, this.contents)
-        }
-        this.contents = Radix64EncoderComponent(ARRAY_END, this.contents)
-        addedLength += ARRAY_END.size
-        this.contentLength += addedLength
+        val value = ofString(s, byteBudget)
+        this.contents = Radix64EncoderComponent(value, this.contents)
+        this.contentLength += value.size
         return this
     }
 
