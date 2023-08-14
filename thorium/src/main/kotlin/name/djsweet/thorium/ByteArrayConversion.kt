@@ -4,10 +4,6 @@ internal fun convertStringToByteArray(s: String): ByteArray {
     return s.encodeToByteArray()
 }
 
-internal fun convertStringToByteArray(s: String, length: Int): ByteArray {
-    return s.encodeToByteArray(0, length)
-}
-
 internal fun convertLongIntoGivenByteArray(l: Long, bs: ByteArray) {
     // See the Java Language Specification, section 5.1.3: Narrowing Primitive Conversion
     // https://docs.oracle.com/javase/specs/jls/se16/html/jls-5.html#jls-5.1.3

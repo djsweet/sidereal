@@ -799,6 +799,16 @@ class Radix64EncodingTest {
     }
 
     @Test
+    fun jsonMultibyteString() {
+        val encoder = Radix64JsonEncoder();
+        val spec = JsonEncodingSpec.ofString("\u0080滤籎圪삛㫋纹稛ꌋ", 2)
+        spec.encode(encoder)
+        val bytes = encoder.encode()
+        val decoded = JsonEncodingSpec.decode(bytes)
+        assertEquals(listOf(spec), decoded)
+    }
+
+    @Test
     fun jsonNumberZero() {
         val spec = JsonEncodingSpec.ofNumber(0.0)
         val encoder = Radix64JsonEncoder()

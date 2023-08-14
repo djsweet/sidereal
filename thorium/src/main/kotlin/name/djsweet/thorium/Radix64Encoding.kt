@@ -1,5 +1,7 @@
 package name.djsweet.thorium
 
+import java.util.BitSet
+
 /*
  * This is a Radix 64 + 2 control flags encoding. It supports arbitrarily nested arrays of byte buffers, while
  * preserving relative sort order of the encoded data.
@@ -154,40 +156,54 @@ internal class Radix64LowLevelEncoder : Radix64Encoder() {
     }
 }
 
+private val emptyByteBuffer = byteArrayOf()
+
 internal fun fitStringIntoRemainingBytes(s: String, byteBudget: Int): Pair<Int, ByteArray> {
     // Initial allocation. If ba.size <= bs, we can just return here.
-    var result = convertStringToByteArray(s)
+    val result = convertStringToByteArray(s)
     if (result.size <= byteBudget) {
         return result.size to result
     }
     if (byteBudget == 0) {
-        return result.size to byteArrayOf()
+        return result.size to emptyByteBuffer
     }
-    val initialSize = result.size
-    var lowerBound = 0
-    var upperBound = s.length
-    while (lowerBound < upperBound) {
-        val testPoint = lowerBound + ((upperBound - lowerBound) / 2)
-        if (testPoint == lowerBound) {
-            break
-        }
-        result = convertStringToByteArray(s, testPoint)
 
-        if (result.size == byteBudget) {
-            return initialSize to result
+    // The resulting ByteArray is going to be a valid UTF-8 string, which means
+    // that if we simply truncate the ByteArray, we might end up in the middle of
+    // a multibyte character sequence. We want to make sure that the resulting
+    // ByteArray only encodes valid multibyte character sequences, so we'll have to
+    // stop slightly earlier.
+
+    // UTF-8 byte sequences look like
+    //     0xxxxxxx
+    //     110xxxxx 10xxxxxx
+    //     1110xxxx 10xxxxxx 10xxxxxx
+    //     11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+    // If the highest bit of the last byte isn't set, we can safely use everything up to and including
+    // that byte. Otherwise, we have to move backwards to find the byte indicating the length of the
+    // multibyte sequence. If the full multibyte sequence can fit in the budget, that's where we split
+    // the full byte buffer; otherwise, we split it at the byte just before the start of the soon-to-be-incomplete
+    // multibyte sequence.
+
+    var lastByteInclusive = byteBudget - 1
+    if (result[lastByteInclusive].toInt().and(0x80) != 0) {
+        while (lastByteInclusive >= 0 && result[lastByteInclusive].toInt().and(0xc0) == 0x80) {
+            lastByteInclusive--
         }
-        if (result.size < byteBudget) {
-            lowerBound = testPoint
-        } else {
-            upperBound = testPoint
+        if (lastByteInclusive >= 0) {
+            val lengthByte = result[lastByteInclusive].toInt()
+            val nBytes = Integer.numberOfLeadingZeros(lengthByte.inv().and(0xff)) - 24
+            lastByteInclusive -= 1
+            val proposedEndInclusive = lastByteInclusive + nBytes
+            if (proposedEndInclusive < byteBudget) {
+                lastByteInclusive = proposedEndInclusive
+            }
         }
     }
-    val lowerResult = result
-    val higherResult = convertStringToByteArray(s, upperBound)
-    return if (higherResult.size <= byteBudget) {
-        initialSize to higherResult
+    return if (lastByteInclusive < 0) {
+        result.size to emptyByteBuffer
     } else {
-        initialSize to lowerResult
+        result.size to result.copyOf(lastByteInclusive + 1)
     }
 }
 
