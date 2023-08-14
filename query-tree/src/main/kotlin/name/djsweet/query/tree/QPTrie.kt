@@ -18,9 +18,9 @@ import java.util.Arrays
  * - "prefix-of", i.e. "every entry with keys the given lookup starts with", lookups are supported, again both
  *   with java.lang.Iterable interfaces and with a "visit" interface.
  *
- * In order to support inequality lookups, key prefixes are stored instead of lookup offset inside non-leaf nodes.
- * This does mean that RAM usage is slightly higher than a standard QPTrie, with a worst-case overhead of 2x the
- * key memory consumption.
+ * In order to support inequality lookups, we additionally store a pointer to a full key buffer in addition to
+ * lookup offsets and run lengths inside non-leaf nodes. This allows us to sort according to the prefix
+ * before the dispatching byte.
  *
  * This implementation does not use `popcnt` instructions for its sparse arrays, but instead stores nybble values
  * in a separate array of an equal length. The mechanism by which a nybble value is converted into an array offset
