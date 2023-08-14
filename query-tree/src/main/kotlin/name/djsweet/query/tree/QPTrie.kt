@@ -144,30 +144,16 @@ typealias VisitReceiver<V> = (value: QPTrieKeyValue<V>) -> Unit
 internal typealias RegisterChildIterator<V> =
             (it: ConcatenatedIterator<QPTrieKeyValue<V>>) -> ConcatenatedIterator<QPTrieKeyValue<V>>
 
-private fun<V> byteSliceForOddNybble(
-    existingPrefixBacking: ByteArray,
-    existingPrefixOffset: Int,
-    existingPrefixSize: Int,
+private fun<V> byteSliceBackingForOddNybble(
     valuePair: QPTrieKeyValue<V>?,
     evenNybbles: Array<EvenNybble<V>>
-): Triple<ByteArray, Int, Int> {
-    val backing = if (valuePair != null) {
-        val valuePairKey = valuePair.key
-        if (existingPrefixBacking === valuePairKey) {
-            existingPrefixBacking
-        } else {
-            valuePairKey
-        }
+): ByteArray {
+    return if (valuePair != null) {
+        valuePair.key
     } else {
         val oddNybbles = evenNybbles[0].nybbleDispatch
-        val oddPrefixBacking = oddNybbles[0].prefixBacking
-        if (existingPrefixBacking === oddPrefixBacking) {
-            existingPrefixBacking
-        } else {
-            oddPrefixBacking
-        }
+        oddNybbles[0].prefixBacking
     }
-    return Triple(backing, existingPrefixOffset, existingPrefixSize)
 }
 
 private class OddNybble<V>(
@@ -286,17 +272,10 @@ private class OddNybble<V>(
                 val nextEvenValues = removeByteArray(nybbleValues, evenOffset)
                 val nextEvenDispatch = Array(nybbleDispatch.size - 1) { evenNode }
                 removeArray(nybbleDispatch, nextEvenDispatch, evenOffset)
-                val (nextPrefixBacking, nextPrefixOffset, nextPrefixSize) = byteSliceForOddNybble(
-                    this.prefixBacking,
+                return OddNybble(
+                    byteSliceBackingForOddNybble(thisValuePair, nextEvenDispatch),
                     this.prefixOffset,
                     this.prefixSize,
-                    thisValuePair,
-                    nextEvenDispatch
-                )
-                return OddNybble(
-                    nextPrefixBacking,
-                    nextPrefixOffset,
-                    nextPrefixSize,
                     thisValuePair,
                     this.size - 1,
                     nextEvenValues,
@@ -305,17 +284,10 @@ private class OddNybble<V>(
             } else {
                 val nextEvenDispatch = nybbleDispatch.clone()
                 nextEvenDispatch[evenOffset] = nextEvenNode
-                val (nextPrefixBacking, nextPrefixOffset, nextPrefixSize) = byteSliceForOddNybble(
-                    this.prefixBacking,
+                return OddNybble(
+                    byteSliceBackingForOddNybble(thisValuePair, nextEvenDispatch),
                     this.prefixOffset,
                     this.prefixSize,
-                    thisValuePair,
-                    nextEvenDispatch
-                )
-                return OddNybble(
-                    nextPrefixBacking,
-                    nextPrefixOffset,
-                    nextPrefixSize,
                     this.valuePair,
                     this.size - 1,
                     this.nybbleValues,
@@ -343,18 +315,10 @@ private class OddNybble<V>(
             }
 
             val thisValuePair = this.valuePair
-            val (nextPrefixBacking, nextPrefixOffset, nextPrefixSize) = byteSliceForOddNybble(
-                this.prefixBacking,
+            return OddNybble(
+                byteSliceBackingForOddNybble(thisValuePair, nextEvenDispatch),
                 this.prefixOffset,
                 this.prefixSize,
-                thisValuePair,
-                nextEvenDispatch
-            )
-
-            return OddNybble(
-                nextPrefixBacking,
-                nextPrefixOffset,
-                nextPrefixSize,
                 this.valuePair,
                 nextSize,
                 this.nybbleValues,
@@ -611,18 +575,10 @@ private class OddNybble<V>(
         return if (this.nybbleValues.isEmpty()) {
             val nextEvenDispatch = arrayOf(newEvenNode)
 
-            val (nextPrefixBacking, nextPrefixOffset, nextPrefixSize) = byteSliceForOddNybble(
-                this.prefixBacking,
+            OddNybble(
+                byteSliceBackingForOddNybble(thisValuePair, nextEvenDispatch),
                 this.prefixOffset,
                 this.prefixSize,
-                thisValuePair,
-                nextEvenDispatch
-            )
-
-            OddNybble(
-                nextPrefixBacking,
-                nextPrefixOffset,
-                nextPrefixSize,
                 thisValuePair,
                 this.size + 1,
                 byteArrayOf(evenNybbleFromByte(childTarget)),
@@ -637,18 +593,10 @@ private class OddNybble<V>(
                 val newNybbleDispatch = Array(this.nybbleDispatch.size + 1) { newEvenNode }
                 insertArray(this.nybbleDispatch, newNybbleDispatch, insertOffset, newEvenNode)
 
-                val (nextPrefixBacking, nextPrefixOffset, nextPrefixSize) = byteSliceForOddNybble(
-                    this.prefixBacking,
+                OddNybble(
+                    byteSliceBackingForOddNybble(thisValuePair, newNybbleDispatch),
                     this.prefixOffset,
                     this.prefixSize,
-                    thisValuePair,
-                    newNybbleDispatch
-                )
-
-                OddNybble(
-                    nextPrefixBacking,
-                    nextPrefixOffset,
-                    nextPrefixSize,
                     this.valuePair,
                     this.size + 1,
                     newNybbleValues,
@@ -658,16 +606,10 @@ private class OddNybble<V>(
                 val newNybbleDispatch = this.nybbleDispatch.clone()
                 newNybbleDispatch[foundOffset] = newEvenNode
 
-                val (nextPrefixBacking, nextPrefixOffset, nextPrefixSize) = byteSliceForOddNybble(
-                    this.prefixBacking,
+                return OddNybble(
+                    byteSliceBackingForOddNybble(thisValuePair, newNybbleDispatch),
                     this.prefixOffset,
                     this.prefixSize,
-                    thisValuePair,
-                    newNybbleDispatch
-                )
-
-                return OddNybble(
-                    nextPrefixBacking, nextPrefixOffset, nextPrefixSize,
                     thisValuePair,
                     this.size + 1,
                     this.nybbleValues,
