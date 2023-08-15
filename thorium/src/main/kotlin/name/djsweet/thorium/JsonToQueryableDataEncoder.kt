@@ -3,7 +3,7 @@ package name.djsweet.thorium
 import io.vertx.core.json.JsonObject
 import name.djsweet.query.tree.QPTrie
 
-private fun updateResultForKeyValue(
+private inline fun updateResultForKeyValue(
     result: QPTrie<ByteArray>,
     keyPath: Radix64LowLevelEncoder,
     value: Any?,
