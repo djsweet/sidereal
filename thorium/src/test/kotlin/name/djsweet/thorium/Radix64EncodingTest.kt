@@ -375,13 +375,8 @@ internal class Radix64JsonDecoder(bytes: ByteArray) {
         val almost = convertByteArrayToLong(value)
         val asDouble = if (almost >= 0) {
             // It's a negative value, we have to xor everything before passing in the full double.
-            // But, Kotlin won't let us xor the full 64 set bits without complaining. So we'll instead
-            // leverage the two's complement operation of negation, which is:
-            // 1. Inverting all the bits (this is what we want)
-            // 2. Adding 1 to the number
-            //
-            // All we have to do to mitigate 2 is subtract 1 from the result.
-            Double.fromBits(-almost - 1)
+            // That's the same as just an inversion operation.
+            Double.fromBits(almost.inv())
         } else {
             Double.fromBits(almost.and(0x7fffffffffffffff))
         }

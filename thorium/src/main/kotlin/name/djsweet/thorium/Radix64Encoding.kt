@@ -213,17 +213,8 @@ internal class Radix64JsonEncoder : Radix64Encoder() {
 
         private fun longIntoNumberEncodeScratch(l: Long) {
             // It's a negative value, we have to xor everything before passing in the full double.
-            // But, Kotlin won't let us xor the full 64 set bits without complaining. So we'll instead
-            // leverage the two's complement operation of negation, which is:
-            // 1. Inverting all the bits (this is what we want)
-            // 2. Adding 1 to the number
-            //
-            // All we have to do to mitigate 2 is subtract 1 from the result.
-            //
-            // Similarly, if it's a positive value, we have to or in the highest bit. Kotlin is not ok
-            // with this being represented as a bit pattern, but _is_ ok with us using the equivalent
-            // Long.MIN_VALUE here.
-            val writing = if (l < 0) { -l - 1 } else { l.or(Long.MIN_VALUE) }
+            // That's the same as just an inversion operation.
+            val writing = if (l < 0) { l.inv() } else { l.or(Long.MIN_VALUE) }
             convertLongIntoGivenByteArray(writing, this.numberEncodeScratch.get())
         }
 
