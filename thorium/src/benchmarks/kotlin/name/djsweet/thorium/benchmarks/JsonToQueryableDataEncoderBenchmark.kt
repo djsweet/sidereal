@@ -18,17 +18,18 @@ class JsonSpec {
         val valuesArbitrary = if (recursion <= 0) {
             Arbitraries.oneOf(listOf(
                 Arbitraries.just(null),
-                Arbitraries.just(true),
+                Arbitraries.oneOf(listOf(Arbitraries.just(true), Arbitraries.just(false))),
                 Arbitraries.just(false),
                 Arbitraries.doubles(),
+                Arbitraries.integers(),
                 Arbitraries.strings(),
             ))
         } else {
             Arbitraries.oneOf(listOf(
                 Arbitraries.just(null),
-                Arbitraries.just(true),
-                Arbitraries.just(false),
+                Arbitraries.oneOf(listOf(Arbitraries.just(true), Arbitraries.just(false))),
                 Arbitraries.doubles(),
+                Arbitraries.integers(),
                 Arbitraries.strings(),
                 this.jsonObjectWithRemainingRecursion(recursion - 1)
             ))
