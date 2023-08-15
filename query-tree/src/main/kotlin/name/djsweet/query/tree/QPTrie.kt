@@ -1376,7 +1376,7 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     }
 
     constructor(items: Iterable<Pair<ByteArray, V>>) {
-        this.root = sizeNodeFromIterable(items)
+        this.root = oddNybbleFromIterator(items)
         this.size = this.root?.size ?: 0
     }
 
@@ -1774,7 +1774,7 @@ private class LookupPrefixOfOrEqualToIterator<V>(
     }
 }
 
-private fun <V> sizeNodeFromIterable(items: Iterable<Pair<ByteArray, V>>): OddNybble<V>? {
+private fun <V> oddNybbleFromIterator(items: Iterable<Pair<ByteArray, V>>): OddNybble<V>? {
     val it = items.iterator()
     val emptyEvenNybbleArray: Array<EvenNybble<V>> = arrayOf()
     var root: OddNybble<V>
