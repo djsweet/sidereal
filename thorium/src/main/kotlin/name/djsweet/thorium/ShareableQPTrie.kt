@@ -5,6 +5,7 @@ import io.vertx.core.shareddata.ClusterSerializable
 import io.vertx.core.shareddata.Shareable
 import name.djsweet.query.tree.QPTrie
 
+// This is used in benchmarking, so it can't be internal.
 data class ShareableQPTrie(var trie: QPTrie<ByteArray>): Shareable, ClusterSerializable {
     constructor(): this(QPTrie())
 

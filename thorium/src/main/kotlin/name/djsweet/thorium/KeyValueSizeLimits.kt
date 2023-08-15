@@ -101,7 +101,8 @@ internal fun maxSafeKeyValueSizeSync(vertx: Vertx): Int {
 }
 
 // This only exists for testing purposes, where we're not running in Vertx.
-internal fun maxSafeKeyValueSizeSync(): Int {
+// It is also used in benchmarking, which is why it can't be internal.
+fun maxSafeKeyValueSizeSync(): Int {
     val maxSafeKeyValueSize = maxSafeKeyValueSizeWithIterations(MAX_POSSIBLE_KEY_VALUE_SIZE_ITERATIONS)
     ensureMinPossibleKeyValueSize(maxSafeKeyValueSize)
     return maxSafeKeyValueSize
