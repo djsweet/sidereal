@@ -11,17 +11,17 @@ private inline fun updateResultForKeyValue(
     onJsonObject: (obj: JsonObject) -> QPTrie<ByteArray>
 ): QPTrie<ByteArray> {
     return when (value) {
+        is String -> {
+            result.putUnsafeSharedKey(keyPath.encode(), Radix64JsonEncoder.ofString(value, stringByteBudget))
+        }
+        is Number -> {
+            result.putUnsafeSharedKey(keyPath.encode(), Radix64JsonEncoder.ofNumber(value.toDouble()))
+        }
         null -> {
             result.putUnsafeSharedKey(keyPath.encode(), Radix64JsonEncoder.ofNull())
         }
         is Boolean -> {
             result.putUnsafeSharedKey(keyPath.encode(), Radix64JsonEncoder.ofBoolean(value))
-        }
-        is Number -> {
-            result.putUnsafeSharedKey(keyPath.encode(), Radix64JsonEncoder.ofNumber(value.toDouble()))
-        }
-        is String -> {
-            result.putUnsafeSharedKey(keyPath.encode(), Radix64JsonEncoder.ofString(value, stringByteBudget))
         }
         is JsonObject -> {
             onJsonObject(value)
