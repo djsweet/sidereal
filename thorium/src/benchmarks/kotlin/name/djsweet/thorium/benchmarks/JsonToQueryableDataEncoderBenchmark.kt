@@ -1,7 +1,8 @@
 package name.djsweet.thorium.benchmarks
 
+import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
-import name.djsweet.thorium.ShareableQPTrieOfByteArrays
+import name.djsweet.thorium.ShareableScalarListQueryableData
 import name.djsweet.thorium.encodeJsonToQueryableData
 import name.djsweet.thorium.maxSafeKeyValueSizeSync
 import org.openjdk.jmh.annotations.*
@@ -14,25 +15,31 @@ class JsonSpec {
     var jsonString: String = ""
     var byteBudget = 0
 
+    private val scalarsArbitraries = listOf(
+        Arbitraries.just(null),
+        Arbitraries.oneOf(listOf(Arbitraries.just(true), Arbitraries.just(false))),
+        Arbitraries.doubles(),
+        Arbitraries.integers(),
+        Arbitraries.strings(),
+    )
+    private val scalarsAndArraysArbitraries = this.scalarsArbitraries.toMutableList()
+
+    init {
+        this.scalarsAndArraysArbitraries.add(
+            Arbitraries.oneOf(this.scalarsArbitraries)
+                .list().ofMaxSize(10)
+                .map {
+            JsonArray(it)
+        })
+    }
+
     fun jsonObjectWithRemainingRecursion(recursion: Int): Arbitrary<JsonObject> {
         val valuesArbitrary = if (recursion <= 0) {
-            Arbitraries.oneOf(listOf(
-                Arbitraries.just(null),
-                Arbitraries.oneOf(listOf(Arbitraries.just(true), Arbitraries.just(false))),
-                Arbitraries.just(false),
-                Arbitraries.doubles(),
-                Arbitraries.integers(),
-                Arbitraries.strings(),
-            ))
+            Arbitraries.oneOf(this.scalarsAndArraysArbitraries)
         } else {
-            Arbitraries.oneOf(listOf(
-                Arbitraries.just(null),
-                Arbitraries.oneOf(listOf(Arbitraries.just(true), Arbitraries.just(false))),
-                Arbitraries.doubles(),
-                Arbitraries.integers(),
-                Arbitraries.strings(),
-                this.jsonObjectWithRemainingRecursion(recursion - 1)
-            ))
+            val choiceList = this.scalarsAndArraysArbitraries.toMutableList()
+            choiceList.add(this.jsonObjectWithRemainingRecursion(recursion - 1))
+            Arbitraries.oneOf(choiceList)
         }
         return Arbitraries.strings().list().ofMinSize(4).ofMaxSize(12).flatMap { keys ->
             valuesArbitrary.list().ofSize(keys.size).map { values ->
@@ -62,12 +69,12 @@ class JsonSpec {
 @Measurement(iterations=30)
 class JsonToQueryableDataEncoderBenchmark {
     @Benchmark
-    fun convertJsonToQueryableData(spec: JsonSpec): ShareableQPTrieOfByteArrays {
+    fun convertJsonToQueryableData(spec: JsonSpec): ShareableScalarListQueryableData {
         return encodeJsonToQueryableData(spec.jsonObject, spec.byteBudget, 128)
     }
 
     @Benchmark
-    fun convertJsonToQueryableDataFullParsing(spec: JsonSpec): ShareableQPTrieOfByteArrays {
+    fun convertJsonToQueryableDataFullParsing(spec: JsonSpec): ShareableScalarListQueryableData {
         val decoded = JsonObject(spec.jsonString)
         return encodeJsonToQueryableData(decoded, spec.byteBudget, 128)
     }
