@@ -1,7 +1,7 @@
 package name.djsweet.thorium.benchmarks
 
 import io.vertx.core.json.JsonObject
-import name.djsweet.thorium.ShareableQPTrie
+import name.djsweet.thorium.ShareableQPTrieOfByteArrays
 import name.djsweet.thorium.encodeJsonToQueryableData
 import name.djsweet.thorium.maxSafeKeyValueSizeSync
 import org.openjdk.jmh.annotations.*
@@ -62,12 +62,12 @@ class JsonSpec {
 @Measurement(iterations=30)
 class JsonToQueryableDataEncoderBenchmark {
     @Benchmark
-    fun convertJsonToQueryableData(spec: JsonSpec): ShareableQPTrie {
+    fun convertJsonToQueryableData(spec: JsonSpec): ShareableQPTrieOfByteArrays {
         return encodeJsonToQueryableData(spec.jsonObject, spec.byteBudget, 128)
     }
 
     @Benchmark
-    fun convertJsonToQueryableDataFullParsing(spec: JsonSpec): ShareableQPTrie {
+    fun convertJsonToQueryableDataFullParsing(spec: JsonSpec): ShareableQPTrieOfByteArrays {
         val decoded = JsonObject(spec.jsonString)
         return encodeJsonToQueryableData(decoded, spec.byteBudget, 128)
     }

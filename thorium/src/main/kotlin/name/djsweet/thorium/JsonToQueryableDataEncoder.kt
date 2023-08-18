@@ -94,7 +94,7 @@ internal fun encodeJsonToQueryableDataRecursive(
 }
 
 // This is used in benchmarking, so it can't be internal.
-fun encodeJsonToQueryableData(obj: JsonObject, byteBudget: Int, recurseDepth: Int): ShareableQPTrie {
+fun encodeJsonToQueryableData(obj: JsonObject, byteBudget: Int, recurseDepth: Int): ShareableQPTrieOfByteArrays {
     val result = encodeJsonToQueryableDataRecursive(obj, QPTrie(), Radix64LowLevelEncoder(), byteBudget, recurseDepth)
-    return ShareableQPTrie(result)
+    return ShareableQPTrieOfByteArrays(result)
 }
