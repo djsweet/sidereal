@@ -211,10 +211,16 @@ internal class Radix64JsonEncoder : Radix64Encoder() {
     companion object {
         private val numberEncodeScratch = ThreadLocal.withInitial { ByteArray(8) }
 
-        private fun longIntoNumberEncodeScratch(l: Long) {
+        private fun doubleIntoNumberEncodeScratch(d: Double) {
             // It's a negative value, we have to xor everything before passing in the full double.
             // That's the same as just an inversion operation.
+            val l = java.lang.Double.doubleToLongBits(d)
             val writing = if (l < 0) { l.inv() } else { l.or(Long.MIN_VALUE) }
+            convertLongIntoGivenByteArray(writing, this.numberEncodeScratch.get())
+        }
+
+        private fun longIntoNumberEncodeScratch(l: Long) {
+            val writing = if (l < 0) { l.and(Long.MAX_VALUE) } else { l.or(Long.MIN_VALUE) }
             convertLongIntoGivenByteArray(writing, this.numberEncodeScratch.get())
         }
 
@@ -255,7 +261,7 @@ internal class Radix64JsonEncoder : Radix64Encoder() {
             val result = ByteArray(NUMBER_PREFIX.size + NUMBER_SUFFIX_SIZE)
             NUMBER_PREFIX.copyInto(result, 0)
             result[result.size - 1] = arrayEndElement
-            longIntoNumberEncodeScratch(java.lang.Double.doubleToLongBits(n))
+            doubleIntoNumberEncodeScratch(n)
 
             encodeByteArray(this.numberEncodeScratch.get(), result, NUMBER_PREFIX.size)
             return result
