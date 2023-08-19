@@ -219,11 +219,6 @@ internal class Radix64JsonEncoder : Radix64Encoder() {
             convertLongIntoGivenByteArray(writing, this.numberEncodeScratch.get())
         }
 
-        private fun longIntoNumberEncodeScratch(l: Long) {
-            val writing = if (l < 0) { l.and(Long.MAX_VALUE) } else { l.or(Long.MIN_VALUE) }
-            convertLongIntoGivenByteArray(writing, this.numberEncodeScratch.get())
-        }
-
         const val NULL_TAG = 0x00.toByte()
         const val BOOLEAN_TAG = 0x01.toByte()
         const val NUMBER_TAG = 0x02.toByte()
@@ -231,6 +226,7 @@ internal class Radix64JsonEncoder : Radix64Encoder() {
 
         private val ARRAY_START = byteArrayOf(arrayStartElement)
         private val ARRAY_END = byteArrayOf(arrayEndElement)
+        private val ARRAY_START_END = byteArrayOf(arrayStartElement, arrayEndElement)
         internal val NULL_VALUE = ARRAY_START + encodeSingleByteArray(byteArrayOf(NULL_TAG)) + byteArrayOf(arrayEndElement)
         private val BOOLEAN_PREFIX = ARRAY_START + encodeSingleByteArray(byteArrayOf(BOOLEAN_TAG))
         private val NUMBER_PREFIX = ARRAY_START + encodeSingleByteArray(byteArrayOf(NUMBER_TAG))
@@ -272,9 +268,12 @@ internal class Radix64JsonEncoder : Radix64Encoder() {
             val encodedResult = encodeSingleByteArray(result)
 
             return STRING_PREFIX + if (fullByteLength <= result.size) {
-                longIntoNumberEncodeScratch(s.length.toLong())
-                val sizeEnd = encodeSingleByteArray(this.numberEncodeScratch.get())
-                encodedResult + sizeEnd
+                // We want to signal that we've managed to encode the entire string,
+                // which will prevent us from matching on an "equality" check for a string
+                // that has been truncated. We don't need any special third value in this
+                // triple, we just need a third value at all, and an empty byte array works
+                // just fine for this purpose.
+                encodedResult + ARRAY_START_END
             } else {
                 encodedResult
             } + ARRAY_END
