@@ -1,6 +1,6 @@
 package name.djsweet.thorium
 
-import java.util.BitSet
+import java.util.*
 
 /*
  * This is a Radix 64 + 2 control flags encoding. It supports arbitrarily nested arrays of byte buffers, while
@@ -87,9 +87,14 @@ internal class Radix64EncoderComponent(
 internal abstract class Radix64Encoder {
     protected var contents: Radix64EncoderComponent? = null
     protected var contentLength: Int = 0
+    protected var ogContentLength: Int = 0
 
     fun getFullContentLength(): Int {
         return this.contentLength
+    }
+
+    fun getOriginalContentLength(): Int {
+        return this.ogContentLength
     }
 
     fun hasContents(): Boolean {
@@ -119,11 +124,23 @@ internal abstract class Radix64Encoder {
 }
 
 internal class Radix64LowLevelEncoder : Radix64Encoder() {
+    companion object {
+        private fun ofByteArray(r: ByteArray): ByteArray {
+            val dst = ByteArray(requiredLengthForRadix64Array(r.size))
+            encodeByteArray(r, dst, 0)
+            return dst
+        }
+
+        fun ofString(s: String): ByteArray {
+            return ofByteArray(convertStringToByteArray(s))
+        }
+    }
+
     fun addByteArray(r: ByteArray): Radix64LowLevelEncoder {
-        val dst = ByteArray(requiredLengthForRadix64Array(r.size))
-        encodeByteArray(r, dst, 0)
+        val dst = ofByteArray(r)
         this.contents = Radix64EncoderComponent(dst, this.contents)
         this.contentLength += dst.size
+        this.ogContentLength += r.size
         return this
     }
 
@@ -145,6 +162,7 @@ internal class Radix64LowLevelEncoder : Radix64Encoder() {
         }
         this.contents = Radix64EncoderComponent(component, this.contents)
         this.contentLength += component.size
+        this.ogContentLength += e.getOriginalContentLength()
         return this
     }
 
@@ -164,7 +182,7 @@ internal fun fitStringIntoRemainingBytes(s: String, byteBudget: Int): Pair<Int, 
     if (result.size <= byteBudget) {
         return result.size to result
     }
-    if (byteBudget == 0) {
+    if (byteBudget <= 0) {
         return result.size to emptyByteBuffer
     }
 
@@ -236,6 +254,8 @@ internal class Radix64JsonEncoder : Radix64Encoder() {
         private val TRUE_VALUE = BOOLEAN_PREFIX + encodeSingleByteArray(byteArrayOf(0x01)) + ARRAY_END
 
         private val NUMBER_SUFFIX_SIZE = requiredLengthForRadix64Array(8)  + 1
+        private val IN_BUDGET_SUFFIX = byteArrayOf(arrayEndElement, arrayStartElement, arrayEndElement, arrayEndElement)
+        private val MIN_IN_BUDGET_STRING_SIZE = STRING_PREFIX.size + ARRAY_START.size + IN_BUDGET_SUFFIX.size
 
         fun ofNull(): ByteArray {
             return NULL_VALUE
@@ -263,10 +283,8 @@ internal class Radix64JsonEncoder : Radix64Encoder() {
             return result
         }
 
-        fun ofString(s: String, byteBudget: Int): ByteArray {
-            val (fullByteLength, result) = fitStringIntoRemainingBytes(s, byteBudget)
+        private fun ofBudgetFitString(fullByteLength: Int, result: ByteArray): ByteArray {
             val encodedResult = encodeSingleByteArray(result)
-
             return STRING_PREFIX + if (fullByteLength <= result.size) {
                 // We want to signal that we've managed to encode the entire string,
                 // which will prevent us from matching on an "equality" check for a string
@@ -277,6 +295,28 @@ internal class Radix64JsonEncoder : Radix64Encoder() {
             } else {
                 encodedResult
             } + ARRAY_END
+        }
+
+        fun ofString(s: String, byteBudget: Int): ByteArray {
+            val (fullByteLength, result) = fitStringIntoRemainingBytes(s, byteBudget)
+            return ofBudgetFitString(fullByteLength, result)
+        }
+
+        fun isStringWithinBudget(ba: ByteArray): Boolean {
+            if (ba.size < MIN_IN_BUDGET_STRING_SIZE) {
+                return false
+            }
+            if (!Arrays.equals(ba, 0, STRING_PREFIX.size, STRING_PREFIX, 0, STRING_PREFIX.size)) {
+                return false
+            }
+            return Arrays.equals(
+                ba,
+                ba.size - IN_BUDGET_SUFFIX.size,
+                ba.size,
+                IN_BUDGET_SUFFIX,
+                0,
+                IN_BUDGET_SUFFIX.size
+            )
         }
     }
 
@@ -290,6 +330,7 @@ internal class Radix64JsonEncoder : Radix64Encoder() {
         val value = ofBoolean(b)
         this.contents = Radix64EncoderComponent(value, this.contents)
         this.contentLength += value.size
+        this.ogContentLength += 1
         return this
     }
 
@@ -297,13 +338,16 @@ internal class Radix64JsonEncoder : Radix64Encoder() {
         val value = ofNumber(n)
         this.contents = Radix64EncoderComponent(value, this.contents)
         this.contentLength += value.size
+        this.ogContentLength += 8
         return this
     }
 
     fun addString(s: String, byteBudget: Int): Radix64JsonEncoder {
-        val value = ofString(s, byteBudget)
+        val (fullByteLength, result) = fitStringIntoRemainingBytes(s, byteBudget)
+        val value = ofBudgetFitString(fullByteLength, result)
         this.contents = Radix64EncoderComponent(value, this.contents)
         this.contentLength += value.size
+        this.ogContentLength += result.size
         return this
     }
 
@@ -311,6 +355,7 @@ internal class Radix64JsonEncoder : Radix64Encoder() {
         val replacement = Radix64JsonEncoder()
         replacement.contents = this.contents
         replacement.contentLength = this.contentLength
+        replacement.ogContentLength = this.ogContentLength
         return replacement
     }
 }

@@ -100,7 +100,7 @@ internal fun encodeJsonToQueryableDataIterative(
         val (parentKeyPath, curObj) = queue.removeFirst()
         for ((key, value) in curObj) {
             val keyPath = parentKeyPath.clone().addString(key)
-            val keyContentLength = keyPath.getFullContentLength()
+            val keyContentLength = keyPath.getOriginalContentLength()
             if (keyContentLength >= byteBudget) {
                 continue
             }
@@ -128,7 +128,7 @@ internal fun encodeJsonToQueryableDataRecursive(
     var result = baseResult
     for ((key, value) in obj) {
         val keyPath = topKeyPath.clone().addString(key)
-        val keyContentLength = keyPath.getFullContentLength()
+        val keyContentLength = keyPath.getOriginalContentLength()
         if (keyContentLength >= byteBudget) {
             continue
         }

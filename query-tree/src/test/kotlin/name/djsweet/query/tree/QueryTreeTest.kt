@@ -251,6 +251,7 @@ class QueryTreeTest {
         var equalityTrie = QPTrie(equalityTerms.map { term -> Pair(term.key, term.lowerBound!!) })
         if (maybeInequalityTerm != null) {
             equalityTrie = equalityTrie.remove(maybeInequalityTerm.key)
+            assertFalse(querySpec.hasEqualityTerm(maybeInequalityTerm.key))
             val qsit = querySpec.inequalityTerm
             assertNotNull(qsit)
             assertArrayEquals(maybeInequalityTerm.key, qsit!!.key)
@@ -284,10 +285,12 @@ class QueryTreeTest {
             val (removeKey, _) = removeThis
             expectedEqualityTerms.removeAt(0)
             removingQuerySpec = removingQuerySpec.withoutEqualityTerm(removeKey.array)
+            assertFalse(removingQuerySpec.hasEqualityTerm(removeKey.array))
             assertNotEquals(removingQuerySpec, querySpec)
             givenEqualityTerms.clear()
             for ((keepKey, value) in removingQuerySpec.equalityTerms) {
                 givenEqualityTerms.add(Pair(ByteArrayButComparable(keepKey), ByteArrayButComparable(value)))
+                assertTrue(removingQuerySpec.hasEqualityTerm(keepKey))
             }
             assertListOfByteArrayValuePairsEquals(expectedEqualityTerms, givenEqualityTerms)
 

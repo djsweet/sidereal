@@ -228,6 +228,13 @@ class QuerySpec private constructor(
         return QuerySpec(this.equalityTerms.put(key, value), nextInequalityTerm)
     }
 
+    /**
+     * Returns whether this [QuerySpec] has an equality term for the given [key].
+     */
+    fun hasEqualityTerm(key: ByteArray): Boolean {
+        return this.equalityTerms.get(key) != null
+    }
+
     // Used to construct entries in the QueryTree
     internal fun withoutEqualityTerm(key: ByteArray): QuerySpec {
         val replacement = this.equalityTerms.remove(key)
