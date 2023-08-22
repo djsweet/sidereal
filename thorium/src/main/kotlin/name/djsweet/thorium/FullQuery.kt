@@ -11,7 +11,7 @@ data class FullQuery(
     fun notEqualsMatchesData(data: QPTrie<ByteArray>): Boolean {
         var foundInequality = false
         data.visitUnsafeSharedKey { (key, value) ->
-            val result = this.arrayContains.get(key)?.get(value)
+            val result = this.notEquals.get(key)?.get(value)
             foundInequality = foundInequality || result != null
         }
         return !foundInequality
