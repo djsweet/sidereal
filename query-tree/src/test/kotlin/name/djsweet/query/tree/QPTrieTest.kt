@@ -463,11 +463,41 @@ class QPTrieTest {
     }
 
     @Provide fun prefixLookupsSchedule(): Arbitrary<List<Pair<ByteArray, String>>> {
-        val runLengths = Arbitraries.integers().between(1, 10)
-            .array(IntArray::class.java).ofMinSize(1).ofMaxSize(5)
-        val keys = runLengths.list().ofMinSize(1).ofMaxSize(16).map { lookupSchedule ->
+        // This is going to be a list of key-value pairs where all keys share an exact common prefix,
+        // and most of them share a prefix with the rest of them, all the way to an otherwise unique key
+        // that shares prefixes with all others.
+        val runLengths =
+            // We want some Integers between 1 and 10
+            Arbitraries.integers().between(1, 10)
+                // And we want an array of that, specifically an IntArray (hence passing in the IntArray:class.java)
+            .array(IntArray::class.java)
+            // It has to be at least 1 element but can be at most 5 elements
+            .ofMinSize(1).ofMaxSize(5)
+        val keys =
+            // And we want a list of those arrays. Yep, a list of arrays.
+            runLengths.list()
+                // The list should be at least 1 element and at most 16 elements long
+                .ofMinSize(1).ofMaxSize(16).map { lookupSchedule ->
+            // In here, we actually _have_ the list now! `lookupSchedule` is going to be the list of arrays,
+                    // where if we didn't use .map we'd just have an Arbitrary for the list of arrays.
+                    // The `map` isn't a `map` in the usual functional collection operator sense here,
+                    // but rather borrowing practical programming language idioms in the place of Category Theory.
+                    // This, instead, is a Functor.
             val byteArrays = mutableListOf<ByteArray>()
             for (i in 0 until lookupSchedule.size) {
+                // Each of those elements in the arrays is actually a run-length. When we have an array
+                // [1, 2, 3]
+                // We want 3 byte arrays, of the form
+                // [x]
+                // [x, y, z]
+                // [x, y, z, a, b, c]
+                //
+                // Specifically it's going to look like
+                // [0] -- Run length of 1
+                // [0, 1, 2] -- Additional run length of 2, so 1+2 = 3
+                // [0, 1, 2, 2, 3, 4] -- Additional run length of 3, so 1+2+3 = 6
+                // [0, 1, 2, 2, 3, 4, 3, 4, 5, 6] -- Hypothetical run length of 4 afterwards...
+                // ...
                 val workingByteList = mutableListOf<Byte>()
                 var curByte = i
                 for (runLength in lookupSchedule[i]) {
@@ -475,15 +505,31 @@ class QPTrieTest {
                         workingByteList.add(curByte.toByte())
                         curByte += 1
                     }
+                    // Here is the cute trick: .toByteArray() effectively keeps a snapshot
+                    // of whatever is in `workingByteList`, we can just keep mutating `workingByteList`
+                    // but that byte array is nice and fixed.
                     byteArrays.add(workingByteList.toByteArray())
                 }
             }
+                    // And now we want a list of that, e.g. List([0], [0, 1, 2], [0, 1, 2, 2, 3, 4])
             byteArrays.toList()
         }
+        // Here's the fun of flatMap.
+        // Arbitrary<T>, (T -> Arbitrary<U>) -> Arbitrary<U>
+        // Which is to say, you start with an Arbitrary<T>
+        // flatMap runs a function that takes that kind of T
+        // but that function returns an Arbitrary<U>
         return keys.flatMap { reifiedKeys ->
-            Arbitraries.strings().list().ofMinSize(reifiedKeys.size).ofMaxSize(reifiedKeys.size).map { values ->
-                reifiedKeys.zip(values)
-            }
+            // We now have, in `reifiedKeys`, some instance of the above List([0], [0, 1, 2], [0, 1, 2, 2, 3, 4])...
+            Arbitraries.strings()
+                .list()
+                // Now for a list of strings of exactly the size of our input key set...
+                .ofMinSize(reifiedKeys.size).ofMaxSize(reifiedKeys.size)
+                .map { values ->
+                    // So that every key in `reifiedKeys` maps to one of those Strings in a Pair<ByteArray, String>
+                    // Specifically we're getting a bunch of keys that happen to share prefixes.
+                    reifiedKeys.zip(values)
+                }
         }
     }
 
@@ -513,6 +559,7 @@ class QPTrieTest {
         val trie = QPTrie(schedule.shuffled())
         val grouped = this.groupPrefixLookupSchedule(schedule)
         for (kvp in grouped) {
+            // Above in grouped, we took
             val targets = kvp.value
             for (i in targets.indices) {
                 val lookupKey = targets[i].first
