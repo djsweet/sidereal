@@ -2,7 +2,7 @@ package name.djsweet.query.tree;
 
 // These would all be in Kotlin, except for limitations in
 // the design of Kotlin as mentioned in the per-item comments.
-final class QPTrieUtils {
+public final class QPTrieUtils {
     /*
      * Kotlin does not have a way to express switch fallthrough,
      * hence this being written in Java.

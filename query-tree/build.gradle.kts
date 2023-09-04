@@ -63,6 +63,9 @@ tasks.test {
 
 benchmark {
     configurations {
+        create("arrayUtils") {
+            include("ArrayUtilsBenchmark\\..*")
+        }
         create("trie") {
             include("QPTrieBenchmark\\..*")
         }
