@@ -96,13 +96,25 @@ abstract class IdempotencyManager<TValues, TSelf>: ChannelIdempotencyMapping {
     }
 }
 
+abstract class ServerVerticle(protected val verticleOffset: Int): AbstractVerticle() {
+    protected fun<T, U> runAndReply(message: Message<T>, handler: suspend (T) -> U) {
+        val response = vertxFuture { handler(message.body()) }
+        response.onComplete {
+            if (it.succeeded()) {
+                message.reply(it.result())
+            } else {
+                message.fail(500, it.cause().message)
+            }
+        }
+    }
+}
 
 private val heapPeek = { heap: ByteArrayKeyedBinaryMinHeap<ByteArray> -> heap.peek() }
 private val nowAsByteArray = { convertLongToByteArray(nowMS()) }
 
 private typealias UpdateChannelFunc = (targetChannel: ByteArray) -> Pair<ChannelIdempotencyMapping, Long>?
 
-abstract class ServerVerticleWithIdempotency(protected val verticleOffset: Int): AbstractVerticle() {
+abstract class ServerVerticleWithIdempotency(verticleOffset: Int): ServerVerticle(verticleOffset) {
     protected var currentIdempotencyKeys = 0
 
     protected val idempotencyKeyRemovalSchedule = ByteArrayKeyedBinaryMinHeap<ByteArray>()
@@ -195,18 +207,6 @@ abstract class ServerVerticleWithIdempotency(protected val verticleOffset: Int):
         }
         super.stop()
     }
-
-    protected fun<T, U> runAndReply(message: Message<T>, handler: suspend (T) -> U) {
-        val response = vertxFuture { handler(message.body()) }
-        response.onComplete {
-            if (it.succeeded()) {
-                message.reply(it.result())
-            } else {
-                message.fail(500, it.cause().message)
-            }
-        }
-    }
-
 }
 
 data class ChannelInfo(
@@ -562,95 +562,23 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
     }
 }
 
-data class PerChannelTranslationCache(
-    override val idempotencyKeys: QPTrie<ShareableScalarListQueryableData>,
-    override val idempotencyKeysByExpiration: QPTrie<IdentitySet<ByteArray>>,
-): IdempotencyManager<ShareableScalarListQueryableData, PerChannelTranslationCache>() {
-    constructor(): this(QPTrie(), QPTrie())
-
-    override fun self(): PerChannelTranslationCache {
-        return this
-    }
-
-    override fun withNewIdempotencyKeys(
-        idempotencyKeys: QPTrie<ShareableScalarListQueryableData>,
-        idempotencyKeysByExpiration: QPTrie<IdentitySet<ByteArray>>
-    ): PerChannelTranslationCache {
-        return this.copy(
-            idempotencyKeys=idempotencyKeys,
-            idempotencyKeysByExpiration=idempotencyKeysByExpiration
-        )
-    }
-
-    fun getDataByIdempotencyKey(idempotencyKey: ByteArray): ShareableScalarListQueryableData? {
-        return this.idempotencyKeys.get(idempotencyKey)
-    }
-
-    fun addToCache(
-        idempotencyKey: ByteArray,
-        data: ShareableScalarListQueryableData,
-        expiresAt: ByteArray
-    ): PerChannelTranslationCache {
-        return this.withNewIdempotencyKeys(
-            idempotencyKeys=this.idempotencyKeys.put(idempotencyKey, data),
-            idempotencyKeysByExpiration = this.idempotencyKeysByExpiration.update(expiresAt) {
-                (it ?: IdentitySet()).add(idempotencyKey)
-            }
-        )
-    }
-}
-
-private val pctcRemoveMin = { pctc: PerChannelTranslationCache -> pctc.removeMinimumIdempotencyKeys() }
 
 val baseJsonResponseForBadJsonString = jsonObjectOf("code" to "failed-json-stringify")
-
 val baseJsonResponseForOversizedChannelInfoIdempotencyKey = jsonObjectOf(
     "code" to "channel-idempotency-too-large"
 )
-
 val baseJsonResponseForStackOverflowData = jsonObjectOf(
     "code" to "exhausted-byte-budget"
 )
 
-class JsonToQueryableTranslatorVerticle(verticleOffset: Int): ServerVerticleWithIdempotency(verticleOffset) {
-    private var dataByChannels = QPTrie<PerChannelTranslationCache>()
-
+// Translation doesn't implement any form of idempotent caching, and instead blindly translates
+// every request sent to it. At a high enough update frequency, this is absolutely the right choice:
+// we would be growing our working set of "cached data" up to millions of saved entries rather quickly,
+// just to save on the "cost" of reprocessing a tiny handful.
+class JsonToQueryableTranslatorVerticle(verticleOffset: Int): ServerVerticle(verticleOffset) {
     private var byteBudget = 0
     private var maxJsonParsingRecursion = 16
     private var requestHandler: MessageConsumer<UnpackDataRequest>? = null
-
-    private fun updateDataByChannels(
-        targetChannel: ByteArray,
-        remove: (PerChannelTranslationCache) -> PerChannelTranslationCache
-    ): Pair<ChannelIdempotencyMapping, Long>? {
-        var keyDelta = 0L
-        var updatedDataByChannels: PerChannelTranslationCache? = null
-        this.dataByChannels = this.dataByChannels.update(targetChannel) {
-            if (it == null) {
-                null
-            } else {
-                val priorKeySize = it.idempotencyKeys.size
-                val nextDataByChannels = remove(it)
-                updatedDataByChannels = nextDataByChannels
-                keyDelta = nextDataByChannels.idempotencyKeys.size - priorKeySize
-                nextDataByChannels
-            }
-        }
-        return if (updatedDataByChannels == null) {
-            null
-        } else {
-            Pair(updatedDataByChannels!!, keyDelta)
-        }
-    }
-
-    override fun updateForTimerCleanup(
-        targetChannel: ByteArray,
-        until: ByteArray
-    ): Pair<ChannelIdempotencyMapping, Long>? {
-        return this.updateDataByChannels(targetChannel) {
-            it.removeIdempotencyKeysBelowOrAt(until)
-        }
-    }
 
     private fun handleUnpackDataRequest(req: UnpackDataRequest): HttpProtocolErrorOrReportDataList {
         val (channel, entries) = req
@@ -658,10 +586,6 @@ class JsonToQueryableTranslatorVerticle(verticleOffset: Int): ServerVerticleWith
         val responseList = mutableListOf<ReportData>()
         val byteBudget = this.byteBudget
         val maxJsonParsingRecursion = this.maxJsonParsingRecursion
-
-        this.handleIdempotencyCleanupForMaximum {
-            this.updateDataByChannels(it, pctcRemoveMin)
-        }
 
         for (entry in entries) {
             val (idempotencyKey, data) = entry
@@ -690,54 +614,15 @@ class JsonToQueryableTranslatorVerticle(verticleOffset: Int): ServerVerticleWith
                         )
                     ))
                 }
-                val existing = this.dataByChannels.get(channelBytes)?.getDataByIdempotencyKey(idempotencyKeyBytes)
-                if (existing != null) {
-                    // FIXME: We totally could have saved that .toString() in here too
-                    val (scalars, arrays) = existing
-                    responseList.add(
-                        ReportData(
-                            channel=channel,
-                            idempotencyKey=idempotencyKey,
-                            queryableScalarData=scalars,
-                            queryableArrayData=arrays,
-                            actualData=jsonString
-                        ))
-                } else {
-                    val (scalars, arrays) = encodeJsonToQueryableData(data, byteBudget, maxJsonParsingRecursion)
-
-                    val priorRemovalScheduleSize = this.idempotencyKeyRemovalSchedule.size
-                    var newCache = false
-                    var updatedCache: PerChannelTranslationCache? = null
-                    this.dataByChannels.update(channelBytes) {
-                        newCache = it == null
-                        updatedCache = (it ?: PerChannelTranslationCache()).addToCache(
-                            idempotencyKeyBytes,
-                            ShareableScalarListQueryableData(scalars, arrays),
-                            convertLongToByteArray(nowMS() + this.idempotencyExpirationMS)
-                        )
-                        updatedCache
-                    }
-                    if (updatedCache != null && newCache) {
-                        val minExpiration = updatedCache!!.minIdempotencyKey()
-                        if (minExpiration != null) {
-                            this.currentIdempotencyKeys += 1
-                            this.idempotencyKeyRemovalSchedule.push(minExpiration to channelBytes)
-                        }
-                    }
-                    val afterRemovalScheduleSize = this.idempotencyKeyRemovalSchedule.size
-                    if (priorRemovalScheduleSize == 0 && afterRemovalScheduleSize > 0) {
-                        this.setupIdempotencyCleanupTimer()
-                    }
-
-                    responseList.add(
-                        ReportData(
-                        channel=channel,
-                        idempotencyKey=idempotencyKey,
-                        queryableScalarData=scalars,
-                        queryableArrayData=arrays,
-                        actualData=jsonString
-                    ))
-                }
+                val (scalars, arrays) = encodeJsonToQueryableData(data, byteBudget, maxJsonParsingRecursion)
+                responseList.add(
+                    ReportData(
+                    channel=channel,
+                    idempotencyKey=idempotencyKey,
+                    queryableScalarData=scalars,
+                    queryableArrayData=arrays,
+                    actualData=jsonString
+                ))
             } catch (e: StackOverflowError) {
                 // FIXME: Signal all consumers of byteBudget that this happened!
                 this.byteBudget = reestablishByteBudget(this.vertx.sharedData())
