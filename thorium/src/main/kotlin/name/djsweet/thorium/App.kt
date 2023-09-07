@@ -45,6 +45,7 @@ internal class ThoriumCommand {
         val vertx = Vertx.vertx()
         val initialSafeKeyValueSize = maxSafeKeyValueSizeSync(vertx)
         establishByteBudget(vertx.sharedData(), initialSafeKeyValueSize)
+        registerMessageCodecs(vertx)
         return runBlocking {
             val queryDeploymentIDs = registerQueryServer(
                 vertx,
