@@ -9,7 +9,6 @@ import io.vertx.core.eventbus.MessageConsumer
 import io.vertx.kotlin.core.json.jsonObjectOf
 import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.vertxFuture
-import kotlinx.coroutines.runBlocking
 import name.djsweet.query.tree.IdentitySet
 import name.djsweet.query.tree.QPTrie
 import name.djsweet.query.tree.QueryPath
@@ -19,7 +18,7 @@ import kotlin.collections.ArrayList
 import kotlin.coroutines.suspendCoroutine
 
 fun nowMS(): Long {
-    return System.nanoTime() / 1000
+    return System.nanoTime() / 1_000_000
 }
 
 data class QueryResponderSpec(
@@ -47,6 +46,10 @@ abstract class IdempotencyManager<TValues, TSelf>: ChannelIdempotencyMapping {
 
     override fun minIdempotencyKey(): ByteArray? {
         return this.idempotencyKeysByExpiration.minKeyValueUnsafeSharedKey()?.key
+    }
+
+    fun hasIdempotencyKeys(): Boolean {
+        return this.idempotencyKeys.size > 0L
     }
 
     fun removeMinimumIdempotencyKeys(): TSelf {
@@ -95,6 +98,7 @@ abstract class IdempotencyManager<TValues, TSelf>: ChannelIdempotencyMapping {
 
 
 private val heapPeek = { heap: ByteArrayKeyedBinaryMinHeap<ByteArray> -> heap.peek() }
+private val nowAsByteArray = { convertLongToByteArray(nowMS()) }
 
 private typealias UpdateChannelFunc = (targetChannel: ByteArray) -> Pair<ChannelIdempotencyMapping, Long>?
 
@@ -123,7 +127,11 @@ abstract class ServerVerticleWithIdempotency(protected val verticleOffset: Int):
 
             val (updatedChannelMapping, keyDelta) = updateResult
             this.currentIdempotencyKeys += keyDelta.toInt()
-            val minKeyForUpdate = updatedChannelMapping.minIdempotencyKey() ?: continue
+            val minKeyForUpdate = updatedChannelMapping.minIdempotencyKey()
+            if (minKeyForUpdate == null) {
+                removalSchedule.pop()
+                continue
+            }
             removalSchedule.popPush(minKeyForUpdate to targetChannel)
         }
     }
@@ -141,18 +149,19 @@ abstract class ServerVerticleWithIdempotency(protected val verticleOffset: Int):
         until: ByteArray
     ): Pair<ChannelIdempotencyMapping, Long>?
 
-    private fun handleIdempotencyCleanupOnTimer(until: ByteArray) {
+    private fun handleIdempotencyCleanupOnTimer() {
         this.handleIdempotencyCleanup(
             {
-                val compareAgainst = it.peek()
-                if (compareAgainst == null || Arrays.compareUnsigned(compareAgainst.first, until) > 0) {
+                val bestRemovalItem = it.peek()
+                val rightNow = nowAsByteArray()
+                if (bestRemovalItem == null || Arrays.compareUnsigned(bestRemovalItem.first, rightNow) > 0) {
                     null
                 } else {
-                    compareAgainst
+                    bestRemovalItem
                 }
             },
             {
-                this.updateForTimerCleanup(it, until)
+                this.updateForTimerCleanup(it, nowAsByteArray())
             }
         )
         this.setupIdempotencyCleanupTimer()
@@ -166,9 +175,10 @@ abstract class ServerVerticleWithIdempotency(protected val verticleOffset: Int):
         if (currentTimerID != null) {
             this.vertx.cancelTimer(currentTimerID)
         }
-        this.idempotencyCleanupTimerID = this.vertx.setTimer(waitFor.coerceAtLeast(0)) {
-            val cleanupTime = convertLongToByteArray(nowMS())
-            this.handleIdempotencyCleanupOnTimer(cleanupTime)
+        // We're going to sleep at least 1 millisecond between attempts, as a guard against CPU exhaustion
+        // in the event that this removal process is buggy.
+        this.idempotencyCleanupTimerID = this.vertx.setTimer(waitFor.coerceAtLeast(1)) {
+            this.handleIdempotencyCleanupOnTimer()
         }
     }
 
@@ -405,16 +415,18 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
             this.updateChannelsWithRemoval(it, ciRemoveMin)
         }
 
-        val idempotencyKeyExpiration = convertLongToByteArray(nowMS() + this.idempotencyExpirationMS)
+        val idempotencyKeyExpiration = nowMS() + this.idempotencyExpirationMS
+        val idempotencyKeyExpirationBytes = convertLongToByteArray(idempotencyKeyExpiration)
         var newChannel = false
         var updatedChannelInfo: ChannelInfo? = null
         val priorRemovalScheduleSize = this.idempotencyKeyRemovalSchedule.size
         // FIXME: This operation might cause a StackOverflow itself
         this.channels = this.channels.update(channelBytes) {
-            newChannel = it == null
-            updatedChannelInfo = (it ?: ChannelInfo()).addIdempotencyKey(
+            val updateTarget = (it ?: ChannelInfo())
+            newChannel = !updateTarget.hasIdempotencyKeys()
+            updatedChannelInfo = updateTarget.addIdempotencyKey(
                 idempotencyKeyBytes,
-                idempotencyKeyExpiration
+                idempotencyKeyExpirationBytes
             )
             updatedChannelInfo
         }
