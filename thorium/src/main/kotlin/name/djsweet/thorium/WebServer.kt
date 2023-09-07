@@ -1,5 +1,6 @@
 package name.djsweet.thorium
 
+import io.netty.handler.codec.http.QueryStringDecoder
 import io.vertx.core.AbstractVerticle
 import io.vertx.core.Future
 import io.vertx.core.Promise
@@ -156,7 +157,7 @@ fun handleQuery(vertx: Vertx, channel: String, req: HttpServerRequest) {
             failRequest(req)
             return@increment
         }
-        val queryMap = parseQueryString(req.query() ?: "")
+        val queryMap = QueryStringDecoder(req.query() ?: "").parameters()
         val clientID = getClientIDFromSerial()
         val returnAddress = addressForQueryClientAtOffset(clientID)
         var bestOffset = 0

@@ -256,28 +256,3 @@ fun convertQueryStringToFullQuery(qs: Map<String, List<String>>, maxTerms: Int, 
     }
     return HttpProtocolErrorOr.ofSuccess(FullQuery(treeSpec, arrayContains, notEquals))
 }
-
-fun parseQueryString(qs: String): Map<String, List<String>> {
-    val result = mutableMapOf<String, MutableList<String>>()
-    if (qs.isEmpty()) {
-        return result
-    }
-    val pairs = qs.split("&")
-    for (pair in pairs) {
-        val equalIdx = pair.indexOf("=")
-        var key: String
-        var value = ""
-        if (equalIdx < 0) {
-            key = URLDecoder.decode(pair, "UTF-8")
-        } else {
-            key = URLDecoder.decode(pair.substring(0, equalIdx), "UTF-8")
-            value = URLDecoder.decode(pair.substring(equalIdx + 1), "UTF-8")
-        }
-        val valueList = result[key] ?: mutableListOf()
-        if (valueList.indexOf(value) < 0) {
-            valueList.add(value)
-        }
-        result[key] = valueList
-    }
-    return result
-}
