@@ -10,7 +10,7 @@ internal fun timingLocalMap(sharedData: SharedData): LocalMap<String, Int> {
 
 fun getIdempotencyExpirationMS(sharedData: SharedData): Int {
     // That's 10 minutes by default.
-    return timingLocalMap(sharedData).getOrDefault("idempotencyExpirationMS", 10 * 60_000)
+    return timingLocalMap(sharedData).getOrDefault("idempotencyExpirationMS", 3 * 60_000)
 }
 
 internal fun limitLocalMap(sharedData: SharedData): LocalMap<String, Int> {
@@ -18,7 +18,7 @@ internal fun limitLocalMap(sharedData: SharedData): LocalMap<String, Int> {
 }
 
 fun getMaximumIdempotencyKeys(sharedData: SharedData): Int {
-    return limitLocalMap(sharedData).getOrDefault("maxIdempotencyKeys", 16_000_000)
+    return limitLocalMap(sharedData).getOrDefault("maxIdempotencyKeys", 1024 * 1024)
 }
 
 private const val byteBudgetKey = "byteBudget"
