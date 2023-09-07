@@ -36,7 +36,6 @@ dependencies {
     implementation("io.vertx:vertx-core:${vertxVersion}")
     implementation("io.vertx:vertx-lang-kotlin:${vertxVersion}")
     implementation("io.vertx:vertx-lang-kotlin-coroutines:${vertxVersion}")
-    implementation("net.openhft:zero-allocation-hashing:0.16")
 
     if (operatingSystem.isMacOsX) {
         // io.netty.resolver.dns.DnsServerAddressStreamProviders prints a warning on macOS about how it

@@ -1,6 +1,9 @@
 package name.djsweet.thorium
 
 import io.vertx.core.*
+import io.vertx.core.http.HttpServer
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
 import picocli.CommandLine
 import picocli.CommandLine.Command
 import kotlin.system.exitProcess
@@ -32,6 +35,41 @@ internal class ThoriumCommand {
             println("${property.key}=${property.value}")
         }
         return 0
+    }
+
+    @Command(
+        name="serve",
+        description = ["Runs the server"]
+    )
+    fun serve(): Int {
+        val vertx = Vertx.vertx()
+        val initialSafeKeyValueSize = maxSafeKeyValueSizeSync(vertx)
+        establishByteBudget(vertx.sharedData(), initialSafeKeyValueSize)
+        return runBlocking {
+            val queryDeploymentIDs = registerQueryServer(
+                vertx,
+                0,
+                getQueryThreads(vertx.sharedData()),
+                0,
+                getTranslatorThreads(vertx.sharedData())
+            )
+            try {
+                val webServerDeploymentIDs = registerWebServer(vertx, getWebServerThreads(vertx.sharedData()))
+                val eventLoop = vertx.nettyEventLoopGroup()
+                println("Listening on :${getServerPort(vertx.sharedData())}")
+                while (!eventLoop.isTerminated) {
+                    delay(250)
+                }
+                for (deploymentID in webServerDeploymentIDs) {
+                    vertx.undeploy(deploymentID)
+                }
+            } finally {
+                for (deploymentID in queryDeploymentIDs) {
+                    vertx.undeploy(deploymentID)
+                }
+            }
+            0
+        }
     }
 }
 

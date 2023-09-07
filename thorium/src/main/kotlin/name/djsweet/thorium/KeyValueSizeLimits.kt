@@ -1,6 +1,7 @@
 package name.djsweet.thorium
 
 import io.vertx.core.Vertx
+import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.awaitResult
 import kotlinx.coroutines.runBlocking
 
@@ -63,6 +64,8 @@ private fun maxSafeKeyValueSizeSingleIteration(startingUpperBound: Int): Int {
 private suspend fun maxSafeKeyValueSizeWithIterationsAsync(vertx: Vertx, iterations: Int): Int {
     var maxKeySize = MAX_POSSIBLE_KEY_VALUE_SIZE * MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR
     for (i in 0 until iterations) {
+        // We can't just .await() under runBlocking, because we've blocked the whole main on that .await(), and
+        // that blocked main thread is where the Vertx run loop was going to run.
         maxKeySize = awaitResult { handler ->
             vertx.executeBlocking {
                 it.complete(maxKeySize.coerceAtMost(maxSafeKeyValueSizeSingleIteration(maxKeySize)))

@@ -16,4 +16,12 @@ data class FullQuery(
         }
         return !foundInequality
     }
+
+    fun countArrayContainsConditions(): Long {
+        var arrayContainsConditions = 0.toLong()
+        this.arrayContains.visitUnsafeSharedKey { (_, values) ->
+            arrayContainsConditions += values.size
+        }
+        return arrayContainsConditions
+    }
 }
