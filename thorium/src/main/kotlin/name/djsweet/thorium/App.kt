@@ -55,9 +55,9 @@ internal class ThoriumCommand {
             )
             try {
                 val webServerDeploymentIDs = registerWebServer(vertx, getWebServerThreads(vertx.sharedData()))
-                val eventLoop = vertx.nettyEventLoopGroup()
+                val allDeploymentIDs = queryDeploymentIDs.union(webServerDeploymentIDs)
                 println("Listening on :${getServerPort(vertx.sharedData())}")
-                while (!eventLoop.isTerminated) {
+                while (vertx.deploymentIDs().containsAll(allDeploymentIDs)) {
                     delay(250)
                 }
                 for (deploymentID in webServerDeploymentIDs) {
