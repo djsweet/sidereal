@@ -3,8 +3,10 @@ package name.djsweet.thorium
 import io.netty.handler.codec.http.QueryStringDecoder
 import io.vertx.core.AbstractVerticle
 import io.vertx.core.Future
+import io.vertx.core.Future.join
 import io.vertx.core.Promise
 import io.vertx.core.Vertx
+import io.vertx.core.eventbus.Message
 import io.vertx.core.eventbus.MessageConsumer
 import io.vertx.core.http.HttpMethod
 import io.vertx.core.http.HttpServer
@@ -226,6 +228,86 @@ val invalidJsonBodyJson = jsonObjectOf("code" to "invalid-json-body")
 val baseExceededDataLimitJson = jsonObjectOf("code" to "exceeded-outstanding-data-limit")
 val acceptedJson = jsonObjectOf("code" to "accepted")
 
+fun handleDataWithUnpackRequest(vertx: Vertx, unpackReqs: List<UnpackDataRequest>, httpReq: HttpServerRequest) {
+    val eventBus = vertx.eventBus()
+    val sharedData = vertx.sharedData()
+
+    val queryThreads = getQueryThreads(sharedData)
+    val translatorThreads = getTranslatorThreads(sharedData)
+
+    val queryIncrement = (unpackReqs.size * queryThreads).toLong()
+    incrementOutstandingDataCountReturning(sharedData, queryIncrement).onComplete { dataCountResult ->
+        if (dataCountResult.failed()) {
+            failRequest(httpReq)
+            return@onComplete
+        }
+
+        val newQueryCount = dataCountResult.result()
+        val priorQueryCount = newQueryCount - queryIncrement
+        val limit = getMaxOutstandingData(sharedData)
+        if (priorQueryCount >= limit) {
+            decrementOutstandingDataCountReturning(sharedData, queryIncrement).onComplete {
+                jsonStatusCodeResponse(httpReq, 429).end(
+                    baseExceededDataLimitJson.put("count", newQueryCount).put("limit", limit).toString()
+                )
+            }
+            return@onComplete
+        }
+
+        val translatorSends = ArrayList<Future<Message<Any>>>()
+        for (unpackReq in unpackReqs) {
+            val targetTranslatorOffset = unpackReq.idempotencyKey.hashCode().absoluteValue % translatorThreads
+            val sendAddress = addressForTranslatorServer(sharedData, targetTranslatorOffset)
+            translatorSends.add(eventBus.request(sendAddress, unpackReq, localRequestOptions))
+        }
+
+        val translatorResults = join(translatorSends as List<Future<Message<Any>>>)
+        translatorResults.onComplete translatorResults@ { future ->
+            if (future.failed()) {
+                decrementOutstandingDataCountReturning(sharedData, queryIncrement).onComplete {
+                    failRequest(httpReq)
+                }
+                return@translatorResults
+            }
+            val reports = mutableListOf<ReportData>()
+            val resolvedComposite = future.result()
+            var httpError: HttpProtocolError? = null
+            for (i in 0 until resolvedComposite.size()) {
+                if (resolvedComposite.failed(i)) {
+                    decrementOutstandingDataCountReturning(sharedData, queryIncrement).onComplete {
+                        failRequest(httpReq)
+                    }
+                    return@translatorResults
+                }
+                val message = resolvedComposite.resultAt<Message<Any>>(i)
+                val report = message.body()
+                if (report !is HttpProtocolErrorOrReportData) continue
+                report.whenSuccess {
+                    reports.add(it)
+                }.whenError {
+                    val curError = httpError
+                    if (curError == null || curError.statusCode < it.statusCode){
+                        httpError = it
+                    }
+                }
+            }
+            val endError = httpError
+            if (endError != null){
+                decrementOutstandingDataCountReturning(sharedData, queryIncrement).onComplete {
+                    jsonStatusCodeResponse(httpReq, endError.statusCode).end(endError.contents.toString())
+                }
+                return@translatorResults
+            }
+            for (report in reports) {
+                for (i in 0 until queryThreads) {
+                    eventBus.publish(addressForQueryServerData(sharedData, i), report)
+                }
+            }
+            jsonStatusCodeResponse(httpReq, 202).end(acceptedJson.toString())
+        }
+    }
+}
+
 fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
     val withParams = req.headers().get("Content-Type")
     if (withParams == null) {
@@ -233,8 +315,6 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
         return
     }
     val paramOffset = withParams.indexOf(";")
-    val eventBus = vertx.eventBus()
-    val sharedData = vertx.sharedData()
     when (if (paramOffset < 0) { withParams } else { withParams.substring(0, paramOffset) }) {
         "application/json" -> {
             val eventSource = req.headers().get("ce-source")
@@ -248,9 +328,6 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
                 return
             }
             val idempotencyKey = "$eventSource $eventID"
-            val serverThreads = getTranslatorThreads(vertx.sharedData())
-            val targetTranslatorOffset = idempotencyKey.hashCode().absoluteValue % serverThreads
-            val sendAddress = addressForTranslatorServer(vertx.sharedData(), targetTranslatorOffset)
             req.bodyHandler { bodyBytes ->
                 val json: JsonObject
                 try {
@@ -261,49 +338,10 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
                 }
                 val unpackRequest = UnpackDataRequest(
                     channel,
-                    listOf(idempotencyKey to json),
+                    idempotencyKey,
+                    json
                 )
-                incrementOutstandingDataCountReturning(sharedData, serverThreads.toLong()).onComplete { dataCountResult ->
-                    if (dataCountResult.failed()) {
-                        failRequest(req)
-                        return@onComplete
-                    }
-                    val queryCount = dataCountResult.result()
-                    val limit = getMaxOutstandingData(sharedData)
-                    if (queryCount > limit) {
-                        decrementOutstandingDataCountReturning(sharedData, serverThreads.toLong()).onComplete {
-                            jsonStatusCodeResponse(req, 429).end(
-                                baseExceededDataLimitJson.put("count", queryCount).put("limit", limit).toString()
-                            )
-                        }
-                        return@onComplete
-                    }
-                    eventBus.request<HttpProtocolErrorOrReportDataList>(
-                        sendAddress,
-                        unpackRequest,
-                        localRequestOptions
-                    ) { busResponse ->
-                        if (busResponse.failed()) {
-                            decrementOutstandingDataCountReturning(sharedData, serverThreads.toLong()).onComplete {
-                                failRequest(req)
-                            }
-                            return@request
-                        }
-                        val errorOrReports = busResponse.result()
-                        errorOrReports.body().whenError { err ->
-                            decrementOutstandingDataCountReturning(sharedData, serverThreads.toLong()).onComplete {
-                                jsonStatusCodeResponse(req, err.statusCode).end(err.contents.toString())
-                            }
-                        }.whenSuccess {
-                            for (report in it.entries) {
-                                for (i in 0 until serverThreads) {
-                                    eventBus.publish(addressForQueryServerData(sharedData, i), report)
-                                }
-                            }
-                            jsonStatusCodeResponse(req, 202).end(acceptedJson.toString())
-                        }
-                    }
-                }
+                handleDataWithUnpackRequest(vertx, listOf(unpackRequest), req)
             }
         }
         // FIXME: Handle Structured Content and Batched Content modes

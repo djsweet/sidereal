@@ -4,6 +4,7 @@ import io.vertx.core.Vertx
 import io.vertx.core.buffer.Buffer
 import io.vertx.core.json.JsonObject
 import io.vertx.core.shareddata.SharedData
+import io.vertx.kotlin.core.json.jsonObjectOf
 
 fun appendStringAsUnicode(s: String, b: Buffer): Buffer {
     val stringBytes = convertStringToByteArray(s)
@@ -120,9 +121,10 @@ class UnregisterQueryRequestCodec: LocalPrimaryMessageCodec<UnregisterQueryReque
 
 data class UnpackDataRequest(
     val channel: String,
-    val entries: List<Pair<String, JsonObject>>,
+    val idempotencyKey: String,
+    val data: JsonObject,
 ) {
-    constructor() : this("", listOf())
+    constructor() : this("", "", jsonObjectOf())
 }
 
 class UnpackDataRequestCodec: LocalPrimaryMessageCodec<UnpackDataRequest>("UnpackDataRequest") {
@@ -132,33 +134,25 @@ class UnpackDataRequestCodec: LocalPrimaryMessageCodec<UnpackDataRequest>("Unpac
 
     override fun encodeToWireNonNullBuffer(buffer: Buffer, s: UnpackDataRequest) {
         appendStringAsUnicode(s.channel, buffer)
-        buffer.appendInt(s.entries.size)
-        for ((idempotencyKey, data) in s.entries) {
-            appendStringAsUnicode(idempotencyKey, buffer)
-            data.writeToBuffer(buffer)
-        }
+        appendStringAsUnicode(s.idempotencyKey, buffer)
+        s.data.writeToBuffer(buffer)
     }
 
     override fun decodeFromWireNonNullBuffer(pos: Int, buffer: Buffer): UnpackDataRequest {
         val channelPos = pos + 4
         val channelLength = buffer.getInt(pos)
-        val entriesLengthPos = channelPos + channelLength
-        val channel = buffer.getString(channelPos, entriesLengthPos, "utf-8")
-        val entriesLength = buffer.getInt(entriesLengthPos)
-        var lastPos = entriesLengthPos + 4
-        val entries = mutableListOf<Pair<String, JsonObject>>()
+        val idempotencyKeyLengthPos = channelPos + channelLength
+        val channel = buffer.getString(channelPos, idempotencyKeyLengthPos, "utf-8")
 
-        for (i in 0 until entriesLength) {
-            val idempotencyPos = lastPos + 4
-            val idempotencyLength = buffer.getInt(lastPos)
-            val dataPos = idempotencyPos + idempotencyLength
-            val idempotencyKey = buffer.getString(idempotencyPos, dataPos, "utf-8")
-            val data = JsonObject()
-            lastPos = data.readFromBuffer(dataPos, buffer)
-            entries.add(idempotencyKey to data)
-        }
+        val idempotencyKeyLength = buffer.getInt(idempotencyKeyLengthPos)
+        val idempotencyKeyPos = idempotencyKeyLengthPos + 4
+        val jsonPos = idempotencyKeyPos + idempotencyKeyLength
+        val idempotencyKey = buffer.getString(idempotencyKeyPos, jsonPos, "utf-8")
 
-        return UnpackDataRequest(channel, entries)
+        val data = jsonObjectOf()
+        data.readFromBuffer(jsonPos, buffer)
+
+        return UnpackDataRequest(channel, idempotencyKey, data)
     }
 }
 
@@ -220,49 +214,6 @@ class ReportDataCodec: LocalPrimaryMessageCodec<ReportData>("ReportData") {
             queryableArrayData,
             actualData
         )
-    }
-}
-
-data class ReportDataList(
-    val entries: List<ReportData>
-) {
-    constructor() : this(listOf())
-}
-
-class ReportDataListCodec(): LocalPrimaryMessageCodec<ReportDataList>("ReportDataList") {
-    private val reportDataCodec = ReportDataCodec()
-
-    override fun emptyInstance(): ReportDataList {
-        return ReportDataList()
-    }
-
-    override fun encodeToWireNonNullBuffer(buffer: Buffer, s: ReportDataList) {
-        val entries = s.entries
-        buffer.appendInt(entries.size)
-        for (entry in entries) {
-            // We need to know how long the encoded reportData is, so we can update the position offset
-            // on each entry. Sadly, the buffer API wasn't prepared to let us do this, so we're going
-            // to cheese it a little. Note that the entry length includes itself, so you won't have to +4
-            // when updating the next position.
-            val lastSize = buffer.length()
-            buffer.appendInt(0)
-            this.reportDataCodec.encodeToWire(buffer, entry)
-            buffer.setInt(lastSize, buffer.length() - lastSize)
-        }
-    }
-
-    override fun decodeFromWireNonNullBuffer(pos: Int, buffer: Buffer): ReportDataList {
-        val entriesPos = pos + 4
-        val entriesCount = buffer.getInt(pos)
-        val entries = mutableListOf<ReportData>()
-        var endPos = entriesPos
-        for (i in 0 until entriesCount) {
-            val entryLength = buffer.getInt(endPos)
-            val nextEntry = this.reportDataCodec.decodeFromWire(endPos + 4, buffer)
-            entries.add(nextEntry)
-            endPos += entryLength
-        }
-        return ReportDataList(entries)
     }
 }
 
@@ -333,37 +284,37 @@ class HttpProtocolErrorOrJsonCodec: HttpProtocolErrorOrCodec<JsonObject, HttpPro
     }
 }
 
-class HttpProtocolErrorOrReportDataList private constructor(
+class HttpProtocolErrorOrReportData private constructor(
     error: HttpProtocolError?,
-    success: ReportDataList?
-): HttpProtocolErrorOr<ReportDataList>(error, success) {
+    success: ReportData?
+): HttpProtocolErrorOr<ReportData>(error, success) {
     companion object {
-        fun ofError(error: HttpProtocolError): HttpProtocolErrorOrReportDataList {
-            return HttpProtocolErrorOrReportDataList(error, null)
+        fun ofError(error: HttpProtocolError): HttpProtocolErrorOrReportData {
+            return HttpProtocolErrorOrReportData(error, null)
         }
 
-        fun ofSuccess(success: ReportDataList): HttpProtocolErrorOrReportDataList {
-            return HttpProtocolErrorOrReportDataList(null, success)
+        fun ofSuccess(success: ReportData): HttpProtocolErrorOrReportData {
+            return HttpProtocolErrorOrReportData(null, success)
         }
     }
 
     constructor(): this(HttpProtocolError(), null)
 }
 
-class HttpProtocolErrorOrReportDataListCodec: HttpProtocolErrorOrCodec<ReportDataList, HttpProtocolErrorOrReportDataList>(
+class HttpProtocolErrorOrReportDataCodec: HttpProtocolErrorOrCodec<ReportData, HttpProtocolErrorOrReportData>(
     "HttpProtocolErrorOrReportDataList",
-    ReportDataListCodec()
+    ReportDataCodec()
 ) {
-    override fun emptyFailureInstance(): HttpProtocolErrorOrReportDataList {
-        return HttpProtocolErrorOrReportDataList()
+    override fun emptyFailureInstance(): HttpProtocolErrorOrReportData {
+        return HttpProtocolErrorOrReportData()
     }
 
-    override fun ofError(err: HttpProtocolError): HttpProtocolErrorOrReportDataList {
-        return HttpProtocolErrorOrReportDataList.ofError(err)
+    override fun ofError(err: HttpProtocolError): HttpProtocolErrorOrReportData {
+        return HttpProtocolErrorOrReportData.ofError(err)
     }
 
-    override fun ofSuccess(succ: ReportDataList): HttpProtocolErrorOrReportDataList {
-        return HttpProtocolErrorOrReportDataList.ofSuccess(succ)
+    override fun ofSuccess(succ: ReportData): HttpProtocolErrorOrReportData {
+        return HttpProtocolErrorOrReportData.ofSuccess(succ)
     }
 }
 
@@ -374,9 +325,8 @@ fun registerMessageCodecs(vertx: Vertx) {
         .registerDefaultCodec(UnregisterQueryRequest::class.java, UnregisterQueryRequestCodec())
         .registerDefaultCodec(UnpackDataRequest::class.java, UnpackDataRequestCodec())
         .registerDefaultCodec(ReportData::class.java, ReportDataCodec())
-        .registerDefaultCodec(ReportDataList::class.java, ReportDataListCodec())
         .registerDefaultCodec(HttpProtocolErrorOrJson::class.java, HttpProtocolErrorOrJsonCodec())
-        .registerDefaultCodec(HttpProtocolErrorOrReportDataList::class.java, HttpProtocolErrorOrReportDataListCodec())
+        .registerDefaultCodec(HttpProtocolErrorOrReportData::class.java, HttpProtocolErrorOrReportDataCodec())
 }
 
 private fun addressForQueryServerQueryAtOffset(verticleOffset: Int): String {

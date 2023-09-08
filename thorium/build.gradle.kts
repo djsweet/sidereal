@@ -24,7 +24,7 @@ sourceSets {
 val operatingSystem = org.gradle.nativeplatform.platform.internal.DefaultNativePlatform.getCurrentOperatingSystem()!!
 
 val picocliVersion = "4.7.3"
-val vertxVersion = "4.4.2"
+val vertxVersion = "4.4.5"
 val nettyResolverDnsVersion = "4.1.92.Final"
 val netJqwik = "net.jqwik:jqwik:1.7.3"
 

@@ -1,7 +1,6 @@
 package name.djsweet.thorium
 
 import io.vertx.core.*
-import io.vertx.core.http.HttpServer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import picocli.CommandLine

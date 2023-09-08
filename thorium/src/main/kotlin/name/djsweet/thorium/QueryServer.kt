@@ -580,61 +580,55 @@ class JsonToQueryableTranslatorVerticle(verticleOffset: Int): ServerVerticle(ver
     private var maxJsonParsingRecursion = 16
     private var requestHandler: MessageConsumer<UnpackDataRequest>? = null
 
-    private fun handleUnpackDataRequest(req: UnpackDataRequest): HttpProtocolErrorOrReportDataList {
-        val (channel, entries) = req
+    private fun handleUnpackDataRequest(req: UnpackDataRequest): HttpProtocolErrorOrReportData {
+        val (channel, idempotencyKey, data) = req
         val channelBytes = convertStringToByteArray(channel)
-        val responseList = mutableListOf<ReportData>()
         val byteBudget = this.byteBudget
         val maxJsonParsingRecursion = this.maxJsonParsingRecursion
 
-        for (entry in entries) {
-            val (idempotencyKey, data) = entry
-            val jsonString: String
-            try {
-                jsonString = data.toString()
-            } catch (e: Exception) {
-                // Something has gone horribly wrong trying to convert this JSON to a string.
-                // We can't actually do anything with this in terms of queries.
-                return HttpProtocolErrorOrReportDataList.ofError(
-                    HttpProtocolError(
-                        400,
-                        baseJsonResponseForBadJsonString.copy().put("eventID", idempotencyKey)
-                    )
+        val jsonString: String
+        try {
+            jsonString = data.toString()
+        } catch (e: Exception) {
+            // Something has gone horribly wrong trying to convert this JSON to a string.
+            // We can't actually do anything with this in terms of queries.
+            return HttpProtocolErrorOrReportData.ofError(
+                HttpProtocolError(
+                    400,
+                    baseJsonResponseForBadJsonString.copy().put("eventID", idempotencyKey)
                 )
-            }
-            try {
-                val idempotencyKeyBytes = convertStringToByteArray(idempotencyKey)
-                if (idempotencyKeyBytes.size + channelBytes.size > byteBudget) {
-                    return HttpProtocolErrorOrReportDataList.ofError(HttpProtocolError(
-                        413,
-                        baseJsonResponseForOversizedChannelInfoIdempotencyKey.copy().put(
-                            "maxByteSize", byteBudget
-                        ).put(
-                            "eventID", idempotencyKey
-                        )
-                    ))
-                }
-                val (scalars, arrays) = encodeJsonToQueryableData(data, byteBudget, maxJsonParsingRecursion)
-                responseList.add(
-                    ReportData(
-                    channel=channel,
-                    idempotencyKey=idempotencyKey,
-                    queryableScalarData=scalars,
-                    queryableArrayData=arrays,
-                    actualData=jsonString
-                ))
-            } catch (e: StackOverflowError) {
-                // FIXME: Signal all consumers of byteBudget that this happened!
-                this.byteBudget = reestablishByteBudget(this.vertx.sharedData())
-                return HttpProtocolErrorOrReportDataList.ofError(HttpProtocolError(
-                    507,
-                    baseJsonResponseForStackOverflowData.copy().put(
+            )
+        }
+        try {
+            val idempotencyKeyBytes = convertStringToByteArray(idempotencyKey)
+            if (idempotencyKeyBytes.size + channelBytes.size > byteBudget) {
+                return HttpProtocolErrorOrReportData.ofError(HttpProtocolError(
+                    413,
+                    baseJsonResponseForOversizedChannelInfoIdempotencyKey.copy().put(
                         "maxByteSize", byteBudget
+                    ).put(
+                        "eventID", idempotencyKey
                     )
                 ))
             }
+            val (scalars, arrays) = encodeJsonToQueryableData(data, byteBudget, maxJsonParsingRecursion)
+            return HttpProtocolErrorOrReportData.ofSuccess(ReportData(
+                channel=channel,
+                idempotencyKey=idempotencyKey,
+                queryableScalarData=scalars,
+                queryableArrayData=arrays,
+                actualData=jsonString
+            ))
+        } catch (e: StackOverflowError) {
+            // FIXME: Signal all consumers of byteBudget that this happened!
+            this.byteBudget = reestablishByteBudget(this.vertx.sharedData())
+            return HttpProtocolErrorOrReportData.ofError(HttpProtocolError(
+                507,
+                baseJsonResponseForStackOverflowData.copy().put(
+                    "maxByteSize", byteBudget
+                )
+            ))
         }
-        return HttpProtocolErrorOrReportDataList.ofSuccess(ReportDataList(responseList))
     }
 
     override fun start() {
