@@ -3,8 +3,10 @@ package name.djsweet.thorium
 import io.vertx.core.AbstractVerticle
 import io.vertx.core.DeploymentOptions
 import io.vertx.core.Future
+import io.vertx.core.Future.join
 import io.vertx.core.eventbus.Message
 import io.vertx.core.Vertx
+import io.vertx.core.eventbus.EventBus
 import io.vertx.core.eventbus.MessageConsumer
 import io.vertx.kotlin.core.json.jsonObjectOf
 import io.vertx.kotlin.coroutines.await
@@ -325,7 +327,7 @@ private val ciRemoveMin = { ci: ChannelInfo -> ci.removeMinimumIdempotencyKeys()
 class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency(verticleOffset) {
     private var channels = QPTrie<ChannelInfo>()
     private val responders = ArrayList<QueryResponderSpec>()
-    private val respondFutures = ArrayList<Triple<Future<Message<Any>>, String, String>>()
+    private val respondFutures = ArrayList<Future<Message<Any>>>()
     private val arrayResponderReferenceCounts = mutableMapOf<QueryResponderSpec, Long>()
     private val arrayResponderInsertionPairs = ArrayList<Pair<ByteArray, ByteArray>>()
 
@@ -432,21 +434,25 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
     }
 
     private fun unregisterQuery(req: UnregisterQueryRequest): HttpProtocolErrorOrJson {
-        val channelBytes = convertStringToByteArray(req.channel)
+        return this.unregisterQuery(req.channel, req.clientID)
+    }
+
+    private fun unregisterQuery(channelString: String, clientID: String): HttpProtocolErrorOrJson {
+        val channelBytes = convertStringToByteArray(channelString)
         val channel = this.channels.get(channelBytes) ?: return HttpProtocolErrorOrJson.ofError(
             HttpProtocolError(404, jsonObjectOf(
                 "code" to "missing-channel",
-                "channel" to req.channel
+                "channel" to channelString
             ))
         )
 
-        val updatedChannel = channel.unregisterQuery(req.clientID)
+        val updatedChannel = channel.unregisterQuery(clientID)
         return if (updatedChannel === channel) {
             HttpProtocolErrorOrJson.ofError(
                 HttpProtocolError(404, jsonObjectOf(
                     "code" to "missing-client-id",
-                    "channel" to req.channel,
-                    "client-id" to req.clientID
+                    "channel" to channelString,
+                    "clientID" to clientID
                 ))
             )
         } else {
@@ -454,9 +460,21 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
             this.queryCount -= (channel.queryTree.size - updatedChannel.queryTree.size).toInt()
             setCurrentQueryCount(this.vertx.sharedData(), this.verticleOffset, this.queryCount)
             HttpProtocolErrorOrJson.ofSuccess(jsonObjectOf(
-                "channel" to req.channel,
-                "client-id" to req.clientID
+                "channel" to channelString,
+                "clientID" to clientID
             ))
+        }
+    }
+
+    private fun trySendDataToResponder(
+        eventBus: EventBus,
+        data: ReportData,
+        responder: QueryResponderSpec
+    ): Future<Message<Any>> {
+        val (_, respondTo, clientID) = responder
+        return eventBus.request<Any>(respondTo, data, localRequestOptions).onFailure {
+            this.unregisterQuery(data.channel, responder.clientID)
+            eventBus.publish(respondTo, UnregisterQueryRequest(data.channel, clientID))
         }
     }
 
@@ -510,7 +528,7 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
         }
         var arrayResponderQueries = QPTrie<QPTrie<IdentitySet<QueryResponderSpec>>>()
         for (responder in responders) {
-            val (query, respondTo, clientID, _, arrayContainsCount) = responder
+            val (query, _, _, _, arrayContainsCount) = responder
             if (!query.notEqualsMatchesData(queryableScalarData.trie)) {
                 continue
             }
@@ -536,7 +554,7 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
                 }
                 continue
             }
-            respondFutures.add(Triple(eventBus.request(respondTo, response, localRequestOptions), respondTo, clientID))
+            respondFutures.add(this.trySendDataToResponder(eventBus, response, responder))
         }
         responders.clear()
 
@@ -551,10 +569,7 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
                         val nextReferenceCount = (arrayResponderReferenceCounts[responder] ?: 0) - 1
                         if (nextReferenceCount == 0L) {
                             arrayResponderReferenceCounts.remove(responder)
-                            val (_, respondTo, clientID) = responder
-                            respondFutures.add(
-                                Triple(eventBus.request(respondTo, response, localRequestOptions), respondTo, clientID)
-                            )
+                            respondFutures.add(this.trySendDataToResponder(eventBus, response, responder))
                         } else {
                             arrayResponderReferenceCounts[responder] = nextReferenceCount
                         }
@@ -572,15 +587,10 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
             }
         }
         arrayResponderReferenceCounts.clear()
-        // Backpressure: we don't return until all clients accept the message.
+        // Backpressure: we don't return until all clients either accept the message, or we time out.
+        // If we time out, we remove the query and attempt to notify the client that we have done so.
         try {
-            for ((respondFuture, respondTo, clientID) in respondFutures) {
-                try {
-                    respondFuture.await()
-                } catch (e: Exception) {
-                    eventBus.publish(respondTo, UnregisterQueryRequest(channel, clientID))
-                }
-            }
+            join(respondFutures).await()
         } finally {
             respondFutures.clear()
             decrementOutstandingQueryCountAsync(this.vertx.sharedData(), 1)
