@@ -101,6 +101,7 @@ abstract class IdempotencyManager<TValues, TSelf>: ChannelIdempotencyMapping {
 
 abstract class ServerVerticle(protected val verticleOffset: Int): AbstractVerticle() {
     private var byteBudgetResetConsumer: MessageConsumer<ResetByteBudget>? = null
+    private var lastFuture = Future.succeededFuture<Unit>()
     protected var byteBudget = 0
 
     protected abstract fun resetForNewByteBudget()
@@ -125,12 +126,13 @@ abstract class ServerVerticle(protected val verticleOffset: Int): AbstractVertic
 
     protected fun<T, U> runAndReply(message: Message<T>, handler: suspend (T) -> U) {
         val self = this
-        val response = vertxFuture { self.runCoroutineHandlingStackOverflow(message, handler) }
-        response.onComplete {
-            if (it.succeeded()) {
-                message.reply(it.result())
-            } else {
-                message.fail(500, it.cause().message)
+        self.lastFuture = self.lastFuture.eventually { _ ->
+            vertxFuture { self.runCoroutineHandlingStackOverflow(message, handler) }.onComplete {
+                if (it.succeeded()) {
+                    message.reply(it.result())
+                } else {
+                    message.fail(500, it.cause().message)
+                }
             }
         }
     }
@@ -140,12 +142,14 @@ abstract class ServerVerticle(protected val verticleOffset: Int): AbstractVertic
         val vertx = this.vertx
 
         this.byteBudget = getByteBudget(vertx.sharedData())
-        this.byteBudgetResetConsumer = vertx.eventBus().localConsumer(addressForByteBudgetReset) {
-            val (newByteBudget) = it.body()
-            if (this.byteBudget <= newByteBudget) return@localConsumer
+        this.byteBudgetResetConsumer = vertx.eventBus().localConsumer(addressForByteBudgetReset) { message ->
+            this.lastFuture = this.lastFuture.onComplete {
+                val (newByteBudget) = message.body()
+                if (this.byteBudget <= newByteBudget) return@onComplete
 
-            this.byteBudget = newByteBudget
-            this.resetForNewByteBudget()
+                this.byteBudget = newByteBudget
+                this.resetForNewByteBudget()
+            }
         }
     }
 
