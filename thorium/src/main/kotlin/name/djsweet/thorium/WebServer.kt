@@ -12,6 +12,7 @@ import io.vertx.core.http.HttpMethod
 import io.vertx.core.http.HttpServer
 import io.vertx.core.http.HttpServerRequest
 import io.vertx.core.http.HttpServerResponse
+import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
 import io.vertx.kotlin.core.json.jsonObjectOf
 import io.vertx.kotlin.coroutines.await
@@ -24,6 +25,7 @@ fun jsonStatusCodeResponse(req: HttpServerRequest, code: Int): HttpServerRespons
     return req.response()
         .setStatusCode(code)
         .putHeader("Content-Type", "application/json; charset=utf-8")
+        .putHeader("Cache-Control", "no-store")
         .putHeader("Access-Control-Allow-Origin", "*")
 }
 
@@ -226,6 +228,7 @@ val missingEventSourceJson = jsonObjectOf("code" to "missing-event-source")
 val missingEventIDJson = jsonObjectOf("code" to "missing-event-id")
 val invalidJsonBodyJson = jsonObjectOf("code" to "invalid-json-body")
 val baseExceededDataLimitJson = jsonObjectOf("code" to "exceeded-outstanding-data-limit")
+val invalidDataFieldJson = jsonObjectOf("code" to "invalid-data-field")
 val acceptedJson = jsonObjectOf("code" to "accepted")
 
 fun handleDataWithUnpackRequest(vertx: Vertx, unpackReqs: List<UnpackDataRequest>, httpReq: HttpServerRequest) {
@@ -329,9 +332,9 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
             }
             val idempotencyKey = "$eventSource $eventID"
             req.bodyHandler { bodyBytes ->
-                val json: JsonObject
+                val data: JsonObject
                 try {
-                    json = JsonObject(bodyBytes)
+                    data = JsonObject(bodyBytes)
                 } catch (e: Exception) {
                     jsonStatusCodeResponse(req,400).end(invalidJsonBodyJson.toString())
                     return@bodyHandler
@@ -339,12 +342,115 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
                 val unpackRequest = UnpackDataRequest(
                     channel,
                     idempotencyKey,
-                    json
+                    data
                 )
                 handleDataWithUnpackRequest(vertx, listOf(unpackRequest), req)
             }
         }
-        // FIXME: Handle Structured Content and Batched Content modes
+        "application/cloudevents+json" -> {
+            req.bodyHandler { bodyBytes ->
+                val json: JsonObject
+                try {
+                    json = JsonObject(bodyBytes)
+                } catch (e: Exception) {
+                    jsonStatusCodeResponse(req,400).end(invalidJsonBodyJson.toString())
+                    return@bodyHandler
+                }
+
+                val eventSource = json.getValue("source")
+                if (eventSource !is String) {
+                    jsonStatusCodeResponse(req, 400).end(missingEventSourceJson.toString())
+                    return@bodyHandler
+                }
+
+                val eventID = json.getValue("id")
+                if (eventID !is String) {
+                    jsonStatusCodeResponse(req, 400).end(missingEventIDJson.toString())
+                    return@bodyHandler
+                }
+
+                val data = json.getValue("data")
+                if (data !is JsonObject) {
+                    jsonStatusCodeResponse(req, 400).end(invalidDataFieldJson.toString())
+                    return@bodyHandler
+                }
+
+                val idempotencyKey = "$eventSource $eventID"
+                val unpackRequest = UnpackDataRequest(
+                    channel,
+                    idempotencyKey,
+                    data
+                )
+                handleDataWithUnpackRequest(vertx, listOf(unpackRequest), req)
+            }
+        }
+        "application/cloudevents-batch+json" -> {
+            req.bodyHandler { bodyBytes ->
+                val json: JsonArray
+                try {
+                    json = JsonArray(bodyBytes)
+                } catch (e: Exception) {
+                    jsonStatusCodeResponse(req,400).end(invalidJsonBodyJson.toString())
+                    return@bodyHandler
+                }
+
+                val unpackRequests = mutableListOf<UnpackDataRequest>()
+                for (i in 0 until json.size()) {
+                    val elem = json.getValue(i)
+                    if (elem !is JsonObject) {
+                        jsonStatusCodeResponse(req,400).end(
+                            invalidJsonBodyJson
+                                .copy()
+                                .put("offset", i)
+                                .toString()
+                        )
+                        return@bodyHandler
+                    }
+
+                    val eventSource = elem.getValue("source")
+                    if (eventSource !is String) {
+                        jsonStatusCodeResponse(req, 400).end(
+                            missingEventSourceJson
+                                .copy()
+                                .put("offset", i)
+                                .toString()
+                        )
+                        return@bodyHandler
+                    }
+
+                    val eventID = elem.getValue("id")
+                    if (eventID !is String) {
+                        jsonStatusCodeResponse(req, 400).end(
+                            missingEventIDJson
+                                .copy()
+                                .put("offset", i)
+                                .toString()
+                        )
+                        return@bodyHandler
+                    }
+
+                    val data = elem.getValue("data")
+                    if (data !is JsonObject) {
+                        jsonStatusCodeResponse(req, 400).end(
+                            invalidDataFieldJson
+                                .copy()
+                                .put("offset", i)
+                                .toString()
+                        )
+                        return@bodyHandler
+                    }
+
+                    val idempotencyKey = "$eventSource $eventID"
+                    unpackRequests.add(UnpackDataRequest(
+                        channel,
+                        idempotencyKey,
+                        data
+                    ))
+                }
+
+                handleDataWithUnpackRequest(vertx, unpackRequests, req)
+            }
+        }
         else -> {
             jsonStatusCodeResponse(req, 400).end(
                 baseUnsupportedContentTypeJson.put("content-type", withParams).toString()
