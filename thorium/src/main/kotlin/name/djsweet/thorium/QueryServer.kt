@@ -564,7 +564,7 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
 
 
 val baseJsonResponseForBadJsonString = jsonObjectOf("code" to "failed-json-stringify")
-val baseJsonResponseForOversizedChannelInfoIdempotencyKey = jsonObjectOf(
+val baseJsonResponseForOverSizedChannelInfoIdempotencyKey = jsonObjectOf(
     "code" to "channel-idempotency-too-large"
 )
 val baseJsonResponseForStackOverflowData = jsonObjectOf(
@@ -604,7 +604,7 @@ class JsonToQueryableTranslatorVerticle(verticleOffset: Int): ServerVerticle(ver
             if (idempotencyKeyBytes.size + channelBytes.size > byteBudget) {
                 return HttpProtocolErrorOrReportData.ofError(HttpProtocolError(
                     413,
-                    baseJsonResponseForOversizedChannelInfoIdempotencyKey.copy().put(
+                    baseJsonResponseForOverSizedChannelInfoIdempotencyKey.copy().put(
                         "maxByteSize", byteBudget
                     ).put(
                         "eventID", idempotencyKey

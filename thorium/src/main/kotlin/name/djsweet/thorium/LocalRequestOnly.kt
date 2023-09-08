@@ -32,7 +32,7 @@ abstract class LocalPrimaryMessageCodec<T>(
         return s ?: this.emptyInstance()
     }
 
-    protected abstract fun encodeToWireNonNullBuffer(buffer: Buffer, s: T): Unit
+    protected abstract fun encodeToWireNonNullBuffer(buffer: Buffer, s: T)
     protected abstract fun decodeFromWireNonNullBuffer(pos: Int, buffer: Buffer): T
 
     override fun encodeToWire(buffer: Buffer?, s: T) {

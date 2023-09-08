@@ -130,10 +130,6 @@ internal class Radix64LowLevelEncoder : Radix64Encoder() {
             encodeByteArray(r, dst, 0)
             return dst
         }
-
-        fun ofString(s: String): ByteArray {
-            return ofByteArray(convertStringToByteArray(s))
-        }
     }
 
     fun addByteArray(r: ByteArray): Radix64LowLevelEncoder {

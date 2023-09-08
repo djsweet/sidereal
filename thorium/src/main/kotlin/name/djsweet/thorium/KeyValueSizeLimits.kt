@@ -75,9 +75,9 @@ private suspend fun maxSafeKeyValueSizeWithIterationsAsync(vertx: Vertx, iterati
     return maxKeySize / MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR
 }
 
-private fun maxSafeKeyValueSizeWithIterations(iterations: Int): Int {
+private fun maxSafeKeyValueSizeWithMaxIterations(): Int {
     var maxKeySize = MAX_POSSIBLE_KEY_VALUE_SIZE * MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR
-    for (i in 0 until iterations) {
+    for (i in 0 until MAX_POSSIBLE_KEY_VALUE_SIZE_ITERATIONS) {
         maxKeySize = maxKeySize.coerceAtMost(maxSafeKeyValueSizeSingleIteration(maxKeySize))
     }
     return maxKeySize / MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR
@@ -104,9 +104,9 @@ internal fun maxSafeKeyValueSizeSync(vertx: Vertx): Int {
 }
 
 // This is used in benchmarking, which is why it can't be internal.
-// There's also a nonzero chance of this having to run from within Vertx due to a bootup race condition.
+// There's also a nonzero chance of this having to run from within Vertx due to a boot-up race condition.
 fun maxSafeKeyValueSizeSync(): Int {
-    val maxSafeKeyValueSize = maxSafeKeyValueSizeWithIterations(MAX_POSSIBLE_KEY_VALUE_SIZE_ITERATIONS)
+    val maxSafeKeyValueSize = maxSafeKeyValueSizeWithMaxIterations()
     ensureMinPossibleKeyValueSize(maxSafeKeyValueSize)
     return maxSafeKeyValueSize
 }

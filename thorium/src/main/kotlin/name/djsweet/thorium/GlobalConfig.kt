@@ -1,6 +1,5 @@
 package name.djsweet.thorium
 
-import io.vertx.core.Vertx
 import io.vertx.core.shareddata.LocalMap
 import io.vertx.core.shareddata.SharedData
 

@@ -146,10 +146,10 @@ class QueryClientSSEVerticle(
 const val channelsPrefix = "/channels/"
 val baseInvalidMethodJson = jsonObjectOf("code" to "invalid-method")
 val baseInvalidChannelJson = jsonObjectOf("code" to "invalid-channel")
-val internalFalureJson = jsonObjectOf("code" to "internal-failure")
+val internalFailureJson = jsonObjectOf("code" to "internal-failure")
 
 fun failRequest(req: HttpServerRequest): Future<Void> {
-    return jsonStatusCodeResponse(req, 500).end(internalFalureJson.toString())
+    return jsonStatusCodeResponse(req, 500).end(internalFailureJson.toString())
 }
 
 fun handleQuery(vertx: Vertx, channel: String, req: HttpServerRequest) {
