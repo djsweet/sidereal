@@ -57,6 +57,8 @@ class QueryClientSSEVerticle(
         if (this.resp.headWritten()) {
             return
         }
+        val nowIsh = nowAsString()
+        val connectPayload = jsonObjectOf("timestamp" to nowIsh, "clientID" to this.clientID).toString()
         this.resp
             .setChunked(true)
             .setStatusCode(200)
@@ -64,7 +66,7 @@ class QueryClientSSEVerticle(
             .putHeader("Cache-Control", "no-store")
             .putHeader("Connection", "keep-alive")
             .putHeader("Access-Control-Allow-Origin", "*")
-            .write(": connected timestamp=${nowAsString()} client-id=$clientID\n\n")
+            .write(": connected timestamp=$nowIsh clientID=${this.clientID}\nevent: connect\ndata: $connectPayload\n\n")
     }
 
     private fun writePing(): Future<Void> {
