@@ -114,6 +114,12 @@ class QueryClientSSEVerticle(
         this.messageHandler = eventBus.consumer(this.clientAddress) { message ->
             val messageBody = message.body()
             if (resp.ended()) {
+                // It's important that we keep replying to the query server even when we're not
+                // actually sending the data; if we dropped this message without replying to it,
+                // we'd deadlock the query server until Vertx times out the request. This is
+                // particularly important around the query un-registration process: we might receive
+                // multiple data reports before the un-registration actually happens, even after
+                // we've requested it.
                 if (messageBody is ReportData) {
                     message.reply("ended")
                 }
