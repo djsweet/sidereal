@@ -10,6 +10,10 @@ abstract class BinaryHeap<T, U : BinaryHeap<T, U>> {
     protected abstract fun self(): U
     protected abstract fun maintainsHeapInvariant(parent: T, child: T): Boolean
 
+    fun clear() {
+        this.backing.clear()
+    }
+
     fun peek(): T? {
         val backing = this.backing
         return if (backing.size == 0) {

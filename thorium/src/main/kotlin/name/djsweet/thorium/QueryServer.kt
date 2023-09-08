@@ -13,6 +13,7 @@ import name.djsweet.query.tree.IdentitySet
 import name.djsweet.query.tree.QPTrie
 import name.djsweet.query.tree.QueryPath
 import name.djsweet.query.tree.QuerySetTree
+import java.nio.charset.Charset
 import java.util.*
 import kotlin.collections.ArrayList
 import kotlin.coroutines.suspendCoroutine
@@ -97,8 +98,32 @@ abstract class IdempotencyManager<TValues, TSelf>: ChannelIdempotencyMapping {
 }
 
 abstract class ServerVerticle(protected val verticleOffset: Int): AbstractVerticle() {
+    private var byteBudgetResetConsumer: MessageConsumer<ResetByteBudget>? = null
+    protected var byteBudget = 0
+
+    protected abstract fun resetForNewByteBudget()
+
+    protected fun handleStackOverflowWithNewByteBudget() {
+        val newByteBudget = reestablishByteBudget(this.vertx.sharedData())
+        this.byteBudget = newByteBudget
+        this.resetForNewByteBudget()
+        this.vertx
+            .eventBus()
+            .publish(addressForByteBudgetReset, ResetByteBudget(newByteBudget), localRequestOptions)
+    }
+
+    private suspend fun <T, U>runCoroutineHandlingStackOverflow(message: Message<T>, handler: suspend (T) -> U): U {
+        try {
+            return handler(message.body())
+        } catch (e: StackOverflowError) {
+            this.handleStackOverflowWithNewByteBudget()
+            throw e
+        }
+    }
+
     protected fun<T, U> runAndReply(message: Message<T>, handler: suspend (T) -> U) {
-        val response = vertxFuture { handler(message.body()) }
+        val self = this
+        val response = vertxFuture { self.runCoroutineHandlingStackOverflow(message, handler) }
         response.onComplete {
             if (it.succeeded()) {
                 message.reply(it.result())
@@ -106,6 +131,25 @@ abstract class ServerVerticle(protected val verticleOffset: Int): AbstractVertic
                 message.fail(500, it.cause().message)
             }
         }
+    }
+
+    override fun start() {
+        super.start()
+        val vertx = this.vertx
+
+        this.byteBudget = getByteBudget(vertx.sharedData())
+        this.byteBudgetResetConsumer = vertx.eventBus().localConsumer(addressForByteBudgetReset) {
+            val (newByteBudget) = it.body()
+            if (this.byteBudget <= newByteBudget) return@localConsumer
+
+            this.byteBudget = newByteBudget
+            this.resetForNewByteBudget()
+        }
+    }
+
+    override fun stop() {
+        this.byteBudgetResetConsumer?.unregister()
+        super.stop()
     }
 }
 
@@ -285,11 +329,26 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
     private val arrayResponderReferenceCounts = mutableMapOf<QueryResponderSpec, Long>()
     private val arrayResponderInsertionPairs = ArrayList<Pair<ByteArray, ByteArray>>()
 
-    private var byteBudget = 0
     private var maxQueryTerms = 0
     private var queryCount = 0
     private var queryHandler: MessageConsumer<Any>? = null
     private var dataHandler: MessageConsumer<ReportData>? = null
+
+    override fun resetForNewByteBudget() {
+        val eventBus = this.vertx.eventBus()
+        for ((channelBytes, channelInfo) in this.channels) {
+            val channel = channelBytes.toString(Charset.forName("utf-8"))
+            for ((_, responderSpecToPath) in channelInfo.queriesByClientID) {
+                val (responderSpec) = responderSpecToPath
+                val (_, respondTo, clientID) = responderSpec
+                eventBus.publish(respondTo, UnregisterQueryRequest(channel, clientID))
+            }
+        }
+        this.channels = QPTrie()
+        this.idempotencyKeyRemovalSchedule.clear()
+        this.queryCount = 0
+        setCurrentQueryCount(this.vertx.sharedData(), this.verticleOffset, this.queryCount)
+    }
 
     private fun updateChannelsWithRemoval(
         targetChannel: ByteArray,
@@ -337,15 +396,17 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
                         this.byteBudget
                     )
                 } catch (x: StackOverflowError) {
-                    // FIXME: We should tell all the other query servers that they need to dump their queries!
-                    this.byteBudget = reestablishByteBudget(this.vertx.sharedData())
+                    // This is an intentional early trapping of StackOverflowError, even though
+                    // it's being handled transparently in runAndReply. Doing this here allows us
+                    // to re-attempt without a crash, which should result in .whenError getting
+                    // an appropriate HTTP status code.
+                    this.handleStackOverflowWithNewByteBudget()
                     continue
                 }
                 possiblyFullQuery
                     .whenError { cont.resumeWith(Result.success(HttpProtocolErrorOrJson.ofError(it))) }
                     .whenSuccess { query ->
                         val channelBytes = convertStringToByteArray(req.channel)
-                        // FIXME: StackOverflowErrors can come from here too
                         this.channels = this.channels.update(channelBytes) {
                             val basis = (it ?: ChannelInfo())
                             val result = basis.registerQuery(query, req.clientID, req.returnAddress)
@@ -371,7 +432,6 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
     }
 
     private fun unregisterQuery(req: UnregisterQueryRequest): HttpProtocolErrorOrJson {
-        // FIXME: This might result in a StackOverflowError
         val channelBytes = convertStringToByteArray(req.channel)
         val channel = this.channels.get(channelBytes) ?: return HttpProtocolErrorOrJson.ofError(
             HttpProtocolError(404, jsonObjectOf(
@@ -420,7 +480,6 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
         var newChannel = false
         var updatedChannelInfo: ChannelInfo? = null
         val priorRemovalScheduleSize = this.idempotencyKeyRemovalSchedule.size
-        // FIXME: This operation might cause a StackOverflow itself
         this.channels = this.channels.update(channelBytes) {
             val updateTarget = (it ?: ChannelInfo())
             newChannel = !updateTarget.hasIdempotencyKeys()
@@ -452,14 +511,12 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
         var arrayResponderQueries = QPTrie<QPTrie<IdentitySet<QueryResponderSpec>>>()
         for (responder in responders) {
             val (query, respondTo, clientID, _, arrayContainsCount) = responder
-            // FIXME: notEqualsMatchesData could result in a StackOverflowError; trap and handle this
             if (!query.notEqualsMatchesData(queryableScalarData.trie)) {
                 continue
             }
             // If we have any arrayContains we have to inspect, save this for another phase
             if (arrayContainsCount > 0) {
                 arrayResponderReferenceCounts[responder] = arrayContainsCount
-                // FIXME: This could result in a StackOverflowError; trap and handle this
                 try {
                     query.arrayContains.visitUnsafeSharedKey { (key, values) ->
                         values.visitAscendingUnsafeSharedKey { (value) ->
@@ -483,7 +540,6 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
         }
         responders.clear()
 
-        // FIXME: This could be a source of StackOverflowError; trap and handle this
         if (arrayResponderReferenceCounts.size > 0L) {
             queryableArrayData.trie.visitUnsafeSharedKey { (key, values) ->
                 val respondersForKey = arrayResponderQueries.get(key) ?: return@visitUnsafeSharedKey
@@ -534,7 +590,6 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
     override fun start() {
         super.start()
 
-        this.byteBudget = getByteBudget(this.vertx.sharedData())
         this.maxQueryTerms = getMaxQueryTerms(this.vertx.sharedData())
 
         val eventBus = this.vertx.eventBus()
@@ -576,9 +631,12 @@ val baseJsonResponseForStackOverflowData = jsonObjectOf(
 // we would be growing our working set of "cached data" up to millions of saved entries rather quickly,
 // just to save on the "cost" of reprocessing a tiny handful.
 class JsonToQueryableTranslatorVerticle(verticleOffset: Int): ServerVerticle(verticleOffset) {
-    private var byteBudget = 0
     private var maxJsonParsingRecursion = 16
     private var requestHandler: MessageConsumer<UnpackDataRequest>? = null
+
+    override fun resetForNewByteBudget() {
+        // We aren't keeping any state that is affected by the byte budget.
+    }
 
     private fun handleUnpackDataRequest(req: UnpackDataRequest): HttpProtocolErrorOrReportData {
         val (channel, idempotencyKey, data) = req
@@ -620,8 +678,7 @@ class JsonToQueryableTranslatorVerticle(verticleOffset: Int): ServerVerticle(ver
                 actualData=jsonString
             ))
         } catch (e: StackOverflowError) {
-            // FIXME: Signal all consumers of byteBudget that this happened!
-            this.byteBudget = reestablishByteBudget(this.vertx.sharedData())
+            this.handleStackOverflowWithNewByteBudget()
             return HttpProtocolErrorOrReportData.ofError(HttpProtocolError(
                 507,
                 baseJsonResponseForStackOverflowData.copy().put(
@@ -637,7 +694,6 @@ class JsonToQueryableTranslatorVerticle(verticleOffset: Int): ServerVerticle(ver
         val vertx = this.vertx
         val sharedData = vertx.sharedData()
         val eventBus = vertx.eventBus()
-        this.byteBudget = getByteBudget(sharedData)
         this.maxJsonParsingRecursion = getMaxJsonParsingRecursion(sharedData)
 
         this.requestHandler = eventBus.localConsumer(addressForTranslatorServer(sharedData, this.verticleOffset)) {

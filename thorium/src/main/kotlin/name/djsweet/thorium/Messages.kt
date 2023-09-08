@@ -217,6 +217,25 @@ class ReportDataCodec: LocalPrimaryMessageCodec<ReportData>("ReportData") {
     }
 }
 
+data class ResetByteBudget(val byteBudget: Int) {
+    constructor(): this(0)
+}
+
+class ResetByteBudgetCodec: LocalPrimaryMessageCodec<ResetByteBudget>("ResetByteBudget") {
+    override fun emptyInstance(): ResetByteBudget {
+        return ResetByteBudget()
+    }
+
+    override fun encodeToWireNonNullBuffer(buffer: Buffer, s: ResetByteBudget) {
+        buffer.appendInt(s.byteBudget)
+    }
+
+    override fun decodeFromWireNonNullBuffer(pos: Int, buffer: Buffer): ResetByteBudget {
+        val byteBudget = buffer.getInt(pos)
+        return ResetByteBudget(byteBudget)
+    }
+}
+
 abstract class HttpProtocolErrorOrCodec<T, U: HttpProtocolErrorOr<T>>(
     nameSuffix: String,
     private val codec: LocalPrimaryMessageCodec<T>,
@@ -325,6 +344,7 @@ fun registerMessageCodecs(vertx: Vertx) {
         .registerDefaultCodec(UnregisterQueryRequest::class.java, UnregisterQueryRequestCodec())
         .registerDefaultCodec(UnpackDataRequest::class.java, UnpackDataRequestCodec())
         .registerDefaultCodec(ReportData::class.java, ReportDataCodec())
+        .registerDefaultCodec(ResetByteBudget::class.java, ResetByteBudgetCodec())
         .registerDefaultCodec(HttpProtocolErrorOrJson::class.java, HttpProtocolErrorOrJsonCodec())
         .registerDefaultCodec(HttpProtocolErrorOrReportData::class.java, HttpProtocolErrorOrReportDataCodec())
 }
@@ -374,3 +394,5 @@ fun addressForTranslatorServer(sharedData: SharedData, verticleOffset: Int): Str
     }
     return currentTranslatorServerAddresses[verticleOffset]
 }
+
+const val addressForByteBudgetReset = "thorium.byteBudgetReset"
