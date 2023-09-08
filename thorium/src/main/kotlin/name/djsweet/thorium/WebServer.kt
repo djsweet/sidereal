@@ -167,7 +167,7 @@ fun handleQuery(vertx: Vertx, channel: String, req: HttpServerRequest) {
             failRequest(req)
             return@increment
         }
-        val queryMap = QueryStringDecoder(req.query() ?: "").parameters()
+        val queryMap = QueryStringDecoder(req.query() ?: "", false).parameters()
         val clientID = getClientIDFromSerial()
         val returnAddress = addressForQueryClientAtOffset(clientID)
         var bestOffset = 0
