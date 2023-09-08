@@ -16,6 +16,7 @@ import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
 import io.vertx.kotlin.core.json.jsonObjectOf
 import io.vertx.kotlin.coroutines.await
+import java.net.URLDecoder
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -495,11 +496,11 @@ class WebServerVerticle: AbstractVerticle() {
                         )
                         return@requestHandler
                     }
-                    val channel = if (slashIndex < 0) {
+                    val channel = URLDecoder.decode(if (slashIndex < 0) {
                         possiblyChannel
                     } else {
                         possiblyChannel.substring(0, slashIndex)
-                    }
+                    }, "UTF-8")
 
                     if (req.method() == HttpMethod.POST || req.method() == HttpMethod.PUT) {
                         handleData(vertx, channel, req)
