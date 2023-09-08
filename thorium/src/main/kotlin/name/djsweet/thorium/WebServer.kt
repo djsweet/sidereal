@@ -64,14 +64,14 @@ class QueryClientSSEVerticle(
             .putHeader("Cache-Control", "no-store")
             .putHeader("Connection", "keep-alive")
             .putHeader("Access-Control-Allow-Origin", "*")
-            .write(": connected at ${nowAsString()} with client ID $clientID\n\n")
+            .write(": connected timestamp=${nowAsString()} client-id=$clientID\n\n")
     }
 
-    private fun writeComment(): Future<Void> {
-        return this.resp.write(": ping at ${nowAsString()}\n\n")
+    private fun writePing(): Future<Void> {
+        return this.resp.write(": ping timestamp=${nowAsString()}\n\n")
     }
 
-    private fun setupCommentTimer() {
+    private fun setupPingTimer() {
         val currentTimerID = this.timerID
         val vertx = this.vertx
         if (currentTimerID != null) {
@@ -82,15 +82,15 @@ class QueryClientSSEVerticle(
         if (commentFuture != null) {
             commentFuture.onComplete {
                 this.timerID = vertx.setTimer(serverSentCommentTimeout) {
-                    this.commentFuture = writeComment().onComplete {
-                        this.setupCommentTimer()
+                    this.commentFuture = writePing().onComplete {
+                        this.setupPingTimer()
                     }
                 }
             }
         } else {
             this.timerID = vertx.setTimer(serverSentCommentTimeout) {
-                this.commentFuture = writeComment().onComplete {
-                    this.setupCommentTimer()
+                this.commentFuture = writePing().onComplete {
+                    this.setupPingTimer()
                 }
             }
         }
@@ -126,11 +126,11 @@ class QueryClientSSEVerticle(
                 return@consumer
             }
             this.writeHeadersIfNecessary()
-            this.setupCommentTimer()
+            this.setupPingTimer()
             if (messageBody is ReportData) {
                 val dataPayload = messageBody.actualData.replace("\n", "\ndata: ")
                 resp.write(
-                    ": sent at ${nowAsString()}\nevent: data\nid: ${messageBody.idempotencyKey}\ndata: $dataPayload\n\n"
+                    ": data timestamp=${nowAsString()}\nevent: data\nid: ${messageBody.idempotencyKey}\ndata: $dataPayload\n\n"
                 ).onComplete {
                     message.reply("handled")
                 }
