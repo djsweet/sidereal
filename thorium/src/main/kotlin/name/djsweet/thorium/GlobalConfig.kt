@@ -46,7 +46,7 @@ fun getMaxJsonParsingRecursion(sharedData: SharedData): Int {
 }
 
 fun getMaxOutstandingData(sharedData: SharedData): Long {
-    return limitLocalMap(sharedData).getOrDefault("maxOutstandingData", 16384).toLong()
+    return limitLocalMap(sharedData).getOrDefault("maxOutstandingData", 128 * 1024).toLong()
 }
 
 fun getQueryThreads(sharedData: SharedData): Int {
