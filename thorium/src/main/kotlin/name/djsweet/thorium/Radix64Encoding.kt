@@ -314,6 +314,14 @@ internal class Radix64JsonEncoder : Radix64Encoder() {
                 IN_BUDGET_SUFFIX.size
             )
         }
+
+        fun removeInBudgetSuffixFromString(ba: ByteArray): ByteArray {
+            return if (!isStringWithinBudget(ba)) {
+                ba
+            } else {
+                ba.copyOfRange(0, ba.size - IN_BUDGET_SUFFIX.size)
+            }
+        }
     }
 
     fun addNull(): Radix64JsonEncoder {

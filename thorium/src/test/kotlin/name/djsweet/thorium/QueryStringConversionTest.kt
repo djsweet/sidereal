@@ -312,7 +312,12 @@ class QueryStringConversionTest {
                     notEquals = notEquals.update(keyPath) { (it ?: QPTrie()).put(valuePair.second, false) }
                 }
                 "~" -> {
-                    querySpec = querySpec.withStartsWithTerm(keyPath, valuePair.second)
+                    // We intentionally skip the "in budget suffix" when working with starts-with, because
+                    // a valid substring will never start with a byte array containing the "in budget suffix".
+                    querySpec = querySpec.withStartsWithTerm(
+                        keyPath,
+                        Radix64JsonEncoder.removeInBudgetSuffixFromString(valuePair.second)
+                    )
                 }
             }
         }

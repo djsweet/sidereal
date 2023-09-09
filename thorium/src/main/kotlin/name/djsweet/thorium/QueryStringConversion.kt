@@ -230,7 +230,12 @@ fun convertQueryStringToFullQuery(qs: Map<String, List<String>>, maxTerms: Int, 
                                 )
                             } else {
                                 inequalityOperator = "~"
-                                treeSpec = treeSpec.withStartsWithTerm(encodedKey, encodedValue)
+                                treeSpec = treeSpec.withStartsWithTerm(
+                                    encodedKey,
+                                    // We intentionally skip the "in budget suffix" when working with starts-with, because
+                                    // a valid substring will never start with a byte array containing the "in budget suffix".
+                                    Radix64JsonEncoder.removeInBudgetSuffixFromString(encodedValue)
+                                )
                             }
 
                             inequalityKey = encodedKey
