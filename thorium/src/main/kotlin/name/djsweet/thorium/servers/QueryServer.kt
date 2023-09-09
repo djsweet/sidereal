@@ -1,4 +1,4 @@
-package name.djsweet.thorium
+package name.djsweet.thorium.servers
 
 import io.vertx.core.AbstractVerticle
 import io.vertx.core.DeploymentOptions
@@ -14,6 +14,11 @@ import name.djsweet.query.tree.IdentitySet
 import name.djsweet.query.tree.QPTrie
 import name.djsweet.query.tree.QueryPath
 import name.djsweet.query.tree.QuerySetTree
+import name.djsweet.thorium.*
+import name.djsweet.thorium.convertByteArrayToLong
+import name.djsweet.thorium.convertLongToByteArray
+import name.djsweet.thorium.convertStringToByteArray
+import name.djsweet.thorium.reestablishByteBudget
 import java.util.*
 import kotlin.collections.ArrayList
 import kotlin.coroutines.suspendCoroutine
@@ -443,29 +448,35 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
     private fun unregisterQuery(channelString: String, clientID: String): HttpProtocolErrorOrJson {
         val channelBytes = convertStringToByteArray(channelString)
         val channel = this.channels.get(channelBytes) ?: return HttpProtocolErrorOrJson.ofError(
-            HttpProtocolError(404, jsonObjectOf(
-                "code" to "missing-channel",
-                "channel" to channelString
-            ))
+            HttpProtocolError(
+                404, jsonObjectOf(
+                    "code" to "missing-channel",
+                    "channel" to channelString
+                )
+            )
         )
 
         val updatedChannel = channel.unregisterQuery(clientID)
         return if (updatedChannel === channel) {
             HttpProtocolErrorOrJson.ofError(
-                HttpProtocolError(404, jsonObjectOf(
-                    "code" to "missing-client-id",
-                    "channel" to channelString,
-                    "clientID" to clientID
-                ))
+                HttpProtocolError(
+                    404, jsonObjectOf(
+                        "code" to "missing-client-id",
+                        "channel" to channelString,
+                        "clientID" to clientID
+                    )
+                )
             )
         } else {
             this.channels = this.channels.put(channelBytes, updatedChannel)
             this.queryCount -= (channel.queryTree.size - updatedChannel.queryTree.size).toInt()
             setCurrentQueryCount(this.vertx.sharedData(), this.verticleOffset, this.queryCount)
-            HttpProtocolErrorOrJson.ofSuccess(jsonObjectOf(
-                "channel" to channelString,
-                "clientID" to clientID
-            ))
+            HttpProtocolErrorOrJson.ofSuccess(
+                jsonObjectOf(
+                    "channel" to channelString,
+                    "clientID" to clientID
+                )
+            )
         }
     }
 
@@ -619,9 +630,13 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
             when (it) {
                 is RegisterQueryRequest -> this.registerQuery(it)
                 is UnregisterQueryRequest -> this.unregisterQuery(it)
-                else -> HttpProtocolErrorOrJson.ofError(HttpProtocolError(500, jsonObjectOf(
-                    "code" to "invalid-request"
-                )))
+                else -> HttpProtocolErrorOrJson.ofError(
+                    HttpProtocolError(
+                        500, jsonObjectOf(
+                            "code" to "invalid-request"
+                        )
+                    )
+                )
             }
         } }
         this.dataHandler = eventBus.localConsumer(dataAddress) { message ->
@@ -679,31 +694,37 @@ class JsonToQueryableTranslatorVerticle(verticleOffset: Int): ServerVerticle(ver
         try {
             val idempotencyKeyBytes = convertStringToByteArray(idempotencyKey)
             if (idempotencyKeyBytes.size + channelBytes.size > byteBudget) {
-                return HttpProtocolErrorOrReportData.ofError(HttpProtocolError(
-                    413,
-                    baseJsonResponseForOverSizedChannelInfoIdempotencyKey.copy().put(
-                        "maxByteSize", byteBudget
-                    ).put(
-                        "eventID", idempotencyKey
+                return HttpProtocolErrorOrReportData.ofError(
+                    HttpProtocolError(
+                        413,
+                        baseJsonResponseForOverSizedChannelInfoIdempotencyKey.copy().put(
+                            "maxByteSize", byteBudget
+                        ).put(
+                            "eventID", idempotencyKey
+                        )
                     )
-                ))
+                )
             }
             val (scalars, arrays) = encodeJsonToQueryableData(data, byteBudget, maxJsonParsingRecursion)
-            return HttpProtocolErrorOrReportData.ofSuccess(ReportData(
-                channel=channel,
-                idempotencyKey=idempotencyKey,
-                queryableScalarData=scalars,
-                queryableArrayData=arrays,
-                actualData=jsonString
-            ))
+            return HttpProtocolErrorOrReportData.ofSuccess(
+                ReportData(
+                    channel = channel,
+                    idempotencyKey = idempotencyKey,
+                    queryableScalarData = scalars,
+                    queryableArrayData = arrays,
+                    actualData = jsonString
+                )
+            )
         } catch (e: StackOverflowError) {
             this.handleStackOverflowWithNewByteBudget()
-            return HttpProtocolErrorOrReportData.ofError(HttpProtocolError(
-                507,
-                baseJsonResponseForStackOverflowData.copy().put(
-                    "maxByteSize", byteBudget
+            return HttpProtocolErrorOrReportData.ofError(
+                HttpProtocolError(
+                    507,
+                    baseJsonResponseForStackOverflowData.copy().put(
+                        "maxByteSize", byteBudget
+                    )
                 )
-            ))
+            )
         }
     }
 

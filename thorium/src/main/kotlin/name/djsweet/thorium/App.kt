@@ -3,6 +3,8 @@ package name.djsweet.thorium
 import io.vertx.core.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import name.djsweet.thorium.servers.registerQueryServer
+import name.djsweet.thorium.servers.registerWebServer
 import picocli.CommandLine
 import picocli.CommandLine.Command
 import kotlin.system.exitProcess

@@ -1,4 +1,4 @@
-package name.djsweet.thorium
+package name.djsweet.thorium.servers
 
 import io.netty.handler.codec.http.QueryStringDecoder
 import io.vertx.core.AbstractVerticle
@@ -16,6 +16,7 @@ import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
 import io.vertx.kotlin.core.json.jsonObjectOf
 import io.vertx.kotlin.coroutines.await
+import name.djsweet.thorium.*
 import java.net.URLDecoder
 import java.time.LocalDateTime
 import java.time.ZoneOffset
@@ -458,11 +459,13 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
                     }
 
                     val idempotencyKey = "$eventSource $eventID"
-                    unpackRequests.add(UnpackDataRequest(
+                    unpackRequests.add(
+                        UnpackDataRequest(
                         channel,
                         idempotencyKey,
                         data
-                    ))
+                    )
+                    )
                 }
 
                 handleDataWithUnpackRequest(vertx, unpackRequests, req)
