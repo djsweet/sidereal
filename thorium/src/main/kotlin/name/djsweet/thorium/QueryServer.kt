@@ -352,14 +352,6 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
         this.channels = QPTrie()
         this.idempotencyKeyRemovalSchedule.clear()
         this.queryCount = 0
-
-        // These are all used in respondToData, and are supposed to be cleared out at the end
-        // of every invocation. But if we're throwing a StackOverflowError, these might not
-        // get cleared out.
-        this.responders.clear()
-        this.arrayResponderReferenceCounts.clear()
-        this.arrayResponderInsertionPairs.clear()
-
         setCurrentQueryCount(this.vertx.sharedData(), this.verticleOffset, this.queryCount)
     }
 
@@ -506,49 +498,50 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
             this.updateChannelsWithRemoval(it, ciRemoveMin)
         }
 
-        val idempotencyKeyExpiration = nowMS() + this.idempotencyExpirationMS
-        val idempotencyKeyExpirationBytes = convertLongToByteArray(idempotencyKeyExpiration)
-        var newChannel = false
-        var updatedChannelInfo: ChannelInfo? = null
-        val priorRemovalScheduleSize = this.idempotencyKeyRemovalSchedule.size
-        this.channels = this.channels.update(channelBytes) {
-            val updateTarget = (it ?: ChannelInfo())
-            newChannel = !updateTarget.hasIdempotencyKeys()
-            updatedChannelInfo = updateTarget.addIdempotencyKey(
-                idempotencyKeyBytes,
-                idempotencyKeyExpirationBytes
-            )
-            updatedChannelInfo
-        }
-        if (updatedChannelInfo != null && newChannel) {
-            val minExpiration = updatedChannelInfo!!.minIdempotencyKey()
-            if (minExpiration != null) {
-                this.currentIdempotencyKeys += 1
-                this.idempotencyKeyRemovalSchedule.push(minExpiration to channelBytes)
-            }
-        }
-        val afterRemovalScheduleSize = this.idempotencyKeyRemovalSchedule.size
-        if (priorRemovalScheduleSize == 0 && afterRemovalScheduleSize > 0) {
-            this.setupIdempotencyCleanupTimer()
-        }
-
         val responders = this.responders
         val arrayResponderReferenceCounts = this.arrayResponderReferenceCounts
         val arrayResponderInsertionPairs = this.arrayResponderInsertionPairs
         var respondFutures = Future.succeededFuture<Message<Any>>()
-        queryTree.visitByData(queryableScalarData.trie) { _, responder ->
-            responders.add(responder)
-        }
-        var arrayResponderQueries = QPTrie<QPTrie<IdentitySet<QueryResponderSpec>>>()
-        for (responder in responders) {
-            val (query, _, _, _, arrayContainsCount) = responder
-            if (!query.notEqualsMatchesData(queryableScalarData.trie)) {
-                continue
+
+        try {
+            val idempotencyKeyExpiration = nowMS() + this.idempotencyExpirationMS
+            val idempotencyKeyExpirationBytes = convertLongToByteArray(idempotencyKeyExpiration)
+            var newChannel = false
+            var updatedChannelInfo: ChannelInfo? = null
+            val priorRemovalScheduleSize = this.idempotencyKeyRemovalSchedule.size
+            this.channels = this.channels.update(channelBytes) {
+                val updateTarget = (it ?: ChannelInfo())
+                newChannel = !updateTarget.hasIdempotencyKeys()
+                updatedChannelInfo = updateTarget.addIdempotencyKey(
+                    idempotencyKeyBytes,
+                    idempotencyKeyExpirationBytes
+                )
+                updatedChannelInfo
             }
-            // If we have any arrayContains we have to inspect, save this for another phase
-            if (arrayContainsCount > 0) {
-                arrayResponderReferenceCounts[responder] = arrayContainsCount
-                try {
+            if (updatedChannelInfo != null && newChannel) {
+                val minExpiration = updatedChannelInfo!!.minIdempotencyKey()
+                if (minExpiration != null) {
+                    this.currentIdempotencyKeys += 1
+                    this.idempotencyKeyRemovalSchedule.push(minExpiration to channelBytes)
+                }
+            }
+            val afterRemovalScheduleSize = this.idempotencyKeyRemovalSchedule.size
+            if (priorRemovalScheduleSize == 0 && afterRemovalScheduleSize > 0) {
+                this.setupIdempotencyCleanupTimer()
+            }
+
+            queryTree.visitByData(queryableScalarData.trie) { _, responder ->
+                responders.add(responder)
+            }
+            var arrayResponderQueries = QPTrie<QPTrie<IdentitySet<QueryResponderSpec>>>()
+            for (responder in responders) {
+                val (query, _, _, _, arrayContainsCount) = responder
+                if (!query.notEqualsMatchesData(queryableScalarData.trie)) {
+                    continue
+                }
+                // If we have any arrayContains we have to inspect, save this for another phase
+                if (arrayContainsCount > 0) {
+                    arrayResponderReferenceCounts[responder] = arrayContainsCount
                     query.arrayContains.visitUnsafeSharedKey { (key, values) ->
                         values.visitAscendingUnsafeSharedKey { (value) ->
                             arrayResponderInsertionPairs.add(Pair(key, value))
@@ -562,49 +555,54 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
                             }
                         }
                     }
-                } finally {
-                    arrayResponderInsertionPairs.clear()
-                }
-                continue
-            }
-            respondFutures = this.trySendDataToResponder(eventBus, response, responder, respondFutures)
-        }
-        responders.clear()
 
-        if (arrayResponderReferenceCounts.size > 0L) {
-            queryableArrayData.trie.visitUnsafeSharedKey { (key, values) ->
-                val respondersForKey = arrayResponderQueries.get(key) ?: return@visitUnsafeSharedKey
-                for (value in values) {
-                    val respondersForValue = respondersForKey.get(value) ?: continue
-                    var nextQueriesForValue = respondersForValue
-                    respondersForValue.visitAll { responder ->
-                        nextQueriesForValue = nextQueriesForValue.remove(responder)
-                        val nextReferenceCount = (arrayResponderReferenceCounts[responder] ?: 0) - 1
-                        if (nextReferenceCount == 0L) {
-                            arrayResponderReferenceCounts.remove(responder)
-                            respondFutures = this.trySendDataToResponder(eventBus, response, responder, respondFutures)
-                        } else {
-                            arrayResponderReferenceCounts[responder] = nextReferenceCount
-                        }
-                    }
-                    arrayResponderQueries = arrayResponderQueries.update(key) { valuesTrie ->
-                        valuesTrie?.update(value) {
-                            if (nextQueriesForValue.size > 0) {
-                                nextQueriesForValue
+                    arrayResponderInsertionPairs.clear()
+                    continue
+                }
+                respondFutures = this.trySendDataToResponder(eventBus, response, responder, respondFutures)
+            }
+            responders.clear()
+
+            if (arrayResponderReferenceCounts.size > 0L) {
+                queryableArrayData.trie.visitUnsafeSharedKey { (key, values) ->
+                    val respondersForKey = arrayResponderQueries.get(key) ?: return@visitUnsafeSharedKey
+                    for (value in values) {
+                        val respondersForValue = respondersForKey.get(value) ?: continue
+                        var nextQueriesForValue = respondersForValue
+                        respondersForValue.visitAll { responder ->
+                            nextQueriesForValue = nextQueriesForValue.remove(responder)
+                            val nextReferenceCount = (arrayResponderReferenceCounts[responder] ?: 0) - 1
+                            if (nextReferenceCount == 0L) {
+                                arrayResponderReferenceCounts.remove(responder)
+                                respondFutures =
+                                    this.trySendDataToResponder(eventBus, response, responder, respondFutures)
                             } else {
-                                null
+                                arrayResponderReferenceCounts[responder] = nextReferenceCount
+                            }
+                        }
+                        arrayResponderQueries = arrayResponderQueries.update(key) { valuesTrie ->
+                            valuesTrie?.update(value) {
+                                if (nextQueriesForValue.size > 0) {
+                                    nextQueriesForValue
+                                } else {
+                                    null
+                                }
                             }
                         }
                     }
                 }
             }
-        }
-        arrayResponderReferenceCounts.clear()
-        // Backpressure: we don't return until all clients either accept the message, or we time out.
-        // If we time out, we remove the query and attempt to notify the client that we have done so.
-        // However, this won't block us from processing any other messages in this worker.
-        respondFutures.onComplete {
-            decrementOutstandingDataCountReturning(this.vertx.sharedData(), 1)
+        } finally {
+            // Backpressure: we don't return until all clients either accept the message, or we time out.
+            // If we time out, we remove the query and attempt to notify the client that we have done so.
+            // However, this won't block us from processing any other messages in this worker.
+            respondFutures.onComplete {
+                decrementOutstandingDataCountReturning(this.vertx.sharedData(), 1)
+            }
+
+            responders.clear()
+            arrayResponderInsertionPairs.clear()
+            arrayResponderReferenceCounts.clear()
         }
     }
 
