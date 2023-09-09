@@ -52,15 +52,14 @@ class QueryClientSSEVerticle(
     private val serverAddress: String,
 ): AbstractVerticle() {
     private var timerID: Long? = null
-    private var commentFuture: Future<Void> = Future.succeededFuture()
+    private var pingFuture: Future<Void> = Future.succeededFuture()
     private var messageHandler: MessageConsumer<Any>? = null
 
     private fun writeHeadersIfNecessary() {
         if (this.resp.headWritten()) {
             return
         }
-        val nowIsh = nowAsString()
-        val connectPayload = jsonObjectOf("timestamp" to nowIsh, "clientID" to this.clientID).toString()
+        val connectPayload = jsonObjectOf("timestamp" to nowAsString(), "clientID" to this.clientID).toString()
         this.resp
             .setChunked(true)
             .setStatusCode(200)
@@ -68,11 +67,11 @@ class QueryClientSSEVerticle(
             .putHeader("Cache-Control", "no-store")
             .putHeader("Connection", "keep-alive")
             .putHeader("Access-Control-Allow-Origin", "*")
-            .write(": connected timestamp=$nowIsh clientID=${this.clientID}\nevent: connect\ndata: $connectPayload\n\n")
+            .write("event: connect\ndata: $connectPayload\n\n")
     }
 
     private fun writePing(): Future<Void> {
-        return this.resp.write(": ping timestamp=${nowAsString()}\n\n")
+        return this.resp.write(": { \"timestamp\": \"${nowAsString()}\" }\n\n")
     }
 
     private fun setupPingTimer() {
@@ -84,7 +83,7 @@ class QueryClientSSEVerticle(
             this.timerID = null
         }
 
-        this.commentFuture = this.commentFuture.eventually {
+        this.pingFuture = this.pingFuture.eventually {
 
             // If we're hammering on setupPingTimer, we're buffering up a ton
             // of .onComplete handlers on the same comment future. This permits
@@ -97,7 +96,7 @@ class QueryClientSSEVerticle(
             }
 
             this.timerID = vertx.setTimer(serverSentCommentTimeout) {
-                this.commentFuture = this.commentFuture.eventually {
+                this.pingFuture = this.pingFuture.eventually {
                     writePing()
                 }.onComplete {
                     this.setupPingTimer()
@@ -142,7 +141,7 @@ class QueryClientSSEVerticle(
             if (messageBody is ReportData) {
                 val dataPayload = messageBody.actualData.replace("\n", "\ndata: ")
                 resp.write(
-                    ": data timestamp=${nowAsString()}\nevent: data\nid: ${messageBody.idempotencyKey}\ndata: $dataPayload\n\n"
+                    ": { \"timestamp\": \"${nowAsString()}\" }\nevent: data\nid: ${messageBody.idempotencyKey}\ndata: $dataPayload\n\n"
                 ).onComplete {
                     message.reply("handled")
                 }
