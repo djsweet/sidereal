@@ -45,20 +45,26 @@ fun getMaxJsonParsingRecursion(sharedData: SharedData): Int {
     return limitLocalMap(sharedData).getOrDefault("maxJsonParsingRecursion", 64)
 }
 
-fun getMaxOutstandingData(sharedData: SharedData): Long {
-    return limitLocalMap(sharedData).getOrDefault("maxOutstandingData", 128 * 1024).toLong()
+private fun getDefaultToAvailableProcessors(localMap: LocalMap<String, Int>, key: String): Int {
+    return localMap.computeIfAbsent(key) { Runtime.getRuntime().availableProcessors() }
 }
 
 fun getQueryThreads(sharedData: SharedData): Int {
-    return limitLocalMap(sharedData).getOrDefault("queryThreads", Runtime.getRuntime().availableProcessors())
+    return getDefaultToAvailableProcessors(limitLocalMap(sharedData), "queryThreads")
 }
 
 fun getTranslatorThreads(sharedData: SharedData): Int {
-    return limitLocalMap(sharedData).getOrDefault("translatorThreads", Runtime.getRuntime().availableProcessors())
+    return getDefaultToAvailableProcessors(limitLocalMap(sharedData),"translatorThreads")
 }
 
 fun getWebServerThreads(sharedData: SharedData): Int {
-    return limitLocalMap(sharedData).getOrDefault("webServerThreads", Runtime.getRuntime().availableProcessors())
+    return getDefaultToAvailableProcessors(limitLocalMap(sharedData), "webServerThreads")
+}
+
+fun getMaxOutstandingData(sharedData: SharedData): Long {
+    return limitLocalMap(sharedData).computeIfAbsent("maxOutstandingData") {
+        128 * 1024 * getQueryThreads(sharedData)
+    }.toLong()
 }
 
 internal fun intParamsLocalMap(sharedData: SharedData): LocalMap<String, Int> {
