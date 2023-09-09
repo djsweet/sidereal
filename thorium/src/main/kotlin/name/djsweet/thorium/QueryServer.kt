@@ -14,7 +14,6 @@ import name.djsweet.query.tree.IdentitySet
 import name.djsweet.query.tree.QPTrie
 import name.djsweet.query.tree.QueryPath
 import name.djsweet.query.tree.QuerySetTree
-import java.nio.charset.Charset
 import java.util.*
 import kotlin.collections.ArrayList
 import kotlin.coroutines.suspendCoroutine
@@ -264,8 +263,9 @@ data class ChannelInfo(
     val queriesByClientID: QPTrie<Pair<QueryResponderSpec, QueryPath>>,
     override val idempotencyKeys: QPTrie<ByteArray>,
     override val idempotencyKeysByExpiration: QPTrie<IdentitySet<ByteArray>>,
+    val channel: String,
 ): IdempotencyManager<ByteArray, ChannelInfo>() {
-    constructor(): this(QuerySetTree(), QPTrie(), QPTrie(), QPTrie())
+    constructor(channel: String): this(QuerySetTree(), QPTrie(), QPTrie(), QPTrie(), channel)
 
     override fun self(): ChannelInfo {
         return this
@@ -341,8 +341,8 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
 
     override fun resetForNewByteBudget() {
         val eventBus = this.vertx.eventBus()
-        for ((channelBytes, channelInfo) in this.channels) {
-            val channel = channelBytes.toString(Charset.forName("utf-8"))
+        for ((_, channelInfo) in this.channels) {
+            val channel = channelInfo.channel
             for ((_, responderSpecToPath) in channelInfo.queriesByClientID) {
                 val (responderSpec) = responderSpecToPath
                 val (_, respondTo, clientID) = responderSpec
@@ -413,7 +413,7 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
                     .whenSuccess { query ->
                         val channelBytes = convertStringToByteArray(req.channel)
                         this.channels = this.channels.update(channelBytes) {
-                            val basis = (it ?: ChannelInfo())
+                            val basis = (it ?: ChannelInfo(req.channel))
                             val result = basis.registerQuery(query, req.clientID, req.returnAddress)
                             this.queryCount -= basis.queryTree.size.toInt()
                             this.queryCount += basis.queryTree.size.toInt()
@@ -510,7 +510,7 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
             var updatedChannelInfo: ChannelInfo? = null
             val priorRemovalScheduleSize = this.idempotencyKeyRemovalSchedule.size
             this.channels = this.channels.update(channelBytes) {
-                val updateTarget = (it ?: ChannelInfo())
+                val updateTarget = (it ?: ChannelInfo(channel))
                 newChannel = !updateTarget.hasIdempotencyKeys()
                 updatedChannelInfo = updateTarget.addIdempotencyKey(
                     idempotencyKeyBytes,
