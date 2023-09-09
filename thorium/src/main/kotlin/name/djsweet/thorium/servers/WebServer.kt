@@ -1,11 +1,8 @@
 package name.djsweet.thorium.servers
 
 import io.netty.handler.codec.http.QueryStringDecoder
-import io.vertx.core.AbstractVerticle
-import io.vertx.core.Future
+import io.vertx.core.*
 import io.vertx.core.Future.join
-import io.vertx.core.Promise
-import io.vertx.core.Vertx
 import io.vertx.core.eventbus.Message
 import io.vertx.core.eventbus.MessageConsumer
 import io.vertx.core.http.HttpMethod
@@ -16,6 +13,7 @@ import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
 import io.vertx.kotlin.core.json.jsonObjectOf
 import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.micrometer.vertxPrometheusOptionsOf
 import name.djsweet.thorium.*
 import java.net.URLDecoder
 import kotlin.math.absoluteValue
@@ -247,8 +245,6 @@ const val eventEncodeTimeHeader = "X-Thorium-Encode-Time"
 
 fun handleDataWithUnpackRequest(
     vertx: Vertx,
-    bodyReadTimeMS: Long,
-    jsonParseTimeMS: Long,
     unpackReqs: List<UnpackDataRequest>,
     httpReq: HttpServerRequest
 ) {
@@ -327,13 +323,54 @@ fun handleDataWithUnpackRequest(
                     eventBus.publish(addressForQueryServerData(sharedData, i), report)
                 }
             }
-            jsonStatusCodeResponse(httpReq, 202).putHeader(
-                bodyReadTimeHeader, "$bodyReadTimeMS ms"
-            ).putHeader(
-                jsonParseTimeHeader, "$jsonParseTimeMS ms"
-            ).putHeader(
-                eventEncodeTimeHeader, "${monotonicNowMS() - translatorSendStartTime} ms"
-            ).end(acceptedJson.toString())
+            jsonStatusCodeResponse(httpReq, 202)
+                .putHeader(eventEncodeTimeHeader, "${monotonicNowMS() - translatorSendStartTime} ms")
+                .end(acceptedJson.toString())
+        }
+    }
+}
+
+fun readBodyTryParseJsonObject(vertx: Vertx, req: HttpServerRequest, handle: (obj: JsonObject) -> Unit) {
+    val resp = req.response()
+    val bodyReadStartTime = monotonicNowMS()
+    req.bodyHandler { bodyBytes ->
+        val jsonParseStartTime = monotonicNowMS()
+        resp.putHeader(bodyReadTimeHeader, "${jsonParseStartTime - bodyReadStartTime} ms")
+
+        // Clients are expected to send very large bodies. We've measured 440 kB payloads taking up to 5 ms,
+        // which is enough to become very uncomfortable on the event loop, so all JSON parsing happens in
+        // the worker pool.
+        vertx.executeBlocking { ->
+            JsonObject(bodyBytes)
+        }.onFailure {
+            jsonStatusCodeResponse(req, 400)
+                .putHeader(jsonParseTimeHeader, "${monotonicNowMS() - jsonParseStartTime} ms")
+                .end(invalidJsonBodyJson.toString())
+        }.onSuccess {
+            resp.putHeader(jsonParseTimeHeader, "${monotonicNowMS() - jsonParseStartTime} ms")
+            handle(it)
+        }
+    }
+}
+
+fun readBodyTryParseJsonArray(vertx: Vertx, req: HttpServerRequest, handle: (arr: JsonArray, jsonParseStartTime: Long) -> Unit) {
+    val resp = req.response()
+    val bodyReadStartTime = monotonicNowMS()
+    req.bodyHandler { bodyBytes ->
+        val jsonParseStartTime = monotonicNowMS()
+        resp.putHeader(bodyReadTimeHeader, "${jsonParseStartTime - bodyReadStartTime} ms")
+
+        // Clients are expected to send very large bodies. We've measured 440 kB payloads taking up to 5 ms,
+        // which is enough to become very uncomfortable on the event loop, so all JSON parsing happens in
+        // the worker pool.
+        vertx.executeBlocking { ->
+            JsonArray(bodyBytes)
+        }.onFailure {
+            jsonStatusCodeResponse(req,400)
+                .putHeader(jsonParseTimeHeader, "${monotonicNowMS() - jsonParseStartTime} ms")
+                .end(invalidJsonBodyJson.toString())
+        }.onSuccess {
+            handle(it, jsonParseStartTime)
         }
     }
 }
@@ -345,7 +382,6 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
         return
     }
     val paramOffset = withParams.indexOf(";")
-    val bodyReadStartTime = monotonicNowMS()
     when (if (paramOffset < 0) { withParams } else { withParams.substring(0, paramOffset) }) {
         "application/json" -> {
             val eventSource = req.headers().get("ce-source")
@@ -359,15 +395,7 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
                 return
             }
             val idempotencyKey = "$eventSource $eventID"
-            req.bodyHandler { bodyBytes ->
-                val jsonParseStartTime = monotonicNowMS()
-                val data: JsonObject
-                try {
-                    data = JsonObject(bodyBytes)
-                } catch (e: Exception) {
-                    jsonStatusCodeResponse(req,400).end(invalidJsonBodyJson.toString())
-                    return@bodyHandler
-                }
+            readBodyTryParseJsonObject(vertx, req) { data ->
                 val unpackRequest = UnpackDataRequest(
                     channel,
                     idempotencyKey,
@@ -375,40 +403,29 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
                 )
                 handleDataWithUnpackRequest(
                     vertx,
-                    jsonParseStartTime - bodyReadStartTime,
-                    monotonicNowMS() - jsonParseStartTime,
                     listOf(unpackRequest),
                     req
                 )
             }
         }
         "application/cloudevents+json" -> {
-            req.bodyHandler { bodyBytes ->
-                val jsonParseStartTime = monotonicNowMS()
-                val json: JsonObject
-                try {
-                    json = JsonObject(bodyBytes)
-                } catch (e: Exception) {
-                    jsonStatusCodeResponse(req,400).end(invalidJsonBodyJson.toString())
-                    return@bodyHandler
-                }
-
+            readBodyTryParseJsonObject(vertx, req) { json ->
                 val eventSource = json.getValue("source")
                 if (eventSource !is String) {
                     jsonStatusCodeResponse(req, 400).end(missingEventSourceJson.toString())
-                    return@bodyHandler
+                    return@readBodyTryParseJsonObject
                 }
 
                 val eventID = json.getValue("id")
                 if (eventID !is String) {
                     jsonStatusCodeResponse(req, 400).end(missingEventIDJson.toString())
-                    return@bodyHandler
+                    return@readBodyTryParseJsonObject
                 }
 
                 val data = json.getValue("data")
                 if (data !is JsonObject) {
                     jsonStatusCodeResponse(req, 400).end(invalidDataFieldJson.toString())
-                    return@bodyHandler
+                    return@readBodyTryParseJsonObject
                 }
 
                 val idempotencyKey = "$eventSource $eventID"
@@ -419,24 +436,13 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
                 )
                 handleDataWithUnpackRequest(
                     vertx,
-                    jsonParseStartTime - bodyReadStartTime,
-                    monotonicNowMS() - jsonParseStartTime,
                     listOf(unpackRequest),
                     req
                 )
             }
         }
         "application/cloudevents-batch+json" -> {
-            req.bodyHandler { bodyBytes ->
-                val jsonParseStartTime = monotonicNowMS()
-                val json: JsonArray
-                try {
-                    json = JsonArray(bodyBytes)
-                } catch (e: Exception) {
-                    jsonStatusCodeResponse(req,400).end(invalidJsonBodyJson.toString())
-                    return@bodyHandler
-                }
-
+            readBodyTryParseJsonArray(vertx, req) { json, jsonParseStartTime ->
                 val unpackRequests = mutableListOf<UnpackDataRequest>()
                 for (i in 0 until json.size()) {
                     val elem = json.getValue(i)
@@ -447,7 +453,7 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
                                 .put("offset", i)
                                 .toString()
                         )
-                        return@bodyHandler
+                        return@readBodyTryParseJsonArray
                     }
 
                     val eventSource = elem.getValue("source")
@@ -458,7 +464,7 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
                                 .put("offset", i)
                                 .toString()
                         )
-                        return@bodyHandler
+                        return@readBodyTryParseJsonArray
                     }
 
                     val eventID = elem.getValue("id")
@@ -469,7 +475,7 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
                                 .put("offset", i)
                                 .toString()
                         )
-                        return@bodyHandler
+                        return@readBodyTryParseJsonArray
                     }
 
                     val data = elem.getValue("data")
@@ -480,7 +486,7 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
                                 .put("offset", i)
                                 .toString()
                         )
-                        return@bodyHandler
+                        return@readBodyTryParseJsonArray
                     }
 
                     val idempotencyKey = "$eventSource $eventID"
@@ -491,13 +497,13 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
                     ))
                 }
 
+                req.response().putHeader(jsonParseTimeHeader, "${monotonicNowMS() - jsonParseStartTime} ms")
                 handleDataWithUnpackRequest(
                     vertx,
-                    jsonParseStartTime - bodyReadStartTime,
-                    monotonicNowMS() - jsonParseStartTime,
                     unpackRequests,
                     req
                 )
+
             }
         }
         else -> {
