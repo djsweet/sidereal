@@ -51,7 +51,7 @@ class QueryClientSSEVerticle(
     private val serverAddress: String,
 ): AbstractVerticle() {
     private var timerID: Long? = null
-    private var commentFuture: Future<Void>? = null
+    private var commentFuture: Future<Void> = Future.succeededFuture()
     private var messageHandler: MessageConsumer<Any>? = null
 
     private fun writeHeadersIfNecessary() {
@@ -81,16 +81,7 @@ class QueryClientSSEVerticle(
             vertx.cancelTimer(currentTimerID)
             this.timerID = null
         }
-        val commentFuture = this.commentFuture
-        if (commentFuture != null) {
-            commentFuture.onComplete {
-                this.timerID = vertx.setTimer(serverSentCommentTimeout) {
-                    this.commentFuture = writePing().onComplete {
-                        this.setupPingTimer()
-                    }
-                }
-            }
-        } else {
+        this.commentFuture.onComplete {
             this.timerID = vertx.setTimer(serverSentCommentTimeout) {
                 this.commentFuture = writePing().onComplete {
                     this.setupPingTimer()

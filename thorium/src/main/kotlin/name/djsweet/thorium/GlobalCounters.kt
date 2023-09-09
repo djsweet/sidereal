@@ -49,11 +49,3 @@ fun incrementOutstandingDataCountReturning(sharedData: SharedData, incrementBy: 
 fun decrementOutstandingDataCountReturning(sharedData: SharedData, decrementBy: Long): Future<Long> {
     return incrementOutstandingDataCountReturning(sharedData, -decrementBy)
 }
-
-suspend fun incrementOutstandingDataCountReturningAsync(sharedData: SharedData, incrementBy: Long): Long {
-    return incrementOutstandingDataCountReturning(sharedData, incrementBy).await()
-}
-
-suspend fun decrementOutstandingQueryCountAsync(sharedData: SharedData, decrementBy: Long) {
-    incrementOutstandingDataCountReturningAsync(sharedData, -decrementBy)
-}

@@ -3,7 +3,6 @@ package name.djsweet.thorium
 import io.vertx.core.AbstractVerticle
 import io.vertx.core.DeploymentOptions
 import io.vertx.core.Future
-import io.vertx.core.Future.join
 import io.vertx.core.eventbus.Message
 import io.vertx.core.Vertx
 import io.vertx.core.eventbus.EventBus
@@ -143,12 +142,13 @@ abstract class ServerVerticle(protected val verticleOffset: Int): AbstractVertic
 
         this.byteBudget = getByteBudget(vertx.sharedData())
         this.byteBudgetResetConsumer = vertx.eventBus().localConsumer(addressForByteBudgetReset) { message ->
-            this.lastFuture = this.lastFuture.onComplete {
+            this.lastFuture = this.lastFuture.eventually {
                 val (newByteBudget) = message.body()
-                if (this.byteBudget <= newByteBudget) return@onComplete
-
-                this.byteBudget = newByteBudget
-                this.resetForNewByteBudget()
+                if (this.byteBudget > newByteBudget) {
+                    this.byteBudget = newByteBudget
+                    this.resetForNewByteBudget()
+                }
+                Future.succeededFuture<Void>()
             }
         }
     }
@@ -331,7 +331,6 @@ private val ciRemoveMin = { ci: ChannelInfo -> ci.removeMinimumIdempotencyKeys()
 class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency(verticleOffset) {
     private var channels = QPTrie<ChannelInfo>()
     private val responders = ArrayList<QueryResponderSpec>()
-    private val respondFutures = ArrayList<Future<Message<Any>>>()
     private val arrayResponderReferenceCounts = mutableMapOf<QueryResponderSpec, Long>()
     private val arrayResponderInsertionPairs = ArrayList<Pair<ByteArray, ByteArray>>()
 
@@ -358,7 +357,6 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
         // of every invocation. But if we're throwing a StackOverflowError, these might not
         // get cleared out.
         this.responders.clear()
-        this.respondFutures.clear()
         this.arrayResponderReferenceCounts.clear()
         this.arrayResponderInsertionPairs.clear()
 
@@ -482,16 +480,18 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
     private fun trySendDataToResponder(
         eventBus: EventBus,
         data: ReportData,
-        responder: QueryResponderSpec
+        responder: QueryResponderSpec,
+        prior: Future<Message<Any>>
     ): Future<Message<Any>> {
         val (_, respondTo, clientID) = responder
-        return eventBus.request<Any>(respondTo, data, localRequestOptions).onFailure {
+        val current = eventBus.request<Any>(respondTo, data, localRequestOptions).onFailure {
             this.unregisterQuery(data.channel, responder.clientID)
             eventBus.publish(respondTo, UnregisterQueryRequest(data.channel, clientID))
         }
+        return prior.eventually { current }
     }
 
-    private suspend fun respondToData(response: ReportData) {
+    private fun respondToData(response: ReportData) {
         val eventBus = this.vertx.eventBus()
         val (channel, idempotencyKey, queryableScalarData, queryableArrayData) = response
         val channelBytes = convertStringToByteArray(channel)
@@ -535,7 +535,7 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
         val responders = this.responders
         val arrayResponderReferenceCounts = this.arrayResponderReferenceCounts
         val arrayResponderInsertionPairs = this.arrayResponderInsertionPairs
-        val respondFutures = this.respondFutures
+        var respondFutures = Future.succeededFuture<Message<Any>>()
         queryTree.visitByData(queryableScalarData.trie) { _, responder ->
             responders.add(responder)
         }
@@ -567,7 +567,7 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
                 }
                 continue
             }
-            respondFutures.add(this.trySendDataToResponder(eventBus, response, responder))
+            respondFutures = this.trySendDataToResponder(eventBus, response, responder, respondFutures)
         }
         responders.clear()
 
@@ -582,7 +582,7 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
                         val nextReferenceCount = (arrayResponderReferenceCounts[responder] ?: 0) - 1
                         if (nextReferenceCount == 0L) {
                             arrayResponderReferenceCounts.remove(responder)
-                            respondFutures.add(this.trySendDataToResponder(eventBus, response, responder))
+                            respondFutures = this.trySendDataToResponder(eventBus, response, responder, respondFutures)
                         } else {
                             arrayResponderReferenceCounts[responder] = nextReferenceCount
                         }
@@ -602,11 +602,9 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
         arrayResponderReferenceCounts.clear()
         // Backpressure: we don't return until all clients either accept the message, or we time out.
         // If we time out, we remove the query and attempt to notify the client that we have done so.
-        try {
-            join(respondFutures).await()
-        } finally {
-            respondFutures.clear()
-            decrementOutstandingQueryCountAsync(this.vertx.sharedData(), 1)
+        // However, this won't block us from processing any other messages in this worker.
+        respondFutures.onComplete {
+            decrementOutstandingDataCountReturning(this.vertx.sharedData(), 1)
         }
     }
 
