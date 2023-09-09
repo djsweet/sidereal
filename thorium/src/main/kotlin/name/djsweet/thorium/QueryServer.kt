@@ -484,26 +484,26 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
     }
 
     private fun respondToData(response: ReportData) {
-        val eventBus = this.vertx.eventBus()
-        val (channel, idempotencyKey, queryableScalarData, queryableArrayData) = response
-        val channelBytes = convertStringToByteArray(channel)
-        val respondingChannel = this.channels.get(channelBytes) ?: return
-        val (queryTree, _, idempotencyKeys) = respondingChannel
-        val idempotencyKeyBytes = convertStringToByteArray(idempotencyKey)
-        if (idempotencyKeys.get(idempotencyKeyBytes) != null) {
-            return
-        }
-
-        this.handleIdempotencyCleanupForMaximum {
-            this.updateChannelsWithRemoval(it, ciRemoveMin)
-        }
-
         val responders = this.responders
         val arrayResponderReferenceCounts = this.arrayResponderReferenceCounts
         val arrayResponderInsertionPairs = this.arrayResponderInsertionPairs
         var respondFutures = Future.succeededFuture<Message<Any>>()
 
         try {
+            val eventBus = this.vertx.eventBus()
+            val (channel, idempotencyKey, queryableScalarData, queryableArrayData) = response
+            val channelBytes = convertStringToByteArray(channel)
+            val respondingChannel = this.channels.get(channelBytes) ?: return
+            val (queryTree, _, idempotencyKeys) = respondingChannel
+            val idempotencyKeyBytes = convertStringToByteArray(idempotencyKey)
+            if (idempotencyKeys.get(idempotencyKeyBytes) != null) {
+                return
+            }
+
+            this.handleIdempotencyCleanupForMaximum {
+                this.updateChannelsWithRemoval(it, ciRemoveMin)
+            }
+
             val idempotencyKeyExpiration = nowMS() + this.idempotencyExpirationMS
             val idempotencyKeyExpirationBytes = convertLongToByteArray(idempotencyKeyExpiration)
             var newChannel = false
