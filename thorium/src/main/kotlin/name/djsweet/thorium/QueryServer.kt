@@ -353,6 +353,15 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
         this.channels = QPTrie()
         this.idempotencyKeyRemovalSchedule.clear()
         this.queryCount = 0
+
+        // These are all used in respondToData, and are supposed to be cleared out at the end
+        // of every invocation. But if we're throwing a StackOverflowError, these might not
+        // get cleared out.
+        this.responders.clear()
+        this.respondFutures.clear()
+        this.arrayResponderReferenceCounts.clear()
+        this.arrayResponderInsertionPairs.clear()
+
         setCurrentQueryCount(this.vertx.sharedData(), this.verticleOffset, this.queryCount)
     }
 
