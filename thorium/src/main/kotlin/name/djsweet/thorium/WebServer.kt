@@ -75,18 +75,35 @@ class QueryClientSSEVerticle(
     }
 
     private fun setupPingTimer() {
-        val currentTimerID = this.timerID
         val vertx = this.vertx
-        if (currentTimerID != null) {
-            vertx.cancelTimer(currentTimerID)
+
+        val currentTimerIDBeforeComment = this.timerID
+        if (currentTimerIDBeforeComment != null) {
+            vertx.cancelTimer(currentTimerIDBeforeComment)
             this.timerID = null
         }
-        this.commentFuture.onComplete {
+
+        this.commentFuture = this.commentFuture.eventually {
+
+            // If we're hammering on setupPingTimer, we're buffering up a ton
+            // of .onComplete handlers on the same comment future. This permits
+            // a weird world where we can establish multiple timers, and spam
+            // the output with a ton of pings. Cancelling the outstanding timer
+            // in here, again, prevents this weird world.
+            val currentTimerIDAfterComment = this.timerID
+            if (currentTimerIDAfterComment != null) {
+                vertx.cancelTimer(currentTimerIDAfterComment)
+            }
+
             this.timerID = vertx.setTimer(serverSentCommentTimeout) {
-                this.commentFuture = writePing().onComplete {
+                this.commentFuture = this.commentFuture.eventually {
+                    writePing()
+                }.onComplete {
                     this.setupPingTimer()
                 }
             }
+
+            Future.succeededFuture<Void>()
         }
     }
 
