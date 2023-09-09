@@ -23,10 +23,6 @@ import java.util.*
 import kotlin.collections.ArrayList
 import kotlin.coroutines.suspendCoroutine
 
-fun nowMS(): Long {
-    return System.nanoTime() / 1_000_000
-}
-
 data class QueryResponderSpec(
     val query: FullQuery,
     val respondTo: String,
@@ -164,7 +160,7 @@ abstract class ServerVerticle(protected val verticleOffset: Int): AbstractVertic
 }
 
 private val heapPeek = { heap: ByteArrayKeyedBinaryMinHeap<ByteArray> -> heap.peek() }
-private val nowAsByteArray = { convertLongToByteArray(nowMS()) }
+private val nowAsByteArray = { convertLongToByteArray(monotonicNowMS()) }
 
 private typealias UpdateChannelFunc = (targetChannel: ByteArray) -> Pair<ChannelIdempotencyMapping, Long>?
 
@@ -236,7 +232,7 @@ abstract class ServerVerticleWithIdempotency(verticleOffset: Int): ServerVerticl
     protected fun setupIdempotencyCleanupTimer() {
         val minItem = this.idempotencyKeyRemovalSchedule.peek() ?: return
         val cleanupAt = convertByteArrayToLong(minItem.first)
-        val waitFor = cleanupAt - nowMS()
+        val waitFor = cleanupAt - monotonicNowMS()
         val currentTimerID = this.idempotencyCleanupTimerID
         if (currentTimerID != null) {
             this.vertx.cancelTimer(currentTimerID)
@@ -515,7 +511,7 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
                 this.updateChannelsWithRemoval(it, ciRemoveMin)
             }
 
-            val idempotencyKeyExpiration = nowMS() + this.idempotencyExpirationMS
+            val idempotencyKeyExpiration = monotonicNowMS() + this.idempotencyExpirationMS
             val idempotencyKeyExpirationBytes = convertLongToByteArray(idempotencyKeyExpiration)
             var newChannel = false
             var updatedChannelInfo: ChannelInfo? = null

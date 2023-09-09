@@ -18,9 +18,6 @@ import io.vertx.kotlin.core.json.jsonObjectOf
 import io.vertx.kotlin.coroutines.await
 import name.djsweet.thorium.*
 import java.net.URLDecoder
-import java.time.LocalDateTime
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
 import kotlin.math.absoluteValue
 
 fun jsonStatusCodeResponse(req: HttpServerRequest, code: Int): HttpServerResponse {
@@ -40,10 +37,6 @@ fun getClientIDFromSerial(): String {
     return "${Thread.currentThread().id}-$current"
 }
 
-fun nowAsString(): String {
-    return LocalDateTime.now().atOffset(ZoneOffset.UTC).format(DateTimeFormatter.ISO_ZONED_DATE_TIME)
-}
-
 class QueryClientSSEVerticle(
     private val resp: HttpServerResponse,
     private val clientAddress: String,
@@ -59,7 +52,7 @@ class QueryClientSSEVerticle(
         if (this.resp.headWritten()) {
             return
         }
-        val connectPayload = jsonObjectOf("timestamp" to nowAsString(), "clientID" to this.clientID).toString()
+        val connectPayload = jsonObjectOf("timestamp" to wallNowAsString(), "clientID" to this.clientID).toString()
         this.resp
             .setChunked(true)
             .setStatusCode(200)
@@ -71,7 +64,7 @@ class QueryClientSSEVerticle(
     }
 
     private fun writePing(): Future<Void> {
-        return this.resp.write(": { \"timestamp\": \"${nowAsString()}\" }\n\n")
+        return this.resp.write(": { \"timestamp\": \"${wallNowAsString()}\" }\n\n")
     }
 
     private fun setupPingTimer() {
@@ -141,7 +134,7 @@ class QueryClientSSEVerticle(
             if (messageBody is ReportData) {
                 val dataPayload = messageBody.actualData.replace("\n", "\ndata: ")
                 resp.write(
-                    ": { \"timestamp\": \"${nowAsString()}\" }\nevent: data\nid: ${messageBody.idempotencyKey}\ndata: $dataPayload\n\n"
+                    ": { \"timestamp\": \"${wallNowAsString()}\" }\nevent: data\nid: ${messageBody.idempotencyKey}\ndata: $dataPayload\n\n"
                 ).onComplete {
                     message.reply("handled")
                 }
