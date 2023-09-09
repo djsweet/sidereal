@@ -15,8 +15,8 @@ import kotlin.system.exitProcess
 )
 internal class ThoriumCommand {
     @Command(
-        name="max-safe-key-value-size",
-        description = ["Determines the maximum key size before tree operations begin throwing StackOverflowError"]
+        name="kvp-byte-budget",
+        description = ["Determines the maximum key/value pair byte budget to prevent tree operations from throwing StackOverflowError"]
     )
     fun determineMaxSafeKeyValueSize(): Int {
         val vertx = Vertx.vertx()
@@ -43,6 +43,7 @@ internal class ThoriumCommand {
     fun serve(): Int {
         val vertx = Vertx.vertx()
         val initialSafeKeyValueSize = maxSafeKeyValueSizeSync(vertx)
+        println("Byte budget for key/value pairs is $initialSafeKeyValueSize")
         establishByteBudget(vertx.sharedData(), initialSafeKeyValueSize)
         registerMessageCodecs(vertx)
         return runBlocking {
