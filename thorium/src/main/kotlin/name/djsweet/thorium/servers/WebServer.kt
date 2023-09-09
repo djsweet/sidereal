@@ -25,6 +25,7 @@ fun jsonStatusCodeResponse(req: HttpServerRequest, code: Int): HttpServerRespons
         .setStatusCode(code)
         .putHeader("Content-Type", "application/json; charset=utf-8")
         .putHeader("Cache-Control", "no-store")
+        .putHeader("Connection", "keep-alive")
         .putHeader("Access-Control-Allow-Origin", "*")
 }
 
@@ -240,8 +241,17 @@ val invalidJsonBodyJson = jsonObjectOf("code" to "invalid-json-body")
 val baseExceededDataLimitJson = jsonObjectOf("code" to "exceeded-outstanding-data-limit")
 val invalidDataFieldJson = jsonObjectOf("code" to "invalid-data-field")
 val acceptedJson = jsonObjectOf("code" to "accepted")
+const val bodyReadTimeHeader = "X-Thorium-Body-Read-Time"
+const val jsonParseTimeHeader = "X-Thorium-JSON-Parse-Time"
+const val eventEncodeTimeHeader = "X-Thorium-Encode-Time"
 
-fun handleDataWithUnpackRequest(vertx: Vertx, unpackReqs: List<UnpackDataRequest>, httpReq: HttpServerRequest) {
+fun handleDataWithUnpackRequest(
+    vertx: Vertx,
+    bodyReadTimeMS: Long,
+    jsonParseTimeMS: Long,
+    unpackReqs: List<UnpackDataRequest>,
+    httpReq: HttpServerRequest
+) {
     val eventBus = vertx.eventBus()
     val sharedData = vertx.sharedData()
 
@@ -267,6 +277,7 @@ fun handleDataWithUnpackRequest(vertx: Vertx, unpackReqs: List<UnpackDataRequest
             return@onComplete
         }
 
+        val translatorSendStartTime = monotonicNowMS()
         val translatorSends = ArrayList<Future<Message<Any>>>()
         for (unpackReq in unpackReqs) {
             val targetTranslatorOffset = unpackReq.idempotencyKey.hashCode().absoluteValue % translatorThreads
@@ -316,7 +327,13 @@ fun handleDataWithUnpackRequest(vertx: Vertx, unpackReqs: List<UnpackDataRequest
                     eventBus.publish(addressForQueryServerData(sharedData, i), report)
                 }
             }
-            jsonStatusCodeResponse(httpReq, 202).end(acceptedJson.toString())
+            jsonStatusCodeResponse(httpReq, 202).putHeader(
+                bodyReadTimeHeader, "$bodyReadTimeMS ms"
+            ).putHeader(
+                jsonParseTimeHeader, "$jsonParseTimeMS ms"
+            ).putHeader(
+                eventEncodeTimeHeader, "${monotonicNowMS() - translatorSendStartTime} ms"
+            ).end(acceptedJson.toString())
         }
     }
 }
@@ -328,6 +345,7 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
         return
     }
     val paramOffset = withParams.indexOf(";")
+    val bodyReadStartTime = monotonicNowMS()
     when (if (paramOffset < 0) { withParams } else { withParams.substring(0, paramOffset) }) {
         "application/json" -> {
             val eventSource = req.headers().get("ce-source")
@@ -342,6 +360,7 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
             }
             val idempotencyKey = "$eventSource $eventID"
             req.bodyHandler { bodyBytes ->
+                val jsonParseStartTime = monotonicNowMS()
                 val data: JsonObject
                 try {
                     data = JsonObject(bodyBytes)
@@ -354,11 +373,18 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
                     idempotencyKey,
                     data
                 )
-                handleDataWithUnpackRequest(vertx, listOf(unpackRequest), req)
+                handleDataWithUnpackRequest(
+                    vertx,
+                    jsonParseStartTime - bodyReadStartTime,
+                    monotonicNowMS() - jsonParseStartTime,
+                    listOf(unpackRequest),
+                    req
+                )
             }
         }
         "application/cloudevents+json" -> {
             req.bodyHandler { bodyBytes ->
+                val jsonParseStartTime = monotonicNowMS()
                 val json: JsonObject
                 try {
                     json = JsonObject(bodyBytes)
@@ -391,11 +417,18 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
                     idempotencyKey,
                     data
                 )
-                handleDataWithUnpackRequest(vertx, listOf(unpackRequest), req)
+                handleDataWithUnpackRequest(
+                    vertx,
+                    jsonParseStartTime - bodyReadStartTime,
+                    monotonicNowMS() - jsonParseStartTime,
+                    listOf(unpackRequest),
+                    req
+                )
             }
         }
         "application/cloudevents-batch+json" -> {
             req.bodyHandler { bodyBytes ->
+                val jsonParseStartTime = monotonicNowMS()
                 val json: JsonArray
                 try {
                     json = JsonArray(bodyBytes)
@@ -451,16 +484,20 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
                     }
 
                     val idempotencyKey = "$eventSource $eventID"
-                    unpackRequests.add(
-                        UnpackDataRequest(
+                    unpackRequests.add(UnpackDataRequest(
                         channel,
                         idempotencyKey,
                         data
-                    )
-                    )
+                    ))
                 }
 
-                handleDataWithUnpackRequest(vertx, unpackRequests, req)
+                handleDataWithUnpackRequest(
+                    vertx,
+                    jsonParseStartTime - bodyReadStartTime,
+                    monotonicNowMS() - jsonParseStartTime,
+                    unpackRequests,
+                    req
+                )
             }
         }
         else -> {
