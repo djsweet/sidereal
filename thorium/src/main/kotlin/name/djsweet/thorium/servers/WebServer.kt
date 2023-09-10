@@ -321,9 +321,7 @@ fun handleDataWithUnpackRequest(
                 return@translatorResults
             }
             for (report in reports) {
-                for (i in 0 until queryThreads) {
-                    eventBus.publish(addressForQueryServerData(sharedData, i), report)
-                }
+                eventBus.publish(addressForQueryServerData, report)
             }
             jsonStatusCodeResponse(httpReq, 202)
                 .putHeader(eventEncodeTimeHeader, "${monotonicNowMS() - translatorSendStartTime} ms")

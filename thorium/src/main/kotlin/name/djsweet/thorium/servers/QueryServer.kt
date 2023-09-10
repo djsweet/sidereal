@@ -643,7 +643,6 @@ class QueryRouterVerticle(
         val eventBus = this.vertx.eventBus()
         val sharedData = this.vertx.sharedData()
         val queryAddress = addressForQueryServerQuery(sharedData, this.verticleOffset)
-        val dataAddress = addressForQueryServerData(sharedData, this.verticleOffset)
         this.queryHandler = eventBus.localConsumer(queryAddress) { message ->
             when (val body = message.body()) {
                 is RegisterQueryRequest -> this.runCoroutineAndReply(message) { this.registerQuery(body) }
@@ -657,7 +656,7 @@ class QueryRouterVerticle(
                 )
             }
         }
-        this.dataHandler = eventBus.localConsumer(dataAddress) { message ->
+        this.dataHandler = eventBus.localConsumer(addressForQueryServerData) { message ->
             this.runBlockingAndReply(message) { reportData ->
                 this.routerTimer.record<Unit> { this.respondToData(reportData) }!!
             }

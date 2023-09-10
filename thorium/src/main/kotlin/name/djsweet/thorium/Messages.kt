@@ -353,9 +353,7 @@ private fun addressForQueryServerQueryAtOffset(verticleOffset: Int): String {
     return "thorium.query.server.$verticleOffset.query"
 }
 
-private fun addressForQueryServerDataAtOffset(verticleOffset: Int): String {
-    return "thorium.query.server.$verticleOffset.data"
-}
+const val addressForQueryServerData = "thorium.query.server.all.data"
 
 private fun addressForTranslatorServerAtOffset(verticleOffset: Int): String {
     return "thorium.data.translator.$verticleOffset"
@@ -373,16 +371,6 @@ fun addressForQueryServerQuery(sharedData: SharedData, verticleOffset: Int): Str
         queryServerQueryAddresses = currentQueryServerQueryAddresses
     }
     return currentQueryServerQueryAddresses[verticleOffset]
-}
-
-private var queryServerDataAddresses: Array<String>? = null
-fun addressForQueryServerData(sharedData: SharedData, verticleOffset: Int): String {
-    var currentQueryServerDataAddresses = queryServerDataAddresses
-    if (currentQueryServerDataAddresses == null) {
-        currentQueryServerDataAddresses = Array(getQueryThreads(sharedData)) { addressForQueryServerDataAtOffset(it) }
-        queryServerDataAddresses = currentQueryServerDataAddresses
-    }
-    return currentQueryServerDataAddresses[verticleOffset]
 }
 
 private var translatorServerAddresses: Array<String>? = null
