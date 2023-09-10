@@ -31,7 +31,7 @@ fun jsonStatusCodeResponse(req: HttpServerRequest, code: Int): HttpServerRespons
         .setStatusCode(code)
 }
 
-const val serverSentCommentTimeout = 30_000.toLong()
+const val serverSentPingTimeout = 30_000.toLong()
 
 val clientSerial: ThreadLocal<Long> = ThreadLocal.withInitial { 0.toLong() }
 fun getClientIDFromSerial(): String {
@@ -88,7 +88,7 @@ class QueryClientSSEVerticle(
                 vertx.cancelTimer(currentTimerIDAfterComment)
             }
 
-            this.timerID = vertx.setTimer(serverSentCommentTimeout) {
+            this.timerID = vertx.setTimer(serverSentPingTimeout) {
                 this.pingFuture = this.pingFuture.eventually {
                     writePing()
                 }.onComplete {
