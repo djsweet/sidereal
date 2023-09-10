@@ -1,5 +1,6 @@
 package name.djsweet.thorium.servers
 
+import io.micrometer.prometheus.PrometheusMeterRegistry
 import io.netty.handler.codec.http.QueryStringDecoder
 import io.vertx.core.*
 import io.vertx.core.Future.join
@@ -13,18 +14,21 @@ import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
 import io.vertx.kotlin.core.json.jsonObjectOf
 import io.vertx.kotlin.coroutines.await
-import io.vertx.kotlin.micrometer.vertxPrometheusOptionsOf
 import name.djsweet.thorium.*
 import java.net.URLDecoder
 import kotlin.math.absoluteValue
 
-fun jsonStatusCodeResponse(req: HttpServerRequest, code: Int): HttpServerResponse {
-    return req.response()
-        .setStatusCode(code)
-        .putHeader("Content-Type", "application/json; charset=utf-8")
+fun writeCommonHeaders(resp: HttpServerResponse): HttpServerResponse {
+    return resp
         .putHeader("Cache-Control", "no-store")
         .putHeader("Connection", "keep-alive")
         .putHeader("Access-Control-Allow-Origin", "*")
+}
+
+fun jsonStatusCodeResponse(req: HttpServerRequest, code: Int): HttpServerResponse {
+    return writeCommonHeaders(req.response())
+        .putHeader("Content-Type", "application/json; charset=utf-8")
+        .setStatusCode(code)
 }
 
 const val serverSentCommentTimeout = 30_000.toLong()
@@ -52,13 +56,10 @@ class QueryClientSSEVerticle(
             return
         }
         val connectPayload = jsonObjectOf("timestamp" to wallNowAsString(), "clientID" to this.clientID).toString()
-        this.resp
+        writeCommonHeaders(this.resp)
             .setChunked(true)
             .setStatusCode(200)
             .putHeader("Content-Type", "text/event-stream; charset=utf-8")
-            .putHeader("Cache-Control", "no-store")
-            .putHeader("Connection", "keep-alive")
-            .putHeader("Access-Control-Allow-Origin", "*")
             .write("event: connect\ndata: $connectPayload\n\n")
     }
 
@@ -155,6 +156,7 @@ class QueryClientSSEVerticle(
 }
 
 const val channelsPrefix = "/channels/"
+const val metricsPrefix = "/metrics"
 val baseInvalidMethodJson = jsonObjectOf("code" to "invalid-method")
 val baseInvalidChannelJson = jsonObjectOf("code" to "invalid-channel")
 val internalFailureJson = jsonObjectOf("code" to "internal-failure")
@@ -516,7 +518,7 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
 
 val notFoundJson = jsonObjectOf("code" to "not-found")
 
-class WebServerVerticle: AbstractVerticle() {
+class WebServerVerticle(private val meterRegistry: PrometheusMeterRegistry): AbstractVerticle() {
     private var server: HttpServer? = null
 
     override fun start(promise: Promise<Void>) {
@@ -533,7 +535,8 @@ class WebServerVerticle: AbstractVerticle() {
                 resp.end()
             }
             try {
-                if (req.path().startsWith(channelsPrefix)) {
+                val path = req.path()
+                if (path.startsWith(channelsPrefix)) {
                     val possiblyChannel = req.path().substring(channelsPrefix.length)
                     val slashIndex = possiblyChannel.indexOf("/")
                     if (slashIndex > 0 && slashIndex != possiblyChannel.length - 1) {
@@ -556,6 +559,13 @@ class WebServerVerticle: AbstractVerticle() {
                         jsonStatusCodeResponse(req, 400)
                             .end(baseInvalidMethodJson.copy().put("method", req.method()).toString())
                     }
+                } else if (
+                    path.startsWith(metricsPrefix)
+                        && (path.length == metricsPrefix.length
+                            || (path.length == metricsPrefix.length + 1 && path[metricsPrefix.length] == '/'))) {
+                    writeCommonHeaders(req.response())
+                        .putHeader("Content-Type", "text/plain; version=0.0.4")
+                        .end(this.meterRegistry.scrape())
                 } else {
                     jsonStatusCodeResponse(req, 404).end(notFoundJson.toString())
                 }
@@ -583,10 +593,14 @@ class WebServerVerticle: AbstractVerticle() {
     }
 }
 
-suspend fun registerWebServer(vertx: Vertx, webServerVerticles: Int): Set<String> {
+suspend fun registerWebServer(
+    vertx: Vertx,
+    prom: PrometheusMeterRegistry,
+    webServerVerticles: Int
+): Set<String> {
     val deploymentIDs = mutableSetOf<String>()
     for (i in 0 until webServerVerticles) {
-        val deploymentID = vertx.deployVerticle(WebServerVerticle()).await()
+        val deploymentID = vertx.deployVerticle(WebServerVerticle(prom)).await()
         deploymentIDs.add(deploymentID)
     }
     return deploymentIDs

@@ -1,5 +1,7 @@
 package name.djsweet.thorium
 
+import io.micrometer.prometheus.PrometheusConfig
+import io.micrometer.prometheus.PrometheusMeterRegistry
 import io.vertx.core.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -43,6 +45,7 @@ internal class ThoriumCommand {
         description = ["Runs the server"]
     )
     fun serve(): Int {
+        val meterRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
         val vertx = Vertx.vertx()
         val initialSafeKeyValueSize = maxSafeKeyValueSizeSync(vertx)
         println("Byte budget for key/value pairs is $initialSafeKeyValueSize")
@@ -51,13 +54,18 @@ internal class ThoriumCommand {
         return runBlocking {
             val queryDeploymentIDs = registerQueryServer(
                 vertx,
+                meterRegistry,
                 0,
                 getQueryThreads(vertx.sharedData()),
                 0,
                 getTranslatorThreads(vertx.sharedData())
             )
             try {
-                val webServerDeploymentIDs = registerWebServer(vertx, getWebServerThreads(vertx.sharedData()))
+                val webServerDeploymentIDs = registerWebServer(
+                    vertx,
+                    meterRegistry,
+                    getWebServerThreads(vertx.sharedData())
+                )
                 val allDeploymentIDs = queryDeploymentIDs.union(webServerDeploymentIDs)
                 println("Listening on :${getServerPort(vertx.sharedData())}")
                 while (vertx.deploymentIDs().containsAll(allDeploymentIDs)) {

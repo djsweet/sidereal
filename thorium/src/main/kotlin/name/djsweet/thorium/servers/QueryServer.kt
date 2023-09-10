@@ -1,6 +1,7 @@
 package name.djsweet.thorium.servers
 
 import io.micrometer.core.instrument.MeterRegistry
+import io.micrometer.core.instrument.Timer
 import io.vertx.core.AbstractVerticle
 import io.vertx.core.DeploymentOptions
 import io.vertx.core.Future
@@ -21,7 +22,6 @@ import name.djsweet.thorium.convertLongToByteArray
 import name.djsweet.thorium.convertStringToByteArray
 import name.djsweet.thorium.reestablishByteBudget
 import java.util.*
-import java.util.function.Supplier
 import kotlin.collections.ArrayList
 import kotlin.coroutines.suspendCoroutine
 
@@ -343,7 +343,15 @@ data class ChannelInfo(
 
 private val ciRemoveMin = { ci: ChannelInfo -> ci.removeMinimumIdempotencyKeys() }
 
-class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency(verticleOffset) {
+class QueryRouterVerticle(
+    metrics: MeterRegistry,
+    verticleOffset: Int
+): ServerVerticleWithIdempotency(verticleOffset) {
+    private val routerTimer = Timer.builder(routerMetricName)
+        .description(routerMetricDescription)
+        .tag("worker", verticleOffset.toString())
+        .register(metrics)
+
     private var channels = QPTrie<ChannelInfo>()
     private val responders = ArrayList<QueryResponderSpec>()
     private val arrayResponderReferenceCounts = mutableMapOf<QueryResponderSpec, Long>()
@@ -636,21 +644,6 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
         val sharedData = this.vertx.sharedData()
         val queryAddress = addressForQueryServerQuery(sharedData, this.verticleOffset)
         val dataAddress = addressForQueryServerData(sharedData, this.verticleOffset)
-        /*
-        this.queryHandler = eventBus.localConsumer(queryAddress) { message -> this.runCoroutineAndReply(message) {
-            when (it) {
-                is RegisterQueryRequest -> this.registerQuery(it)
-                is UnregisterQueryRequest -> this.unregisterQuery(it)
-                else -> HttpProtocolErrorOrJson.ofError(
-                    HttpProtocolError(
-                        500, jsonObjectOf(
-                            "code" to "invalid-request"
-                        )
-                    )
-                )
-            }
-        } }
-         */
         this.queryHandler = eventBus.localConsumer(queryAddress) { message ->
             when (val body = message.body()) {
                 is RegisterQueryRequest -> this.runCoroutineAndReply(message) { this.registerQuery(body) }
@@ -665,7 +658,9 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
             }
         }
         this.dataHandler = eventBus.localConsumer(dataAddress) { message ->
-            this.runBlockingAndReply(message) { this.respondToData(it) }
+            this.runBlockingAndReply(message) { reportData ->
+                this.routerTimer.record<Unit> { this.respondToData(reportData) }!!
+            }
         }
     }
 
@@ -690,8 +685,13 @@ val baseJsonResponseForStackOverflowData = jsonObjectOf(
 // we would be growing our working set of "cached data" up to millions of saved entries rather quickly,
 // just to save on the "cost" of reprocessing a tiny handful.
 class JsonToQueryableTranslatorVerticle(
+    metrics: MeterRegistry,
     verticleOffset: Int
 ): ServerVerticle(verticleOffset) {
+    private val unpackRequestTimer = Timer.builder(translationMetricName)
+        .description(translationMetricDescription)
+        .tag("worker", verticleOffset.toString())
+        .register(metrics)
     private var maxJsonParsingRecursion = 16
     private var requestHandler: MessageConsumer<UnpackDataRequest>? = null
 
@@ -764,7 +764,11 @@ class JsonToQueryableTranslatorVerticle(
         this.maxJsonParsingRecursion = getMaxJsonParsingRecursion(sharedData)
 
         this.requestHandler = eventBus.localConsumer(addressForTranslatorServer(sharedData, this.verticleOffset)) {
-            message -> this.runBlockingAndReply(message) { this.handleUnpackDataRequest(it) }
+            message -> this.runBlockingAndReply(message) { unpackData ->
+                this.unpackRequestTimer.record<HttpProtocolErrorOrReportData> {
+                    this.handleUnpackDataRequest(unpackData)
+                }
+            }
         }
     }
 
@@ -776,6 +780,7 @@ class JsonToQueryableTranslatorVerticle(
 
 suspend fun registerQueryServer(
     vertx: Vertx,
+    metrics: MeterRegistry,
     queryVerticleOffset: Int,
     queryVerticles: Int,
     serverVerticleOffset: Int,
@@ -785,11 +790,11 @@ suspend fun registerQueryServer(
     val futures = mutableListOf<Future<String>>()
     val lastQueryVerticleOffset = queryVerticleOffset + queryVerticles
     for (i in queryVerticleOffset until lastQueryVerticleOffset) {
-        futures.add(vertx.deployVerticle(QueryResponderVerticle(i), opts))
+        futures.add(vertx.deployVerticle(QueryRouterVerticle(metrics, i), opts))
     }
     val lastServerVerticleOffset = serverVerticleOffset + serverVerticles
     for (i in serverVerticleOffset until lastServerVerticleOffset) {
-        futures.add(vertx.deployVerticle(JsonToQueryableTranslatorVerticle(i), opts))
+        futures.add(vertx.deployVerticle(JsonToQueryableTranslatorVerticle(metrics, i), opts))
     }
 
     val deploymentIDs = mutableSetOf<String>()

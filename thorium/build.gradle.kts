@@ -25,17 +25,18 @@ val operatingSystem = org.gradle.nativeplatform.platform.internal.DefaultNativeP
 
 val picocliVersion = "4.7.3"
 val vertxVersion = "4.4.5"
+val micrometerVersion = "1.11.3"
 val nettyResolverDnsVersion = "4.1.92.Final"
 val netJqwik = "net.jqwik:jqwik:1.7.3"
 
 val benchmarksImplementation: Configuration = configurations.getAt("benchmarksImplementation")
 
 dependencies {
-    implementation("org.apache.commons:commons-text:1.10.0")
     implementation("info.picocli:picocli:${picocliVersion}")
     implementation("io.vertx:vertx-core:${vertxVersion}")
     implementation("io.vertx:vertx-lang-kotlin:${vertxVersion}")
     implementation("io.vertx:vertx-lang-kotlin-coroutines:${vertxVersion}")
+    implementation("io.micrometer:micrometer-registry-prometheus:${micrometerVersion}")
 
     if (operatingSystem.isMacOsX) {
         // io.netty.resolver.dns.DnsServerAddressStreamProviders prints a warning on macOS about how it
