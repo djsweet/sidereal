@@ -5,10 +5,12 @@ import io.vertx.core.eventbus.DeliveryOptions
 import io.vertx.core.eventbus.MessageCodec
 import io.vertx.core.json.JsonObject
 import io.vertx.core.shareddata.ClusterSerializable
+import io.vertx.core.tracing.TracingPolicy
 import io.vertx.kotlin.core.json.jsonObjectOf
 
-val localRequestOptions: DeliveryOptions = DeliveryOptions().setLocalOnly(true)
-
+val localRequestOptions: DeliveryOptions = DeliveryOptions()
+    .setLocalOnly(true)
+    .setTracingPolicy(TracingPolicy.IGNORE)
 
 abstract class LocalPrimaryMessageCodec<T>(
     nameSuffix: String
