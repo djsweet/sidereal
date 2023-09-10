@@ -1,5 +1,6 @@
 package name.djsweet.thorium.servers
 
+import io.micrometer.core.instrument.MeterRegistry
 import io.vertx.core.AbstractVerticle
 import io.vertx.core.DeploymentOptions
 import io.vertx.core.Future
@@ -20,6 +21,7 @@ import name.djsweet.thorium.convertLongToByteArray
 import name.djsweet.thorium.convertStringToByteArray
 import name.djsweet.thorium.reestablishByteBudget
 import java.util.*
+import java.util.function.Supplier
 import kotlin.collections.ArrayList
 import kotlin.coroutines.suspendCoroutine
 
@@ -114,7 +116,7 @@ abstract class ServerVerticle(protected val verticleOffset: Int): AbstractVertic
             .publish(addressForByteBudgetReset, ResetByteBudget(newByteBudget), localRequestOptions)
     }
 
-    private suspend fun <T, U>runCoroutineHandlingStackOverflow(message: Message<T>, handler: suspend (T) -> U): U {
+    private suspend fun<T, U> runCoroutineHandlingStackOverflow(message: Message<T>, handler: suspend (T) -> U): U {
         try {
             return handler(message.body())
         } catch (e: StackOverflowError) {
@@ -123,7 +125,7 @@ abstract class ServerVerticle(protected val verticleOffset: Int): AbstractVertic
         }
     }
 
-    protected fun<T, U> runAndReply(message: Message<T>, handler: suspend (T) -> U) {
+    protected fun<T, U> runCoroutineAndReply(message: Message<T>, handler: suspend (T) -> U) {
         val self = this
         self.lastFuture = self.lastFuture.eventually { _ ->
             vertxFuture { self.runCoroutineHandlingStackOverflow(message, handler) }.onComplete {
@@ -133,6 +135,18 @@ abstract class ServerVerticle(protected val verticleOffset: Int): AbstractVertic
                     message.fail(500, it.cause().message)
                 }
             }
+        }
+    }
+
+    protected fun <T, U> runBlockingAndReply(message: Message<T>, handler: (T) -> U) {
+        try {
+            val result = handler(message.body())
+            message.reply(result)
+        } catch (e: StackOverflowError) {
+            this.handleStackOverflowWithNewByteBudget()
+            message.fail(500, e.message)
+        } catch (e: Error) {
+            message.fail(500, e.message)
         }
     }
 
@@ -622,7 +636,8 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
         val sharedData = this.vertx.sharedData()
         val queryAddress = addressForQueryServerQuery(sharedData, this.verticleOffset)
         val dataAddress = addressForQueryServerData(sharedData, this.verticleOffset)
-        this.queryHandler = eventBus.localConsumer(queryAddress) { message -> this.runAndReply(message) {
+        /*
+        this.queryHandler = eventBus.localConsumer(queryAddress) { message -> this.runCoroutineAndReply(message) {
             when (it) {
                 is RegisterQueryRequest -> this.registerQuery(it)
                 is UnregisterQueryRequest -> this.unregisterQuery(it)
@@ -635,8 +650,22 @@ class QueryResponderVerticle(verticleOffset: Int): ServerVerticleWithIdempotency
                 )
             }
         } }
+         */
+        this.queryHandler = eventBus.localConsumer(queryAddress) { message ->
+            when (val body = message.body()) {
+                is RegisterQueryRequest -> this.runCoroutineAndReply(message) { this.registerQuery(body) }
+                is UnregisterQueryRequest -> this.runBlockingAndReply(message) { this.unregisterQuery(body) }
+                else -> HttpProtocolErrorOrJson.ofError(
+                    HttpProtocolError(
+                        500, jsonObjectOf(
+                            "code" to "invalid-request"
+                        )
+                    )
+                )
+            }
+        }
         this.dataHandler = eventBus.localConsumer(dataAddress) { message ->
-            this.runAndReply(message) { this.respondToData(it) }
+            this.runBlockingAndReply(message) { this.respondToData(it) }
         }
     }
 
@@ -660,7 +689,9 @@ val baseJsonResponseForStackOverflowData = jsonObjectOf(
 // every request sent to it. At a high enough update frequency, this is absolutely the right choice:
 // we would be growing our working set of "cached data" up to millions of saved entries rather quickly,
 // just to save on the "cost" of reprocessing a tiny handful.
-class JsonToQueryableTranslatorVerticle(verticleOffset: Int): ServerVerticle(verticleOffset) {
+class JsonToQueryableTranslatorVerticle(
+    verticleOffset: Int
+): ServerVerticle(verticleOffset) {
     private var maxJsonParsingRecursion = 16
     private var requestHandler: MessageConsumer<UnpackDataRequest>? = null
 
@@ -733,7 +764,7 @@ class JsonToQueryableTranslatorVerticle(verticleOffset: Int): ServerVerticle(ver
         this.maxJsonParsingRecursion = getMaxJsonParsingRecursion(sharedData)
 
         this.requestHandler = eventBus.localConsumer(addressForTranslatorServer(sharedData, this.verticleOffset)) {
-            message -> this.runAndReply(message) { this.handleUnpackDataRequest(it) }
+            message -> this.runBlockingAndReply(message) { this.handleUnpackDataRequest(it) }
         }
     }
 
