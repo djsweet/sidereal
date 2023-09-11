@@ -148,7 +148,7 @@ class QueryClientSSEVerticle(
             this.writeHeadersIfNecessary()
             this.setupPingTimer()
             if (messageBody is ReportData) {
-                val dataPayload = messageBody.actualData.replace("\n", "\ndata: ")
+                val dataPayload = messageBody.actualData.value.replace("\n", "\ndata: ")
                 resp.write(
                     ": { \"timestamp\": \"${wallNowAsString()}\" }\nevent: data\nid: ${messageBody.idempotencyKey}\ndata: $dataPayload\n\n"
                 ).onComplete {

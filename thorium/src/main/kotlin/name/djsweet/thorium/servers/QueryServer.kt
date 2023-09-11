@@ -724,18 +724,14 @@ class JsonToQueryableTranslatorVerticle(
         val byteBudget = this.byteBudget
         val maxJsonParsingRecursion = this.maxJsonParsingRecursion
 
-        val jsonString: String
-        try {
-            jsonString = data.toString()
-        } catch (e: Exception) {
-            // Something has gone horribly wrong trying to convert this JSON to a string.
-            // We can't actually do anything with this in terms of queries.
-            return HttpProtocolErrorOrReportDataWithIndex.ofError(
-                HttpProtocolError(
-                    400,
-                    baseJsonResponseForBadJsonString.copy().put("eventID", idempotencyKey)
-                )
-            )
+        val getDataString = thunkForReportDataString {
+            try {
+                data.encode()
+            } catch (e: Exception) {
+                // Something has gone horribly wrong trying to convert this JSON to a string.
+                // We can't actually do anything with this in terms of queries.
+                "{}"
+            }
         }
         try {
             val idempotencyKeyBytes = convertStringToByteArray(idempotencyKey)
@@ -760,7 +756,7 @@ class JsonToQueryableTranslatorVerticle(
                         idempotencyKey,
                         queryableScalarData = scalars,
                         queryableArrayData = arrays,
-                        actualData = jsonString
+                        actualData = getDataString
                     )
                 )
             )

@@ -283,19 +283,25 @@ class UnpackDataRequestListCodec: LocalListCodec<UnpackDataRequestWithIndex, Unp
     }
 }
 
+fun thunkForReportDataString(compute: () -> String): Lazy<String> {
+    return lazy(LazyThreadSafetyMode.PUBLICATION, compute)
+}
+
+private val emptyStringLazy: Lazy<String> = thunkForReportDataString { "" }
+
 data class ReportData(
     val channel: String,
     val idempotencyKey: String,
     val queryableScalarData: ShareableQPTrieOfByteArrays,
     val queryableArrayData: ShareableQPTrieOfByteArrayLists,
-    val actualData: String,
+    val actualData: Lazy<String>,
 ) {
     constructor() : this(
         "",
         "",
         ShareableQPTrieOfByteArrays(),
         ShareableQPTrieOfByteArrayLists(),
-        ""
+        emptyStringLazy
     )
 }
 
@@ -309,7 +315,7 @@ class ReportDataCodec: LocalPrimaryMessageCodec<ReportData>("ReportData") {
         appendStringAsUnicode(s.idempotencyKey, buffer)
         s.queryableScalarData.writeToBuffer(buffer)
         s.queryableArrayData.writeToBuffer(buffer)
-        appendStringAsUnicode(s.actualData, buffer)
+        appendStringAsUnicode(s.actualData.value, buffer)
     }
 
     override fun decodeFromWireNonNullBuffer(pos: Int, buffer: Buffer): ReportData {
@@ -332,14 +338,14 @@ class ReportDataCodec: LocalPrimaryMessageCodec<ReportData>("ReportData") {
         val actualDataPos = actualDataLengthPos + 4
         val actualDataLength = buffer.getInt(actualDataLengthPos)
         val finalPos = actualDataPos + actualDataLength
-        val actualData = buffer.getString(actualDataPos, finalPos, "utf-8")
+        val actualDataContents = buffer.getString(actualDataPos, finalPos, "utf-8")
 
         return ReportData(
             channel,
             idempotencyKey,
             queryableScalarData,
             queryableArrayData,
-            actualData
+            thunkForReportDataString { actualDataContents }
         )
     }
 }
