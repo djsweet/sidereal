@@ -249,9 +249,10 @@ val invalidJsonBodyJson = jsonObjectOf("code" to "invalid-json-body")
 val baseExceededDataLimitJson = jsonObjectOf("code" to "exceeded-outstanding-data-limit")
 val invalidDataFieldJson = jsonObjectOf("code" to "invalid-data-field")
 val acceptedJson = jsonObjectOf("code" to "accepted")
-const val bodyReadTimeHeader = "X-Thorium-Body-Read-Time"
-const val jsonParseTimeHeader = "X-Thorium-JSON-Parse-Time"
-const val eventEncodeTimeHeader = "X-Thorium-Encode-Time"
+// The X- prefix was deprecated in IETF RFC 6648, dated June 2012, so it's something of a free-for-all now.
+const val bodyReadTimeHeader = "Thorium-Body-Read-Time"
+const val jsonParseTimeHeader = "Thorium-JSON-Parse-Time"
+const val eventEncodeTimeHeader = "Thorium-Encode-Time"
 const val reportBatchSize = 256
 
 fun handleDataWithUnpackRequest(
