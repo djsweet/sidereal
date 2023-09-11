@@ -26,9 +26,24 @@ fun writeCommonHeaders(resp: HttpServerResponse): HttpServerResponse {
         .putHeader("Access-Control-Allow-Origin", "*")
 }
 
+const val jsonMimeType = "application/json; charset=utf-8"
 fun jsonStatusCodeResponse(req: HttpServerRequest, code: Int): HttpServerResponse {
     return writeCommonHeaders(req.response())
-        .putHeader("Content-Type", "application/json; charset=utf-8")
+        .putHeader("Content-Type", jsonMimeType)
+        .putHeader("ce-specversion", "1.0")
+        .putHeader("ce-datacontenttype", jsonMimeType)
+        .putHeader("ce-time", wallNowAsString())
+        .putHeader("ce-type", "name.djsweet.thorium.channel.send.response")
+        .putHeader("ce-source", "//thorium") // FIXME: Is this the right kind of source?
+        // We don't need a cryptographically random source for event IDs, we just need to make sure
+        // we effectively never have an ID collision, while at the same time avoiding blocking as much
+        // as we possibly can.
+        //
+        // java.util.ThreadLocalRandom uses the same linear congruential generator as java.util.Random,
+        // both with a period of around 2^48 results. Even when considering that we expect duplicates
+        // after 2^24 attempts, these duplicates are extremely unlikely to generate a true collision,
+        // considering we use 120 bits to generate the event ID.
+        .putHeader("ce-id", generateOutboundEventID(ThreadLocalRandom.current()))
         .setStatusCode(code)
 }
 
