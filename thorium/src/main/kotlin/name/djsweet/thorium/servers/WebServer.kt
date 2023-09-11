@@ -244,6 +244,7 @@ val acceptedJson = jsonObjectOf("code" to "accepted")
 const val bodyReadTimeHeader = "X-Thorium-Body-Read-Time"
 const val jsonParseTimeHeader = "X-Thorium-JSON-Parse-Time"
 const val eventEncodeTimeHeader = "X-Thorium-Encode-Time"
+const val reportBatchSize = 256
 
 fun handleDataWithUnpackRequest(
     vertx: Vertx,
@@ -276,53 +277,69 @@ fun handleDataWithUnpackRequest(
         }
 
         val translatorSendStartTime = monotonicNowMS()
-        val translatorSends = ArrayList<Future<Message<Any>>>()
-        for (unpackReq in unpackReqs) {
+        val requestLists = Array<MutableList<UnpackDataRequestWithIndex>>(translatorThreads) { mutableListOf() }
+        for (i in unpackReqs.indices) {
+            val unpackReq = unpackReqs[i]
             val targetTranslatorOffset = unpackReq.idempotencyKey.hashCode().absoluteValue % translatorThreads
-            val sendAddress = addressForTranslatorServer(sharedData, targetTranslatorOffset)
-            translatorSends.add(eventBus.request(sendAddress, unpackReq, localRequestOptions))
+            requestLists[targetTranslatorOffset].add(UnpackDataRequestWithIndex(i, unpackReq))
         }
+        val translatorSends = requestLists.mapIndexed { index, unpackDataRequestsWithIndices ->
+            val sendAddress = addressForTranslatorServer(sharedData, index)
+            eventBus.request<HttpProtocolErrorOrReportDataListWithIndexes>(
+                sendAddress,
+                UnpackDataRequestList(unpackDataRequestsWithIndices),
+                localRequestOptions
+            )
+        }
+        join(translatorSends).onFailure {
+            decrementOutstandingDataCountReturning(sharedData, queryIncrement).onComplete {
+                failRequest(httpReq)
+            }
+        }.onSuccess translatorResults@ { futures ->
+            val futuresSize = futures.size()
+            val modBatchSize = unpackReqs.size % reportBatchSize
+            val modBucket = ArrayList<ReportData?>(modBatchSize)
+            val bucketsSize = unpackReqs.size / reportBatchSize
+            val indexAtIntoModBucket = bucketsSize * reportBatchSize
+            val buckets = Array<ArrayList<ReportData?>>(bucketsSize) { ArrayList(reportBatchSize) }
 
-        val translatorResults = join(translatorSends as List<Future<Message<Any>>>)
-        translatorResults.onComplete translatorResults@ { future ->
-            if (future.failed()) {
-                decrementOutstandingDataCountReturning(sharedData, queryIncrement).onComplete {
-                    failRequest(httpReq)
-                }
-                return@translatorResults
-            }
-            val reports = mutableListOf<ReportData>()
-            val resolvedComposite = future.result()
-            var httpError: HttpProtocolError? = null
-            for (i in 0 until resolvedComposite.size()) {
-                if (resolvedComposite.failed(i)) {
+            for (i in 0 until futuresSize) {
+                val responseList = futures.resultAt<Message<HttpProtocolErrorOrReportDataListWithIndexes>>(i).body()
+                var hadError = false
+                responseList.whenError { error ->
                     decrementOutstandingDataCountReturning(sharedData, queryIncrement).onComplete {
-                        failRequest(httpReq)
+                        jsonStatusCodeResponse(httpReq, error.statusCode).end(error.contents.toString())
                     }
-                    return@translatorResults
-                }
-                val message = resolvedComposite.resultAt<Message<Any>>(i)
-                val report = message.body()
-                if (report !is HttpProtocolErrorOrReportData) continue
-                report.whenSuccess {
-                    reports.add(it)
-                }.whenError {
-                    val curError = httpError
-                    if (curError == null || curError.statusCode < it.statusCode){
-                        httpError = it
+                    hadError = true
+                }.whenSuccess { reports ->
+                    for (maybeResponse in reports.responses) {
+                        if (maybeResponse == null) {
+                            continue
+                        }
+                        val (index, report) = maybeResponse
+                        val bucket = if (index >= indexAtIntoModBucket) {
+                            modBucket
+                        } else {
+                            buckets[index / reportBatchSize]
+                        }
+                        val indexInBucket = index % reportBatchSize
+                        for (j in bucket.size..indexInBucket) {
+                            bucket.add(null)
+                        }
+                        bucket[indexInBucket] = report
                     }
                 }
+                if (hadError) return@translatorResults
             }
-            val endError = httpError
-            if (endError != null){
-                decrementOutstandingDataCountReturning(sharedData, queryIncrement).onComplete {
-                    jsonStatusCodeResponse(httpReq, endError.statusCode).end(endError.contents.toString())
-                }
-                return@translatorResults
+            for (i in 0 until bucketsSize) {
+                val reportBatch = ReportDataList(buckets[i])
+                eventBus.publish(addressForQueryServerData, reportBatch, localRequestOptions)
             }
-            for (report in reports) {
-                eventBus.publish(addressForQueryServerData, report)
+            if (modBatchSize > 0) {
+                val reportBatch = ReportDataList(modBucket)
+                eventBus.publish(addressForQueryServerData, reportBatch, localRequestOptions)
             }
+
             jsonStatusCodeResponse(httpReq, 202)
                 .putHeader(eventEncodeTimeHeader, "${monotonicNowMS() - translatorSendStartTime} ms")
                 .end(acceptedJson.toString())

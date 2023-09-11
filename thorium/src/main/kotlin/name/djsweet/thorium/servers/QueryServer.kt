@@ -360,7 +360,7 @@ class QueryRouterVerticle(
     private var maxQueryTerms = 0
     private var queryCount = 0
     private var queryHandler: MessageConsumer<Any>? = null
-    private var dataHandler: MessageConsumer<ReportData>? = null
+    private var dataHandler: MessageConsumer<ReportDataList>? = null
 
     override fun resetForNewByteBudget() {
         val eventBus = this.vertx.eventBus()
@@ -635,6 +635,19 @@ class QueryRouterVerticle(
         }
     }
 
+    private fun respondToDataTimed(reportData: ReportData) {
+        return this.routerTimer.record<Unit> { this.respondToData(reportData) }!!
+    }
+
+    private fun respondToDataList(reportDataList: ReportDataList) {
+        for (entry in reportDataList.entries) {
+            if (entry == null) {
+                continue
+            }
+            this.respondToDataTimed(entry)
+        }
+    }
+
     override fun start() {
         super.start()
 
@@ -657,9 +670,7 @@ class QueryRouterVerticle(
             }
         }
         this.dataHandler = eventBus.localConsumer(addressForQueryServerData) { message ->
-            this.runBlockingAndReply(message) { reportData ->
-                this.routerTimer.record<Unit> { this.respondToData(reportData) }!!
-            }
+            this.runBlockingAndReply(message) { respondToDataList(it) }
         }
     }
 
@@ -670,7 +681,7 @@ class QueryRouterVerticle(
     }
 }
 
-
+val jsonResponseForEmptyRequest = jsonObjectOf("code" to "internal-failure-empty-request")
 val baseJsonResponseForBadJsonString = jsonObjectOf("code" to "failed-json-stringify")
 val baseJsonResponseForOverSizedChannelInfoIdempotencyKey = jsonObjectOf(
     "code" to "channel-idempotency-too-large"
@@ -692,14 +703,23 @@ class JsonToQueryableTranslatorVerticle(
         .tag("worker", verticleOffset.toString())
         .register(metrics)
     private var maxJsonParsingRecursion = 16
-    private var requestHandler: MessageConsumer<UnpackDataRequest>? = null
+    private var requestHandler: MessageConsumer<UnpackDataRequestList>? = null
 
     override fun resetForNewByteBudget() {
         // We aren't keeping any state that is affected by the byte budget.
     }
 
-    private fun handleUnpackDataRequest(req: UnpackDataRequest): HttpProtocolErrorOrReportData {
-        val (channel, idempotencyKey, data) = req
+    private fun handleUnpackDataRequest(req: UnpackDataRequestWithIndex): HttpProtocolErrorOrReportDataWithIndex {
+        val (index, message) = req
+        if (message == null) {
+            return HttpProtocolErrorOrReportDataWithIndex.ofError(
+                HttpProtocolError(
+                    400,
+                    jsonResponseForEmptyRequest
+                )
+            )
+        }
+        val (channel, idempotencyKey, data) = message
         val channelBytes = convertStringToByteArray(channel)
         val byteBudget = this.byteBudget
         val maxJsonParsingRecursion = this.maxJsonParsingRecursion
@@ -710,7 +730,7 @@ class JsonToQueryableTranslatorVerticle(
         } catch (e: Exception) {
             // Something has gone horribly wrong trying to convert this JSON to a string.
             // We can't actually do anything with this in terms of queries.
-            return HttpProtocolErrorOrReportData.ofError(
+            return HttpProtocolErrorOrReportDataWithIndex.ofError(
                 HttpProtocolError(
                     400,
                     baseJsonResponseForBadJsonString.copy().put("eventID", idempotencyKey)
@@ -720,7 +740,7 @@ class JsonToQueryableTranslatorVerticle(
         try {
             val idempotencyKeyBytes = convertStringToByteArray(idempotencyKey)
             if (idempotencyKeyBytes.size + channelBytes.size > byteBudget) {
-                return HttpProtocolErrorOrReportData.ofError(
+                return HttpProtocolErrorOrReportDataWithIndex.ofError(
                     HttpProtocolError(
                         413,
                         baseJsonResponseForOverSizedChannelInfoIdempotencyKey.copy().put(
@@ -732,18 +752,21 @@ class JsonToQueryableTranslatorVerticle(
                 )
             }
             val (scalars, arrays) = encodeJsonToQueryableData(data, byteBudget, maxJsonParsingRecursion)
-            return HttpProtocolErrorOrReportData.ofSuccess(
-                ReportData(
-                    channel = channel,
-                    idempotencyKey = idempotencyKey,
-                    queryableScalarData = scalars,
-                    queryableArrayData = arrays,
-                    actualData = jsonString
+            return HttpProtocolErrorOrReportDataWithIndex.ofSuccess(
+                ReportDataWithIndex(
+                    index,
+                    ReportData(
+                        channel,
+                        idempotencyKey,
+                        queryableScalarData = scalars,
+                        queryableArrayData = arrays,
+                        actualData = jsonString
+                    )
                 )
             )
         } catch (e: StackOverflowError) {
             this.handleStackOverflowWithNewByteBudget()
-            return HttpProtocolErrorOrReportData.ofError(
+            return HttpProtocolErrorOrReportDataWithIndex.ofError(
                 HttpProtocolError(
                     507,
                     baseJsonResponseForStackOverflowData.copy().put(
@@ -752,6 +775,30 @@ class JsonToQueryableTranslatorVerticle(
                 )
             )
         }
+    }
+
+    private fun handleUnpackDataRequestTimed(req: UnpackDataRequestWithIndex): HttpProtocolErrorOrReportDataWithIndex {
+        return this.unpackRequestTimer.record<HttpProtocolErrorOrReportDataWithIndex> {
+            this.handleUnpackDataRequest(req)
+        }!!
+    }
+
+    private fun handleUnpackDataRequestList(requests: UnpackDataRequestList): HttpProtocolErrorOrReportDataListWithIndexes {
+        val results = mutableListOf<ReportDataWithIndex>()
+        var error: HttpProtocolError? = null
+        for (request in requests.requests) {
+            if (request == null) {
+                continue
+            }
+            this.handleUnpackDataRequestTimed(request)
+                .whenError { error = it }
+                .whenSuccess { results.add(it) }
+            val lastError = error
+            if (lastError != null) {
+                return HttpProtocolErrorOrReportDataListWithIndexes.ofError(lastError)
+            }
+        }
+        return HttpProtocolErrorOrReportDataListWithIndexes.ofSuccess(ReportDataListWithIndexes(results))
     }
 
     override fun start() {
@@ -763,11 +810,7 @@ class JsonToQueryableTranslatorVerticle(
         this.maxJsonParsingRecursion = getMaxJsonParsingRecursion(sharedData)
 
         this.requestHandler = eventBus.localConsumer(addressForTranslatorServer(sharedData, this.verticleOffset)) {
-            message -> this.runBlockingAndReply(message) { unpackData ->
-                this.unpackRequestTimer.record<HttpProtocolErrorOrReportData> {
-                    this.handleUnpackDataRequest(unpackData)
-                }
-            }
+            message -> this.runBlockingAndReply(message) { this.handleUnpackDataRequestList(it) }
         }
     }
 

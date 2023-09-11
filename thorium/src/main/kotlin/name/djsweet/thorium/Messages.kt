@@ -2,6 +2,7 @@ package name.djsweet.thorium
 
 import io.vertx.core.Vertx
 import io.vertx.core.buffer.Buffer
+import io.vertx.core.eventbus.MessageCodec
 import io.vertx.core.json.JsonObject
 import io.vertx.core.shareddata.SharedData
 import io.vertx.kotlin.core.json.jsonObjectOf
@@ -10,6 +11,89 @@ fun appendStringAsUnicode(s: String, b: Buffer): Buffer {
     val stringBytes = convertStringToByteArray(s)
     b.appendInt(stringBytes.size)
     return b.appendBytes(stringBytes)
+}
+
+abstract class LocalListCodec<T, U>(
+    nameSuffix: String,
+    private val elementCodec: MessageCodec<T, T>
+): LocalPrimaryMessageCodec<U>(nameSuffix) {
+    abstract fun getListEntries(container: U): List<T?>
+    abstract fun withListEntries(entries: List<T?>): U
+
+    override fun encodeToWireNonNullBuffer(buffer: Buffer, s: U) {
+        val elementCodec = this.elementCodec
+        val entries = this.getListEntries(s)
+        buffer.appendInt(entries.size)
+        // We unfortunately have to cheese the output a little bit, because the contract for MessageCodec doesn't
+        // give decodeFromWireNonNullBuffer any ability to communicate back how many bytes it consumed. We'll
+        // instead record this known offset as an Int at the beginning of each entry.
+        for (entry in entries) {
+            if (entry == null) {
+                buffer.appendByte(0)
+                continue
+            }
+            buffer.appendByte(1)
+            // We don't know the offset... yet. But we will once we're done! And we can overwrite this value
+            // at the end to get an accurate understanding of where this entry ends.
+            val priorOffset = buffer.length()
+            buffer.appendInt(0)
+            elementCodec.encodeToWire(buffer, entry)
+            buffer.setInt(priorOffset, buffer.length())
+        }
+    }
+
+    override fun decodeFromWireNonNullBuffer(pos: Int, buffer: Buffer): U {
+        val elementCodec = this.elementCodec
+        val listLength = buffer.getInt(pos)
+        var nextPos = pos + 4
+        val entries = mutableListOf<T?>()
+        for (i in 0 until listLength) {
+            val lastPos = nextPos
+            val nullTag = buffer.getByte(lastPos)
+            if (nullTag == 0.toByte()) {
+                nextPos += 1
+                entries.add(null)
+            } else {
+                nextPos = buffer.getInt(lastPos + 1)
+                entries.add(elementCodec.decodeFromWire(lastPos + 5, buffer))
+            }
+        }
+        return this.withListEntries(entries)
+    }
+}
+
+interface ListIndexToMessage<T> {
+    val index: Int
+    val message: T?
+}
+
+abstract class ListIndexToMessageCodec<T, U: ListIndexToMessage<T>>(
+    nameSuffix: String,
+    private val messageCodec: MessageCodec<T, T>
+): LocalPrimaryMessageCodec<U>(
+    nameSuffix
+) {
+    abstract fun withIndexMessage(index: Int, maybeMessage: T?): U
+
+    override fun encodeToWireNonNullBuffer(buffer: Buffer, s: U) {
+        buffer.appendInt(s.index)
+        if (s.message == null) {
+            buffer.appendByte(0)
+        } else {
+            buffer.appendByte(1)
+            this.messageCodec.encodeToWire(buffer, s.message)
+        }
+    }
+
+    override fun decodeFromWireNonNullBuffer(pos: Int, buffer: Buffer): U {
+        val index = buffer.getInt(pos)
+        val nullFlag = buffer.getByte(pos + 4)
+        return if (nullFlag == 0.toByte()) {
+            this.withIndexMessage(index, null)
+        } else {
+            this.withIndexMessage(index, this.messageCodec.decodeFromWire(pos + 5, buffer))
+        }
+    }
 }
 
 data class RegisterQueryRequest(
@@ -156,6 +240,49 @@ class UnpackDataRequestCodec: LocalPrimaryMessageCodec<UnpackDataRequest>("Unpac
     }
 }
 
+data class UnpackDataRequestWithIndex(
+    override val index: Int,
+    override val message: UnpackDataRequest?
+): ListIndexToMessage<UnpackDataRequest> {
+    constructor(): this(0, null)
+}
+
+class UnpackDataRequestWithIndexCodec: ListIndexToMessageCodec<UnpackDataRequest, UnpackDataRequestWithIndex>(
+    "UnpackDataRequestWithIndex",
+    UnpackDataRequestCodec()
+) {
+    override fun emptyInstance(): UnpackDataRequestWithIndex {
+        return UnpackDataRequestWithIndex()
+    }
+
+    override fun withIndexMessage(index: Int, maybeMessage: UnpackDataRequest?): UnpackDataRequestWithIndex {
+        return UnpackDataRequestWithIndex(index, maybeMessage)
+    }
+}
+
+data class UnpackDataRequestList(
+    val requests: List<UnpackDataRequestWithIndex?>
+) {
+    constructor(): this(listOf())
+}
+
+class UnpackDataRequestListCodec: LocalListCodec<UnpackDataRequestWithIndex, UnpackDataRequestList>(
+    "UnpackDataRequestList",
+    UnpackDataRequestWithIndexCodec()
+) {
+    override fun emptyInstance(): UnpackDataRequestList {
+        return UnpackDataRequestList()
+    }
+
+    override fun getListEntries(container: UnpackDataRequestList): List<UnpackDataRequestWithIndex?> {
+        return container.requests
+    }
+
+    override fun withListEntries(entries: List<UnpackDataRequestWithIndex?>): UnpackDataRequestList {
+        return UnpackDataRequestList(entries)
+    }
+}
+
 data class ReportData(
     val channel: String,
     val idempotencyKey: String,
@@ -217,6 +344,69 @@ class ReportDataCodec: LocalPrimaryMessageCodec<ReportData>("ReportData") {
     }
 }
 
+data class ReportDataList(
+    val entries: List<ReportData?>
+) {
+    constructor(): this(listOf())
+}
+
+class ReportDataListCodec: LocalListCodec<ReportData, ReportDataList>("ReportDataList", ReportDataCodec()) {
+    override fun emptyInstance(): ReportDataList {
+        return ReportDataList()
+    }
+
+    override fun getListEntries(container: ReportDataList): List<ReportData?> {
+        return container.entries
+    }
+
+    override fun withListEntries(entries: List<ReportData?>): ReportDataList {
+        return ReportDataList(entries)
+    }
+}
+
+data class ReportDataWithIndex(
+    override val index: Int,
+    override val message: ReportData?
+): ListIndexToMessage<ReportData> {
+    constructor(): this(0, null)
+}
+
+class ReportDataWithIndexCodec: ListIndexToMessageCodec<ReportData, ReportDataWithIndex>(
+    "ReportDataWithIndex",
+    ReportDataCodec()
+) {
+    override fun emptyInstance(): ReportDataWithIndex {
+        return ReportDataWithIndex()
+    }
+
+    override fun withIndexMessage(index: Int, maybeMessage: ReportData?): ReportDataWithIndex {
+        return ReportDataWithIndex(index, maybeMessage)
+    }
+}
+
+data class ReportDataListWithIndexes(
+    val responses: List<ReportDataWithIndex?>
+) {
+    constructor(): this(listOf())
+}
+
+class ReportDataListWithIndexesCodec: LocalListCodec<ReportDataWithIndex, ReportDataListWithIndexes>(
+    "ReportDataListWithIndexes",
+    ReportDataWithIndexCodec()
+) {
+    override fun emptyInstance(): ReportDataListWithIndexes {
+        return ReportDataListWithIndexes()
+    }
+
+    override fun getListEntries(container: ReportDataListWithIndexes): List<ReportDataWithIndex?> {
+        return container.responses
+    }
+
+    override fun withListEntries(entries: List<ReportDataWithIndex?>): ReportDataListWithIndexes {
+        return ReportDataListWithIndexes(entries)
+    }
+}
+
 data class ResetByteBudget(val byteBudget: Int) {
     constructor(): this(0)
 }
@@ -242,7 +432,7 @@ abstract class HttpProtocolErrorOrCodec<T, U: HttpProtocolErrorOr<T>>(
 ): LocalPrimaryMessageCodec<U>(nameSuffix) {
     protected abstract fun emptyFailureInstance(): U
     protected abstract fun ofError(err: HttpProtocolError): U
-    protected abstract fun ofSuccess(succ: T): U
+    protected abstract fun ofSuccess(success: T): U
 
     override fun emptyInstance(): U {
         return this.emptyFailureInstance()
@@ -298,42 +488,77 @@ class HttpProtocolErrorOrJsonCodec: HttpProtocolErrorOrCodec<JsonObject, HttpPro
         return HttpProtocolErrorOrJson.ofError(err)
     }
 
-    override fun ofSuccess(succ: JsonObject): HttpProtocolErrorOrJson {
-        return HttpProtocolErrorOrJson.ofSuccess(succ)
+    override fun ofSuccess(success: JsonObject): HttpProtocolErrorOrJson {
+        return HttpProtocolErrorOrJson.ofSuccess(success)
     }
 }
 
-class HttpProtocolErrorOrReportData private constructor(
+class HttpProtocolErrorOrReportDataWithIndex(
     error: HttpProtocolError?,
-    success: ReportData?
-): HttpProtocolErrorOr<ReportData>(error, success) {
+    success: ReportDataWithIndex?
+): HttpProtocolErrorOr<ReportDataWithIndex>(error, success) {
     companion object {
-        fun ofError(error: HttpProtocolError): HttpProtocolErrorOrReportData {
-            return HttpProtocolErrorOrReportData(error, null)
+        fun ofError(error: HttpProtocolError): HttpProtocolErrorOrReportDataWithIndex {
+            return HttpProtocolErrorOrReportDataWithIndex(error, null)
         }
 
-        fun ofSuccess(success: ReportData): HttpProtocolErrorOrReportData {
-            return HttpProtocolErrorOrReportData(null, success)
+        fun ofSuccess(success: ReportDataWithIndex): HttpProtocolErrorOrReportDataWithIndex {
+            return HttpProtocolErrorOrReportDataWithIndex(null, success)
         }
     }
 
     constructor(): this(HttpProtocolError(), null)
 }
 
-class HttpProtocolErrorOrReportDataCodec: HttpProtocolErrorOrCodec<ReportData, HttpProtocolErrorOrReportData>(
-    "HttpProtocolErrorOrReportDataList",
-    ReportDataCodec()
+class HttpProtocolErrorOrReportDataWithIndexCodec: HttpProtocolErrorOrCodec<
+    ReportDataWithIndex, HttpProtocolErrorOrReportDataWithIndex
+>("HttpProtocolErrorOrReportDataWithIndex", ReportDataWithIndexCodec()) {
+    override fun emptyFailureInstance(): HttpProtocolErrorOrReportDataWithIndex {
+        return HttpProtocolErrorOrReportDataWithIndex()
+    }
+
+    override fun ofError(err: HttpProtocolError): HttpProtocolErrorOrReportDataWithIndex {
+        return HttpProtocolErrorOrReportDataWithIndex.ofError(err)
+    }
+
+    override fun ofSuccess(success: ReportDataWithIndex): HttpProtocolErrorOrReportDataWithIndex {
+        return HttpProtocolErrorOrReportDataWithIndex.ofSuccess(success)
+    }
+}
+
+class HttpProtocolErrorOrReportDataListWithIndexes private constructor(
+    error: HttpProtocolError?,
+    success: ReportDataListWithIndexes?
+): HttpProtocolErrorOr<ReportDataListWithIndexes>(error, success) {
+    companion object {
+        fun ofError(error: HttpProtocolError): HttpProtocolErrorOrReportDataListWithIndexes {
+            return HttpProtocolErrorOrReportDataListWithIndexes(error, null)
+        }
+
+        fun ofSuccess(success: ReportDataListWithIndexes): HttpProtocolErrorOrReportDataListWithIndexes {
+            return HttpProtocolErrorOrReportDataListWithIndexes(null, success)
+        }
+    }
+
+    constructor(): this(HttpProtocolError(), null)
+}
+
+class HttpProtocolErrorOrReportDataListWithIndexesCodec: HttpProtocolErrorOrCodec<
+    ReportDataListWithIndexes, HttpProtocolErrorOrReportDataListWithIndexes
+>(
+    "HttpProtocolErrorOrReportDataListWithIndexes",
+    ReportDataListWithIndexesCodec()
 ) {
-    override fun emptyFailureInstance(): HttpProtocolErrorOrReportData {
-        return HttpProtocolErrorOrReportData()
+    override fun emptyFailureInstance(): HttpProtocolErrorOrReportDataListWithIndexes {
+        return HttpProtocolErrorOrReportDataListWithIndexes()
     }
 
-    override fun ofError(err: HttpProtocolError): HttpProtocolErrorOrReportData {
-        return HttpProtocolErrorOrReportData.ofError(err)
+    override fun ofError(err: HttpProtocolError): HttpProtocolErrorOrReportDataListWithIndexes {
+        return HttpProtocolErrorOrReportDataListWithIndexes.ofError(err)
     }
 
-    override fun ofSuccess(succ: ReportData): HttpProtocolErrorOrReportData {
-        return HttpProtocolErrorOrReportData.ofSuccess(succ)
+    override fun ofSuccess(success: ReportDataListWithIndexes): HttpProtocolErrorOrReportDataListWithIndexes {
+        return HttpProtocolErrorOrReportDataListWithIndexes.ofSuccess(success)
     }
 }
 
@@ -343,10 +568,16 @@ fun registerMessageCodecs(vertx: Vertx) {
         .registerDefaultCodec(RegisterQueryRequest::class.java, RegisterQueryRequestCodec())
         .registerDefaultCodec(UnregisterQueryRequest::class.java, UnregisterQueryRequestCodec())
         .registerDefaultCodec(UnpackDataRequest::class.java, UnpackDataRequestCodec())
+        .registerDefaultCodec(UnpackDataRequestWithIndex::class.java, UnpackDataRequestWithIndexCodec())
+        .registerDefaultCodec(UnpackDataRequestList::class.java, UnpackDataRequestListCodec())
         .registerDefaultCodec(ReportData::class.java, ReportDataCodec())
+        .registerDefaultCodec(ReportDataList::class.java, ReportDataListCodec())
+        .registerDefaultCodec(ReportDataWithIndex::class.java, ReportDataWithIndexCodec())
+        .registerDefaultCodec(ReportDataListWithIndexes::class.java, ReportDataListWithIndexesCodec())
         .registerDefaultCodec(ResetByteBudget::class.java, ResetByteBudgetCodec())
         .registerDefaultCodec(HttpProtocolErrorOrJson::class.java, HttpProtocolErrorOrJsonCodec())
-        .registerDefaultCodec(HttpProtocolErrorOrReportData::class.java, HttpProtocolErrorOrReportDataCodec())
+        .registerDefaultCodec(HttpProtocolErrorOrReportDataWithIndex::class.java, HttpProtocolErrorOrReportDataWithIndexCodec())
+        .registerDefaultCodec(HttpProtocolErrorOrReportDataListWithIndexes::class.java, HttpProtocolErrorOrReportDataListWithIndexesCodec())
 }
 
 private fun addressForQueryServerQueryAtOffset(verticleOffset: Int): String {
