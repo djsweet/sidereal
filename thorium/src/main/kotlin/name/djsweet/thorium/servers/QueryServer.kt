@@ -439,7 +439,7 @@ class QueryRouterVerticle(
                             val basis = (it ?: ChannelInfo(req.channel))
                             val result = basis.registerQuery(query, req.clientID, req.returnAddress)
                             this.queryCount -= basis.queryTree.size.toInt()
-                            this.queryCount += basis.queryTree.size.toInt()
+                            this.queryCount += result.queryTree.size.toInt()
                             setCurrentQueryCount(this.vertx.sharedData(), this.verticleOffset, this.queryCount)
                             result
                         }

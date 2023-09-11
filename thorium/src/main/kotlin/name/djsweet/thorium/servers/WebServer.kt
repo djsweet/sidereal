@@ -16,6 +16,7 @@ import io.vertx.kotlin.core.json.jsonObjectOf
 import io.vertx.kotlin.coroutines.await
 import name.djsweet.thorium.*
 import java.net.URLDecoder
+import java.util.concurrent.ThreadLocalRandom
 import kotlin.math.absoluteValue
 
 fun writeCommonHeaders(resp: HttpServerResponse): HttpServerResponse {
@@ -175,12 +176,19 @@ fun handleQuery(vertx: Vertx, channel: String, req: HttpServerRequest) {
         val queryMap = QueryStringDecoder(req.query() ?: "", false).parameters()
         val clientID = getClientIDFromSerial()
         val returnAddress = addressForQueryClientAtOffset(clientID)
+
+        // The initial proposed query server is randomized, to ensure that too many concurrent connections
+        // don't overwhelm a single query server.
+        val queryThreads = getQueryThreads(sharedData)
+        val initialOffset = ThreadLocalRandom.current().nextInt().absoluteValue % queryThreads
         var bestOffset = 0
         var bestQueryCount = Int.MAX_VALUE
-        for (i in 0 until getQueryThreads(sharedData)) {
-            val queryCount = getCurrentQueryCount(sharedData, i)
+
+        for (i in 0 until queryThreads) {
+            val inspect = (i + initialOffset) % queryThreads
+            val queryCount = getCurrentQueryCount(sharedData, inspect)
             if (queryCount < bestQueryCount) {
-                bestOffset = i
+                bestOffset = inspect
                 bestQueryCount = queryCount
             }
         }
@@ -546,8 +554,9 @@ class WebServerVerticle(private val meterRegistry: PrometheusMeterRegistry): Abs
                 if (resp.ended()) return@exceptionHandler
                 if (!resp.headWritten()) {
                     failRequest(req)
+                } else {
+                    resp.end()
                 }
-                resp.end()
             }
             try {
                 val path = req.path()
@@ -589,8 +598,9 @@ class WebServerVerticle(private val meterRegistry: PrometheusMeterRegistry): Abs
                 if (resp.ended()) return@requestHandler
                 if (!resp.headWritten()) {
                     failRequest(req)
+                } else {
+                    resp.end()
                 }
-                resp.end()
             }
         }
         server.listen(getServerPort(this.vertx.sharedData())) {
