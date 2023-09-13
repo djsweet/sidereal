@@ -33,8 +33,8 @@ private val jsonObjectForInvalidJsonPointer = JsonObject()
     .put("code", "invalid-json-pointer")
     .put("message", "Invalid JSON Pointer.")
 
-internal fun stringOrJsonPointerToKeyPath(sp: String): HttpProtocolErrorOr<Pair<ByteArray, Int>> {
-    val encoder = Radix64LowLevelEncoder()
+internal fun stringOrJsonPointerToStringKeyPath(sp: String): HttpProtocolErrorOr<List<String>> {
+    val result = mutableListOf<String>()
     if (sp.startsWith("/")) {
         var stringOffset = 1
         val builder = StringBuilder()
@@ -45,7 +45,7 @@ internal fun stringOrJsonPointerToKeyPath(sp: String): HttpProtocolErrorOr<Pair<
             }
             stringOffset = stopAt + 1
             if (stopAt >= sp.length || sp[stopAt] == '/') {
-                encoder.addString(builder.toString())
+                result.add(builder.toString())
                 builder.clear()
                 continue
             }
@@ -69,19 +69,27 @@ internal fun stringOrJsonPointerToKeyPath(sp: String): HttpProtocolErrorOr<Pair<
         }
         if (builder.isNotEmpty()) {
             // The builder might not be empty; this can happen if a string ends with ~0 or ~1.
-            encoder.addString(builder.toString())
+            result.add(builder.toString())
         }
         if (sp.endsWith("/")) {
             // If a string ends with / we'll treat this as a terminating empty string.
             // This is actually still defined by RFC 6901: each / only indicates that
             // a JSON key shall follow, up to either / or the end of the string, and ""
             // is a perfectly valid JSON key.
-            encoder.addString("")
+            result.add("")
         }
     } else {
-        encoder.addString(sp)
+        result.add(sp)
     }
-    return HttpProtocolErrorOr.ofSuccess(Pair(encoder.encode(), encoder.getOriginalContentLength()))
+    return HttpProtocolErrorOr.ofSuccess(result)
+}
+
+internal fun stringKeyPathToEncodedKeyPath(skp: Iterable<String>): Pair<ByteArray, Int> {
+    val encoder = Radix64LowLevelEncoder()
+    for (pathEntry in skp) {
+        encoder.addString(pathEntry)
+    }
+    return encoder.encode() to encoder.getOriginalContentLength()
 }
 
 private val jsonObjectForStringTooLong = JsonObject()
@@ -141,9 +149,10 @@ fun convertQueryStringToFullQuery(qs: Map<String, List<String>>, maxTerms: Int, 
                     HttpProtocolError(400, jsonObjectForTooManyTerms.copy().put("allowedTerms", maxTerms))
                 )
             }
-            stringOrJsonPointerToKeyPath(key).whenError {
+            stringOrJsonPointerToStringKeyPath(key).whenError {
                 error = it
-            }.whenSuccess { (encodedKey, encodedKeyOriginalLength) ->
+            }.whenSuccess { stringKeyPath ->
+                val (encodedKey, encodedKeyOriginalLength) = stringKeyPathToEncodedKeyPath(stringKeyPath)
                 val remainingByteBudget = byteBudget - encodedKeyOriginalLength
                 if (value.isEmpty()) {
                     treeSpec = treeSpec.withEqualityTerm(encodedKey, Radix64JsonEncoder.ofString(value, remainingByteBudget))

@@ -1,6 +1,5 @@
 package name.djsweet.thorium
 
-import io.vertx.core.MultiMap
 import io.vertx.core.json.JsonObject
 import name.djsweet.query.tree.QPTrie
 import name.djsweet.query.tree.QuerySpec
@@ -84,10 +83,11 @@ class QueryStringConversionTest {
         val (queryStringEncoded, toByteEncode) = selectorSpec
         val bytesEncoded = encodeStringListInRadix64(toByteEncode)
         var succeeded = false
-        stringOrJsonPointerToKeyPath(queryStringEncoded).whenError {
+        stringOrJsonPointerToStringKeyPath(queryStringEncoded).whenError {
             fail<String>("Could not decode $queryStringEncoded")
         }.whenSuccess {
-            assertEquals(bytesEncoded.toList(), it.first.toList())
+            val endcodedFromKeyPath = stringKeyPathToEncodedKeyPath(it)
+            assertEquals(bytesEncoded.toList(), endcodedFromKeyPath.first.toList())
             succeeded = true
         }
         assertTrue(succeeded)
@@ -99,7 +99,7 @@ class QueryStringConversionTest {
     ) {
         val (queryStringEncoded) = selectorSpec
         var succeeded = false
-        stringOrJsonPointerToKeyPath("$queryStringEncoded~").whenSuccess {
+        stringOrJsonPointerToStringKeyPath("$queryStringEncoded~").whenSuccess {
             fail<String>("Should not have been able to decode '$queryStringEncoded~'")
         }.whenError {
             assertEquals(400, it.statusCode)
@@ -118,7 +118,7 @@ class QueryStringConversionTest {
         val insertionPoint = (insertionPointBasis * (queryStringEncoded.length - 1) + 1).toInt()
         val testString = "${queryStringEncoded.substring(0, insertionPoint)}~$badChar${queryStringEncoded.substring(insertionPoint)}"
         var succeeded = false
-        stringOrJsonPointerToKeyPath(testString).whenSuccess {
+        stringOrJsonPointerToStringKeyPath(testString).whenSuccess {
             fail<String>("Should not have been able to decode '$queryStringEncoded~'")
         }.whenError {
             assertEquals(400, it.statusCode)
