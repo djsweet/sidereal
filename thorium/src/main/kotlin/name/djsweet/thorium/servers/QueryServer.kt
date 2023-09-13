@@ -344,8 +344,9 @@ data class ChannelInfo(
 private val ciRemoveMin = { ci: ChannelInfo -> ci.removeMinimumIdempotencyKeys() }
 
 class QueryRouterVerticle(
+    private val counters: GlobalCounterContext,
     metrics: MeterRegistry,
-    verticleOffset: Int
+    verticleOffset: Int,
 ): ServerVerticleWithIdempotency(verticleOffset) {
     private val routerTimer = Timer.builder(routerMetricName)
         .description(routerMetricDescription)
@@ -358,7 +359,6 @@ class QueryRouterVerticle(
     private val arrayResponderInsertionPairs = ArrayList<Pair<ByteArray, ByteArray>>()
 
     private var maxQueryTerms = 0
-    private var queryCount = 0
     private var queryHandler: MessageConsumer<Any>? = null
     private var dataHandler: MessageConsumer<ReportDataList>? = null
 
@@ -374,8 +374,7 @@ class QueryRouterVerticle(
         }
         this.channels = QPTrie()
         this.idempotencyKeyRemovalSchedule.clear()
-        this.queryCount = 0
-        setCurrentQueryCount(this.vertx.sharedData(), this.verticleOffset, this.queryCount)
+        this.counters.resetQueryCountForThread(this.verticleOffset)
     }
 
     private fun updateChannelsWithRemoval(
@@ -438,9 +437,10 @@ class QueryRouterVerticle(
                         this.channels = this.channels.update(channelBytes) {
                             val basis = (it ?: ChannelInfo(req.channel))
                             val result = basis.registerQuery(query, req.clientID, req.returnAddress)
-                            this.queryCount -= basis.queryTree.size.toInt()
-                            this.queryCount += result.queryTree.size.toInt()
-                            setCurrentQueryCount(this.vertx.sharedData(), this.verticleOffset, this.queryCount)
+                            this.counters.alterQueryCountForThread(
+                                this.verticleOffset,
+                                result.queryTree.size - basis.queryTree.size
+                            )
                             result
                         }
                         cont.resumeWith(
@@ -487,8 +487,10 @@ class QueryRouterVerticle(
             )
         } else {
             this.channels = this.channels.put(channelBytes, updatedChannel)
-            this.queryCount -= (channel.queryTree.size - updatedChannel.queryTree.size).toInt()
-            setCurrentQueryCount(this.vertx.sharedData(), this.verticleOffset, this.queryCount)
+            this.counters.alterQueryCountForThread(
+                this.verticleOffset,
+                updatedChannel.queryTree.size - channel.queryTree.size
+            )
             HttpProtocolErrorOrJson.ofSuccess(
                 jsonObjectOf(
                     "channel" to channelString,
@@ -626,7 +628,7 @@ class QueryRouterVerticle(
             // If we time out, we remove the query and attempt to notify the client that we have done so.
             // However, this won't block us from processing any other messages in this worker.
             respondFutures.onComplete {
-                decrementOutstandingDataCountReturning(this.vertx.sharedData(), 1)
+                this.counters.decrementOutstandingDataCount(1)
             }
 
             responders.clear()
@@ -682,7 +684,6 @@ class QueryRouterVerticle(
 }
 
 val jsonResponseForEmptyRequest = jsonObjectOf("code" to "internal-failure-empty-request")
-val baseJsonResponseForBadJsonString = jsonObjectOf("code" to "failed-json-stringify")
 val baseJsonResponseForOverSizedChannelInfoIdempotencyKey = jsonObjectOf(
     "code" to "channel-idempotency-too-large"
 )
@@ -696,7 +697,7 @@ val baseJsonResponseForStackOverflowData = jsonObjectOf(
 // just to save on the "cost" of reprocessing a tiny handful.
 class JsonToQueryableTranslatorVerticle(
     metrics: MeterRegistry,
-    verticleOffset: Int
+    verticleOffset: Int,
 ): ServerVerticle(verticleOffset) {
     private val unpackRequestTimer = Timer.builder(translationMetricName)
         .description(translationMetricDescription)
@@ -818,6 +819,7 @@ class JsonToQueryableTranslatorVerticle(
 
 suspend fun registerQueryServer(
     vertx: Vertx,
+    counters: GlobalCounterContext,
     metrics: MeterRegistry,
     queryVerticleOffset: Int,
     queryVerticles: Int,
@@ -828,7 +830,7 @@ suspend fun registerQueryServer(
     val futures = mutableListOf<Future<String>>()
     val lastQueryVerticleOffset = queryVerticleOffset + queryVerticles
     for (i in queryVerticleOffset until lastQueryVerticleOffset) {
-        futures.add(vertx.deployVerticle(QueryRouterVerticle(metrics, i), opts))
+        futures.add(vertx.deployVerticle(QueryRouterVerticle(counters, metrics, i), opts))
     }
     val lastServerVerticleOffset = serverVerticleOffset + serverVerticles
     for (i in serverVerticleOffset until lastServerVerticleOffset) {

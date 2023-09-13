@@ -51,18 +51,22 @@ internal class ThoriumCommand {
         println("Byte budget for key/value pairs is $initialSafeKeyValueSize")
         establishByteBudget(vertx.sharedData(), initialSafeKeyValueSize)
         registerMessageCodecs(vertx)
+        val queryThreads = getQueryThreads(vertx.sharedData())
+        val counters = GlobalCounterContext(queryThreads)
         return runBlocking {
             val queryDeploymentIDs = registerQueryServer(
                 vertx,
+                counters,
                 meterRegistry,
                 0,
-                getQueryThreads(vertx.sharedData()),
+                queryThreads,
                 0,
                 getTranslatorThreads(vertx.sharedData())
             )
             try {
                 val webServerDeploymentIDs = registerWebServer(
                     vertx,
+                    counters,
                     meterRegistry,
                     getWebServerThreads(vertx.sharedData())
                 )

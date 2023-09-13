@@ -58,6 +58,7 @@ fun getClientIDFromSerial(): String {
 
 class QueryClientSSEVerticle(
     private val resp: HttpServerResponse,
+    private val counters: GlobalCounterContext,
     private val clientAddress: String,
     private val clientID: String,
     private val channel: String,
@@ -126,9 +127,7 @@ class QueryClientSSEVerticle(
                 UnregisterQueryRequest(this.channel, this.clientID),
                 localRequestOptions
             ).onComplete {
-                vertx.undeploy(this.deploymentID()).onSuccess {
-                    decrementGlobalQueryCountReturning(this.vertx.sharedData(), 1L)
-                }
+                vertx.undeploy(this.deploymentID())
             }
         }
         this.messageHandler = eventBus.consumer(this.clientAddress) { message ->
@@ -181,75 +180,70 @@ fun failRequest(req: HttpServerRequest): Future<Void> {
     return jsonStatusCodeResponse(req, 500).end(internalFailureJson.toString())
 }
 
-fun handleQuery(vertx: Vertx, channel: String, req: HttpServerRequest) {
+fun handleQuery(vertx: Vertx, counters: GlobalCounterContext, channel: String, req: HttpServerRequest) {
     val sharedData = vertx.sharedData()
-    incrementGlobalQueryCountReturning(sharedData, 1L).onComplete increment@{ queryCountResult ->
-        if (queryCountResult.failed()) {
+    counters.incrementGlobalQueryCountByAndGet(1)
+    val queryMap = QueryStringDecoder(req.query() ?: "", false).parameters()
+    val clientID = getClientIDFromSerial()
+    val returnAddress = addressForQueryClientAtOffset(clientID)
+
+    // The initial proposed query server is randomized, to ensure that too many concurrent connections
+    // don't overwhelm a single query server.
+    val queryThreads = getQueryThreads(sharedData)
+    val initialOffset = ThreadLocalRandom.current().nextInt().absoluteValue % queryThreads
+    var bestOffset = 0
+    var bestQueryCount = Int.MAX_VALUE
+
+    for (i in 0 until queryThreads) {
+        val inspect = (i + initialOffset) % queryThreads
+        val queryCount = counters.getQueryCountForThread(inspect).toInt()
+        if (queryCount < bestQueryCount) {
+            bestOffset = inspect
+            bestQueryCount = queryCount
+        }
+    }
+    val serverAddress = addressForQueryServerQuery(sharedData, bestOffset)
+    val response = req.response()
+    val sseClient = QueryClientSSEVerticle(response, counters, returnAddress, clientID, channel, serverAddress)
+    val registerRequest = RegisterQueryRequest(
+        channel,
+        clientID,
+        queryMap,
+        returnAddress
+    )
+    val eventBus = vertx.eventBus()
+    vertx.deployVerticle(sseClient).onComplete { deploymentIDResult ->
+        if (deploymentIDResult.failed()) {
             failRequest(req)
-            return@increment
+            return@onComplete
         }
-        val queryMap = QueryStringDecoder(req.query() ?: "", false).parameters()
-        val clientID = getClientIDFromSerial()
-        val returnAddress = addressForQueryClientAtOffset(clientID)
-
-        // The initial proposed query server is randomized, to ensure that too many concurrent connections
-        // don't overwhelm a single query server.
-        val queryThreads = getQueryThreads(sharedData)
-        val initialOffset = ThreadLocalRandom.current().nextInt().absoluteValue % queryThreads
-        var bestOffset = 0
-        var bestQueryCount = Int.MAX_VALUE
-
-        for (i in 0 until queryThreads) {
-            val inspect = (i + initialOffset) % queryThreads
-            val queryCount = getCurrentQueryCount(sharedData, inspect)
-            if (queryCount < bestQueryCount) {
-                bestOffset = inspect
-                bestQueryCount = queryCount
-            }
-        }
-        val serverAddress = addressForQueryServerQuery(sharedData, bestOffset)
-        val response = req.response()
-        val sseClient = QueryClientSSEVerticle(response, returnAddress, clientID, channel, serverAddress)
-        val registerRequest = RegisterQueryRequest(
-            channel,
-            clientID,
-            queryMap,
-            returnAddress
-        )
-        val eventBus = vertx.eventBus()
-        vertx.deployVerticle(sseClient).onComplete { deploymentIDResult ->
-            if (deploymentIDResult.failed()) {
-                failRequest(req)
-                return@onComplete
-            }
-            val deploymentID = deploymentIDResult.result()
-            response.endHandler {
-                eventBus.request<Any>(
-                    serverAddress,
-                    UnregisterQueryRequest(channel, clientID),
-                    localRequestOptions
-                ).onComplete {
-                    vertx.undeploy(deploymentID).onSuccess {
-                        decrementGlobalQueryCountReturning(sharedData, 1L)
-                    }
+        val deploymentID = deploymentIDResult.result()
+        response.endHandler {
+            eventBus.request<Any>(
+                serverAddress,
+                UnregisterQueryRequest(channel, clientID),
+                localRequestOptions
+            ).onComplete {
+                vertx.undeploy(deploymentID).onSuccess {
+                    counters.decrementGlobalQueryCount(1)
                 }
             }
-            eventBus.request<HttpProtocolErrorOrJson>(
-                serverAddress,
-                registerRequest,
-                localRequestOptions
-            ) {
-                if (it.failed()) {
-                    failRequest(req)
-                } else {
-                    it.result().body().whenError { err ->
-                        jsonStatusCodeResponse(req, err.statusCode).end(err.contents.toString())
-                    }.whenSuccess {
-                        // At this point, the entire request lifecycle is governed by the verticle we just registered.
-                        // But we still need to make sure the headers get written, so we'll send an arbitrary string
-                        // to trigger .writeHeadersIfNecessary.
-                        eventBus.publish(returnAddress, "send-headers")
-                    }
+        }
+        eventBus.request<HttpProtocolErrorOrJson>(
+            serverAddress,
+            registerRequest,
+            localRequestOptions
+        ) {
+            if (it.failed()) {
+                failRequest(req)
+            } else {
+                it.result().body().whenError { err ->
+                    jsonStatusCodeResponse(req, err.statusCode).end(err.contents.toString())
+                }.whenSuccess {
+                    // At this point, the entire request lifecycle is governed by the verticle we just registered.
+                    // But we still need to make sure the headers get written, so we'll send an arbitrary string
+                    // to trigger .writeHeadersIfNecessary.
+                    eventBus.publish(returnAddress, "send-headers")
                 }
             }
         }
@@ -272,6 +266,7 @@ const val reportBatchSize = 256
 
 fun handleDataWithUnpackRequest(
     vertx: Vertx,
+    counters: GlobalCounterContext,
     unpackReqs: List<UnpackDataRequest>,
     httpReq: HttpServerRequest
 ) {
@@ -281,93 +276,84 @@ fun handleDataWithUnpackRequest(
     val queryThreads = getQueryThreads(sharedData)
     val translatorThreads = getTranslatorThreads(sharedData)
 
-    val queryIncrement = (unpackReqs.size * queryThreads).toLong()
-    incrementOutstandingDataCountReturning(sharedData, queryIncrement).onComplete { dataCountResult ->
-        if (dataCountResult.failed()) {
-            failRequest(httpReq)
-            return@onComplete
-        }
+    val dataIncrement = (unpackReqs.size * queryThreads).toLong()
+    val newOutstandingDataCount = counters.incrementOutstandingDataCountByAndGet(dataIncrement)
 
-        val newQueryCount = dataCountResult.result()
-        val priorQueryCount = newQueryCount - queryIncrement
-        val limit = getMaxOutstandingData(sharedData)
-        if (priorQueryCount >= limit) {
-            decrementOutstandingDataCountReturning(sharedData, queryIncrement).onComplete {
-                jsonStatusCodeResponse(httpReq, 429).end(
-                    baseExceededDataLimitJson.put("count", newQueryCount).put("limit", limit).toString()
-                )
-            }
-            return@onComplete
-        }
+    val priorQueryCount = newOutstandingDataCount - dataIncrement
+    val limit = getMaxOutstandingData(sharedData)
+    if (priorQueryCount >= limit) {
+        counters.decrementOutstandingDataCount(dataIncrement)
+        jsonStatusCodeResponse(httpReq, 429).end(
+            baseExceededDataLimitJson.put("count", newOutstandingDataCount).put("limit", limit).toString()
+        )
+        return
+    }
 
-        val translatorSendStartTime = monotonicNowMS()
-        val requestLists = Array<MutableList<UnpackDataRequestWithIndex>>(translatorThreads) { mutableListOf() }
-        for (i in unpackReqs.indices) {
-            val unpackReq = unpackReqs[i]
-            val targetTranslatorOffset = unpackReq.idempotencyKey.hashCode().absoluteValue % translatorThreads
-            requestLists[targetTranslatorOffset].add(UnpackDataRequestWithIndex(i, unpackReq))
-        }
-        val translatorSends = requestLists.mapIndexed { index, unpackDataRequestsWithIndices ->
-            val sendAddress = addressForTranslatorServer(sharedData, index)
-            eventBus.request<HttpProtocolErrorOrReportDataListWithIndexes>(
-                sendAddress,
-                UnpackDataRequestList(unpackDataRequestsWithIndices),
-                localRequestOptions
-            )
-        }
-        join(translatorSends).onFailure {
-            decrementOutstandingDataCountReturning(sharedData, queryIncrement).onComplete {
-                failRequest(httpReq)
-            }
-        }.onSuccess translatorResults@ { futures ->
-            val futuresSize = futures.size()
-            val modBatchSize = unpackReqs.size % reportBatchSize
-            val modBucket = ArrayList<ReportData?>(modBatchSize)
-            val bucketsSize = unpackReqs.size / reportBatchSize
-            val indexAtIntoModBucket = bucketsSize * reportBatchSize
-            val buckets = Array<ArrayList<ReportData?>>(bucketsSize) { ArrayList(reportBatchSize) }
+    val translatorSendStartTime = monotonicNowMS()
+    val requestLists = Array<MutableList<UnpackDataRequestWithIndex>>(translatorThreads) { mutableListOf() }
+    for (i in unpackReqs.indices) {
+        val unpackReq = unpackReqs[i]
+        val targetTranslatorOffset = unpackReq.idempotencyKey.hashCode().absoluteValue % translatorThreads
+        requestLists[targetTranslatorOffset].add(UnpackDataRequestWithIndex(i, unpackReq))
+    }
+    val translatorSends = requestLists.mapIndexed { index, unpackDataRequestsWithIndices ->
+        val sendAddress = addressForTranslatorServer(sharedData, index)
+        eventBus.request<HttpProtocolErrorOrReportDataListWithIndexes>(
+            sendAddress,
+            UnpackDataRequestList(unpackDataRequestsWithIndices),
+            localRequestOptions
+        )
+    }
+    join(translatorSends).onFailure {
+        counters.decrementOutstandingDataCount(dataIncrement)
+        failRequest(httpReq)
+    }.onSuccess translatorResults@ { futures ->
+        val futuresSize = futures.size()
+        val modBatchSize = unpackReqs.size % reportBatchSize
+        val modBucket = ArrayList<ReportData?>(modBatchSize)
+        val bucketsSize = unpackReqs.size / reportBatchSize
+        val indexAtIntoModBucket = bucketsSize * reportBatchSize
+        val buckets = Array<ArrayList<ReportData?>>(bucketsSize) { ArrayList(reportBatchSize) }
 
-            for (i in 0 until futuresSize) {
-                val responseList = futures.resultAt<Message<HttpProtocolErrorOrReportDataListWithIndexes>>(i).body()
-                var hadError = false
-                responseList.whenError { error ->
-                    decrementOutstandingDataCountReturning(sharedData, queryIncrement).onComplete {
-                        jsonStatusCodeResponse(httpReq, error.statusCode).end(error.contents.toString())
+        for (i in 0 until futuresSize) {
+            val responseList = futures.resultAt<Message<HttpProtocolErrorOrReportDataListWithIndexes>>(i).body()
+            var hadError = false
+            responseList.whenError { error ->
+                counters.decrementOutstandingDataCount(dataIncrement)
+                jsonStatusCodeResponse(httpReq, error.statusCode).end(error.contents.toString())
+                hadError = true
+            }.whenSuccess { reports ->
+                for (maybeResponse in reports.responses) {
+                    if (maybeResponse == null) {
+                        continue
                     }
-                    hadError = true
-                }.whenSuccess { reports ->
-                    for (maybeResponse in reports.responses) {
-                        if (maybeResponse == null) {
-                            continue
-                        }
-                        val (index, report) = maybeResponse
-                        val bucket = if (index >= indexAtIntoModBucket) {
-                            modBucket
-                        } else {
-                            buckets[index / reportBatchSize]
-                        }
-                        val indexInBucket = index % reportBatchSize
-                        for (j in bucket.size..indexInBucket) {
-                            bucket.add(null)
-                        }
-                        bucket[indexInBucket] = report
+                    val (index, report) = maybeResponse
+                    val bucket = if (index >= indexAtIntoModBucket) {
+                        modBucket
+                    } else {
+                        buckets[index / reportBatchSize]
                     }
+                    val indexInBucket = index % reportBatchSize
+                    for (j in bucket.size..indexInBucket) {
+                        bucket.add(null)
+                    }
+                    bucket[indexInBucket] = report
                 }
-                if (hadError) return@translatorResults
             }
-            for (i in 0 until bucketsSize) {
-                val reportBatch = ReportDataList(buckets[i])
-                eventBus.publish(addressForQueryServerData, reportBatch, localRequestOptions)
-            }
-            if (modBatchSize > 0) {
-                val reportBatch = ReportDataList(modBucket)
-                eventBus.publish(addressForQueryServerData, reportBatch, localRequestOptions)
-            }
-
-            jsonStatusCodeResponse(httpReq, 202)
-                .putHeader(eventEncodeTimeHeader, "${monotonicNowMS() - translatorSendStartTime} ms")
-                .end(acceptedJson.toString())
+            if (hadError) return@translatorResults
         }
+        for (i in 0 until bucketsSize) {
+            val reportBatch = ReportDataList(buckets[i])
+            eventBus.publish(addressForQueryServerData, reportBatch, localRequestOptions)
+        }
+        if (modBatchSize > 0) {
+            val reportBatch = ReportDataList(modBucket)
+            eventBus.publish(addressForQueryServerData, reportBatch, localRequestOptions)
+        }
+
+        jsonStatusCodeResponse(httpReq, 202)
+            .putHeader(eventEncodeTimeHeader, "${monotonicNowMS() - translatorSendStartTime} ms")
+            .end(acceptedJson.toString())
     }
 }
 
@@ -416,7 +402,7 @@ fun readBodyTryParseJsonArray(vertx: Vertx, req: HttpServerRequest, handle: (arr
     }
 }
 
-fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
+fun handleData(vertx: Vertx, counters: GlobalCounterContext, channel: String, req: HttpServerRequest) {
     val withParams = req.headers().get("Content-Type")
     if (withParams == null) {
         jsonStatusCodeResponse(req, 400).end(missingContentTypeJson.toString())
@@ -444,6 +430,7 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
                 )
                 handleDataWithUnpackRequest(
                     vertx,
+                    counters,
                     listOf(unpackRequest),
                     req
                 )
@@ -477,6 +464,7 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
                 )
                 handleDataWithUnpackRequest(
                     vertx,
+                    counters,
                     listOf(unpackRequest),
                     req
                 )
@@ -541,6 +529,7 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
                 req.response().putHeader(jsonParseTimeHeader, "${monotonicNowMS() - jsonParseStartTime} ms")
                 handleDataWithUnpackRequest(
                     vertx,
+                    counters,
                     unpackRequests,
                     req
                 )
@@ -557,7 +546,10 @@ fun handleData(vertx: Vertx, channel: String, req: HttpServerRequest) {
 
 val notFoundJson = jsonObjectOf("code" to "not-found")
 
-class WebServerVerticle(private val meterRegistry: PrometheusMeterRegistry): AbstractVerticle() {
+class WebServerVerticle(
+    private val counters: GlobalCounterContext,
+    private val meterRegistry: PrometheusMeterRegistry
+): AbstractVerticle() {
     private var server: HttpServer? = null
 
     override fun start(promise: Promise<Void>) {
@@ -592,9 +584,9 @@ class WebServerVerticle(private val meterRegistry: PrometheusMeterRegistry): Abs
                     }, "UTF-8")
 
                     if (req.method() == HttpMethod.POST || req.method() == HttpMethod.PUT) {
-                        handleData(vertx, channel, req)
+                        handleData(vertx, this.counters, channel, req)
                     } else if (req.method() == HttpMethod.GET) {
-                        handleQuery(vertx, channel, req)
+                        handleQuery(vertx, this.counters, channel, req)
                     } else {
                         jsonStatusCodeResponse(req, 400)
                             .end(baseInvalidMethodJson.copy().put("method", req.method()).toString())
@@ -636,12 +628,13 @@ class WebServerVerticle(private val meterRegistry: PrometheusMeterRegistry): Abs
 
 suspend fun registerWebServer(
     vertx: Vertx,
+    counters: GlobalCounterContext,
     prom: PrometheusMeterRegistry,
     webServerVerticles: Int
 ): Set<String> {
     val deploymentIDs = mutableSetOf<String>()
     for (i in 0 until webServerVerticles) {
-        val deploymentID = vertx.deployVerticle(WebServerVerticle(prom)).await()
+        val deploymentID = vertx.deployVerticle(WebServerVerticle(counters, prom)).await()
         deploymentIDs.add(deploymentID)
     }
     return deploymentIDs

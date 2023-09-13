@@ -1,51 +1,72 @@
 package name.djsweet.thorium
 
-import io.vertx.core.Future
-import io.vertx.core.Promise
-import io.vertx.core.shareddata.LocalMap
-import io.vertx.core.shareddata.SharedData
-import io.vertx.kotlin.coroutines.await
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.LongAdder
 
-internal fun countersLocalMap(sharedData: SharedData): LocalMap<String, Int> {
-    return sharedData.getLocalMap("thorium.counters")
-}
+class DecrementHeavyGague {
+    private val increments = AtomicLong()
+    private val decrements = LongAdder()
 
-fun getCurrentQueryCount(sharedData: SharedData, thread: Int): Int {
-    return countersLocalMap(sharedData).getOrDefault("queryCounts.${thread}", 0)
-}
-
-fun setCurrentQueryCount(sharedData: SharedData, thread: Int, queryCount: Int) {
-    return countersLocalMap(sharedData).set("queryCounts.${thread}", queryCount)
-}
-
-private fun incrementCounterReturning(sharedData: SharedData, name: String, incrementBy: Long): Future<Long> {
-    val promise = Promise.promise<Long>()
-    sharedData.getLocalCounter(name).onComplete {
-        if (it.failed()) {
-            promise.fail(it.cause())
-        } else {
-            it.result().addAndGet(incrementBy).onComplete(promise)
-        }
+    val current: Long get() {
+        // We expect the invariant of increments before decrements,
+        // so if we read the decrements before the increments, we are
+        // biased in terms of the increments. This is the behavior we want.
+        val decrement = this.decrements.sum()
+        return this.increments.get() - decrement
     }
-    return promise.future()
+
+    fun incrementByAndGet(value: Long): Long {
+        val decrement = this.decrements.sum()
+        val increment = this.increments.addAndGet(value)
+        return increment - decrement
+    }
+
+    fun decrement(value: Long) {
+        // increments.current can become expensive, so for decrements we avoid it.
+        this.decrements.add(value)
+    }
 }
 
-const val globalQueryCountName = "thorium.counters.globalQueryCount"
+class GlobalCounterContext(queryServerCount: Int) {
+    private val queryCounters = Array(queryServerCount) { AtomicLong() }
+    private val globalQueryCount = AtomicLong()
+    private val globalDataCount = DecrementHeavyGague()
 
-fun incrementGlobalQueryCountReturning(sharedData: SharedData, incrementBy: Long): Future<Long> {
-    return incrementCounterReturning(sharedData, globalQueryCountName, incrementBy)
-}
+    fun getQueryCountForThread(thread: Int): Long {
+        return if (thread >= this.queryCounters.size) { 0L } else { this.queryCounters[thread].get() }
+    }
 
-fun decrementGlobalQueryCountReturning(sharedData: SharedData, decrementBy: Long): Future<Long> {
-    return incrementGlobalQueryCountReturning(sharedData, -decrementBy)
-}
+    fun alterQueryCountForThread(thread: Int, alterBy: Long) {
+        if (thread >= this.queryCounters.size || alterBy == 0L) {
+            return
+        }
+        this.queryCounters[thread].addAndGet(alterBy)
+    }
 
-const val outstandingDataCountName = "thorium.counters.outstandingDataCount"
+    fun resetQueryCountForThread(thread: Int) {
+        if (thread >= this.queryCounters.size) {
+            return
+        }
+        this.queryCounters[thread].set(0)
+    }
 
-fun incrementOutstandingDataCountReturning(sharedData: SharedData, incrementBy: Long): Future<Long> {
-    return incrementCounterReturning(sharedData, outstandingDataCountName, incrementBy)
-}
+    fun getOutstandingDataCount(): Long {
+        return this.globalDataCount.current
+    }
 
-fun decrementOutstandingDataCountReturning(sharedData: SharedData, decrementBy: Long): Future<Long> {
-    return incrementOutstandingDataCountReturning(sharedData, -decrementBy)
+    fun incrementOutstandingDataCountByAndGet(incrementBy: Long): Long {
+        return this.globalDataCount.incrementByAndGet(incrementBy)
+    }
+
+    fun decrementOutstandingDataCount(decrementBy: Long) {
+        this.globalDataCount.decrement(decrementBy)
+    }
+
+    fun incrementGlobalQueryCountByAndGet(incrementBy: Long): Long {
+        return this.globalQueryCount.addAndGet(incrementBy)
+    }
+
+    fun decrementGlobalQueryCount(decrementBy: Long) {
+        this.globalQueryCount.addAndGet(-decrementBy)
+    }
 }
