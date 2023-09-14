@@ -1,7 +1,13 @@
 package name.djsweet.thorium
 
+import java.nio.charset.Charset
+
 internal fun convertStringToByteArray(s: String): ByteArray {
     return s.encodeToByteArray()
+}
+
+internal fun convertByteArrayToString(ba: ByteArray): String {
+    return ba.toString(Charset.forName("UTF-8"))
 }
 
 internal fun convertLongIntoGivenByteArray(l: Long, bs: ByteArray) {

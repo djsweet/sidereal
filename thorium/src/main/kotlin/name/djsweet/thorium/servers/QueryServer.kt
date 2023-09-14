@@ -9,9 +9,11 @@ import io.vertx.core.eventbus.Message
 import io.vertx.core.Vertx
 import io.vertx.core.eventbus.EventBus
 import io.vertx.core.eventbus.MessageConsumer
+import io.vertx.core.json.JsonObject
 import io.vertx.kotlin.core.json.jsonObjectOf
 import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.vertxFuture
+import kotlinx.collections.immutable.PersistentMap
 import name.djsweet.query.tree.IdentitySet
 import name.djsweet.query.tree.QPTrie
 import name.djsweet.query.tree.QueryPath
@@ -273,6 +275,11 @@ abstract class ServerVerticleWithIdempotency(verticleOffset: Int): ServerVerticl
     }
 }
 
+data class ChannelInfoPathChangeResult(
+    val newChannelInfo: ChannelInfo,
+    val involvedPath: QueryPath?
+)
+
 data class ChannelInfo(
     val queryTree: QuerySetTree<QueryResponderSpec>,
     val queriesByClientID: QPTrie<Pair<QueryResponderSpec, QueryPath>>,
@@ -296,7 +303,7 @@ data class ChannelInfo(
         )
     }
 
-    fun registerQuery(query: FullQuery, clientID: String, respondTo: String): ChannelInfo {
+    fun registerQuery(query: FullQuery, clientID: String, respondTo: String): ChannelInfoPathChangeResult {
         val clientIDBytes = convertStringToByteArray(clientID)
         val (queryTree, queriesByClientID) = this
         val priorQuery = queriesByClientID.get(clientIDBytes)
@@ -314,20 +321,29 @@ data class ChannelInfo(
             query.countArrayContainsConditions()
         )
         val (newPath, newQueryTree) = basisQueryTree.addElementByQuery(query.treeSpec, responderSpec)
-        return this.copy(
-            queryTree=newQueryTree,
-            queriesByClientID=queriesByClientID.put(clientIDBytes, responderSpec to newPath),
+        return ChannelInfoPathChangeResult(
+            newChannelInfo = this.copy(
+                queryTree=newQueryTree,
+                queriesByClientID=queriesByClientID.put(clientIDBytes, responderSpec to newPath),
+            ),
+            involvedPath = newPath
         )
     }
 
-    fun unregisterQuery(clientID: String): ChannelInfo {
+    fun unregisterQuery(clientID: String): ChannelInfoPathChangeResult {
         val (queryTree, queriesByClientID) = this
         val clientIDBytes = convertStringToByteArray(clientID)
-        val priorQuery = queriesByClientID.get(clientIDBytes) ?: return this
+        val priorQuery = queriesByClientID.get(clientIDBytes) ?: return ChannelInfoPathChangeResult(
+            newChannelInfo = this,
+            involvedPath = null
+        )
         val (responder, path) = priorQuery
-        return this.copy(
-            queryTree=queryTree.removeElementByPath(path, responder),
-            queriesByClientID=queriesByClientID.remove(clientIDBytes)
+        return ChannelInfoPathChangeResult(
+            newChannelInfo = this.copy(
+                queryTree=queryTree.removeElementByPath(path, responder),
+                queriesByClientID=queriesByClientID.remove(clientIDBytes)
+            ),
+            involvedPath = path
         )
     }
 
@@ -342,6 +358,47 @@ data class ChannelInfo(
 }
 
 private val ciRemoveMin = { ci: ChannelInfo -> ci.removeMinimumIdempotencyKeys() }
+private const val removePathIncrementsBatch = 128
+
+fun compareStringLists(left: List<String>, right: List<String>): Int {
+    var i = 0
+    val lastIndex = left.size.coerceAtMost(right.size)
+    while (i < lastIndex) {
+        val leftEntry = left[i]
+        val rightEntry = right[i]
+        val leftRightCompare = leftEntry.compareTo(rightEntry)
+        if (leftRightCompare != 0) {
+            return leftRightCompare
+        }
+        i++
+    }
+    return left.size - right.size
+}
+
+fun mutateCoalesceRemovedPathIncrements(rpi: MutableList<Pair<List<String>, Int>>) {
+    if (rpi.size < 1) {
+        return
+    }
+    rpi.sortWith { left, right ->
+        compareStringLists(left.first, right.first)
+    }
+    var accumulateIndex = 0
+    var lastInspect = rpi[0]
+    for (inspectIndex in 1 until rpi.size) {
+        val curInspect = rpi[inspectIndex]
+        val (keyPath, increment) = curInspect
+        lastInspect = if (keyPath == lastInspect.first) {
+            Pair(lastInspect.first, lastInspect.second + increment)
+        } else {
+            accumulateIndex++
+            curInspect
+        }
+        rpi[accumulateIndex] = lastInspect
+    }
+    for (removeIndex in rpi.size - 1 downTo  accumulateIndex + 1) {
+        rpi.removeAt(removeIndex)
+    }
+}
 
 class QueryRouterVerticle(
     private val counters: GlobalCounterContext,
@@ -415,7 +472,7 @@ class QueryRouterVerticle(
         // We're luckily suspending anyway, but... whoops.
         return suspendCoroutine { cont ->
             while (true) {
-                val possiblyFullQuery: HttpProtocolErrorOr<FullQuery>
+                val possiblyFullQuery: HttpProtocolErrorOr<FullQueryAndAffectedKeyIncrements>
                 try {
                     possiblyFullQuery = convertQueryStringToFullQuery(
                         req.queryParams,
@@ -432,17 +489,19 @@ class QueryRouterVerticle(
                 }
                 possiblyFullQuery
                     .whenError { cont.resumeWith(Result.success(HttpProtocolErrorOrJson.ofError(it))) }
-                    .whenSuccess { query ->
-                        val channelBytes = convertStringToByteArray(req.channel)
+                    .whenSuccess { (query, increments) ->
+                        val (channel) = req
+                        val channelBytes = convertStringToByteArray(channel)
                         this.channels = this.channels.update(channelBytes) {
-                            val basis = (it ?: ChannelInfo(req.channel))
-                            val result = basis.registerQuery(query, req.clientID, req.returnAddress)
+                            val basis = (it ?: ChannelInfo(channel))
+                            val (newChannelInfo) = basis.registerQuery(query, req.clientID, req.returnAddress)
                             this.counters.alterQueryCountForThread(
                                 this.verticleOffset,
-                                result.queryTree.size - basis.queryTree.size
+                                newChannelInfo.queryTree.size - basis.queryTree.size
                             )
-                            result
+                            newChannelInfo
                         }
+                        this.counters.updateKeyPathReferenceCountsForChannel(channel, increments)
                         cont.resumeWith(
                             Result.success(
                                 HttpProtocolErrorOrJson.ofSuccess(
@@ -459,11 +518,11 @@ class QueryRouterVerticle(
         }
     }
 
-    private fun unregisterQuery(req: UnregisterQueryRequest): HttpProtocolErrorOrJson {
-        return this.unregisterQuery(req.channel, req.clientID)
-    }
-
-    private fun unregisterQuery(channelString: String, clientID: String): HttpProtocolErrorOrJson {
+    private fun unregisterQuery(
+        channelString: String,
+        clientID: String,
+        withRemovedPath: (QueryPath) -> Unit
+    ): HttpProtocolErrorOrJson {
         val channelBytes = convertStringToByteArray(channelString)
         val channel = this.channels.get(channelBytes) ?: return HttpProtocolErrorOrJson.ofError(
             HttpProtocolError(
@@ -474,7 +533,10 @@ class QueryRouterVerticle(
             )
         )
 
-        val updatedChannel = channel.unregisterQuery(clientID)
+        val (updatedChannel, involvedPath) = channel.unregisterQuery(clientID)
+        if (involvedPath != null) {
+            withRemovedPath(involvedPath)
+        }
         return if (updatedChannel === channel) {
             HttpProtocolErrorOrJson.ofError(
                 HttpProtocolError(
@@ -500,15 +562,40 @@ class QueryRouterVerticle(
         }
     }
 
+    private fun unregisterQuery(req: UnregisterQueryRequest): HttpProtocolErrorOrJson {
+        return this.unregisterQuery(req.channel, req.clientID) { queryPath ->
+            val decrements = mutableListOf<Pair<List<String>, Int>>()
+            for (pathComponent in queryPath.keys()) {
+                val decoder = Radix64LowLevelDecoder(pathComponent)
+                val sublist = mutableListOf<String>()
+                while (decoder.withString { sublist.add(it) }) {
+                    // This seems silly, but withString already causes a break on `false`.
+                }
+                decrements.add(Pair(sublist, -1))
+            }
+            this.counters.updateKeyPathReferenceCountsForChannel(req.channel, decrements)
+        }
+    }
+
     private fun trySendDataToResponder(
         eventBus: EventBus,
         data: ReportData,
         responder: QueryResponderSpec,
-        prior: Future<Message<Any>>
+        prior: Future<Message<Any>>,
+        removedPathIncrements: MutableList<Pair<List<String>, Int>>
     ): Future<Message<Any>> {
         val (_, respondTo, clientID) = responder
         val current = eventBus.request<Any>(respondTo, data, localRequestOptions).onFailure {
-            this.unregisterQuery(data.channel, responder.clientID)
+            this.unregisterQuery(data.channel, responder.clientID) { queryPath ->
+                for (pathComponent in queryPath.keys()) {
+                    val decoder = Radix64LowLevelDecoder(pathComponent)
+                    val sublist = mutableListOf<String>()
+                    while (decoder.withString { sublist.add(it) }) {
+                        // This seems silly, but withString already causes a break on `false`.
+                    }
+                    removedPathIncrements.add(Pair(sublist, -1))
+                }
+            }
             eventBus.publish(respondTo, UnregisterQueryRequest(data.channel, clientID))
         }
         return prior.eventually { current }
@@ -519,10 +606,11 @@ class QueryRouterVerticle(
         val arrayResponderReferenceCounts = this.arrayResponderReferenceCounts
         val arrayResponderInsertionPairs = this.arrayResponderInsertionPairs
         var respondFutures = Future.succeededFuture<Message<Any>>()
+        val removedPathIncrements = ArrayList<Pair<List<String>, Int>>()
+        val (channel, idempotencyKey, queryableScalarData, queryableArrayData) = response
 
         try {
             val eventBus = this.vertx.eventBus()
-            val (channel, idempotencyKey, queryableScalarData, queryableArrayData) = response
             val channelBytes = convertStringToByteArray(channel)
             val respondingChannel = this.channels.get(channelBytes) ?: return
             val (queryTree, _, idempotencyKeys) = respondingChannel
@@ -564,6 +652,7 @@ class QueryRouterVerticle(
             queryTree.visitByData(queryableScalarData.trie) { _, responder ->
                 responders.add(responder)
             }
+
             var arrayResponderQueries = QPTrie<QPTrie<IdentitySet<QueryResponderSpec>>>()
             for (responder in responders) {
                 val (query, _, _, _, arrayContainsCount) = responder
@@ -590,7 +679,13 @@ class QueryRouterVerticle(
                     arrayResponderInsertionPairs.clear()
                     continue
                 }
-                respondFutures = this.trySendDataToResponder(eventBus, response, responder, respondFutures)
+                respondFutures = this.trySendDataToResponder(
+                    eventBus,
+                    response,
+                    responder,
+                    respondFutures,
+                    removedPathIncrements
+                )
             }
             responders.clear()
 
@@ -606,7 +701,13 @@ class QueryRouterVerticle(
                             if (nextReferenceCount == 0L) {
                                 arrayResponderReferenceCounts.remove(responder)
                                 respondFutures =
-                                    this.trySendDataToResponder(eventBus, response, responder, respondFutures)
+                                    this.trySendDataToResponder(
+                                        eventBus,
+                                        response,
+                                        responder,
+                                        respondFutures,
+                                        removedPathIncrements
+                                    )
                             } else {
                                 arrayResponderReferenceCounts[responder] = nextReferenceCount
                             }
@@ -628,7 +729,17 @@ class QueryRouterVerticle(
             // If we time out, we remove the query and attempt to notify the client that we have done so.
             // However, this won't block us from processing any other messages in this worker.
             respondFutures.onComplete {
-                this.counters.decrementOutstandingDataCount(1)
+                mutateCoalesceRemovedPathIncrements(removedPathIncrements)
+                val counters = this.counters
+                for (i in 0 until removedPathIncrements.size step removePathIncrementsBatch) {
+                    // This is done in batches to reduce lock contention in updateReferenceCountsForChannel.
+                    val sends = removedPathIncrements.subList(
+                        i,
+                        (i + removePathIncrementsBatch).coerceAtMost(removedPathIncrements.size)
+                    )
+                    counters.updateKeyPathReferenceCountsForChannel(channel, sends)
+                }
+                counters.decrementOutstandingDataCount(1)
             }
 
             responders.clear()
@@ -683,6 +794,29 @@ class QueryRouterVerticle(
     }
 }
 
+class OnlyPathsWithReferencesFilterContext(
+    private val referenceCounts: PersistentMap<String, KeyPathReferenceCount>
+): KeyValueFilterContext {
+    override fun includeKeyValue(key: String, value: Any?): Boolean {
+        val refCountForKey = this.referenceCounts[key] ?: return false
+        return if (value is JsonObject) {
+            refCountForKey.subKeys.size > 0
+        } else {
+            refCountForKey.references > 0
+        }
+    }
+
+    override fun contextForObject(key: String): KeyValueFilterContext {
+        val refCountForKey = this.referenceCounts[key] ?: return AcceptNoneKeyValueFilterContext()
+        val (_, subKeys) = refCountForKey
+        return if (subKeys.size > 0) {
+            OnlyPathsWithReferencesFilterContext(subKeys)
+        } else {
+            AcceptNoneKeyValueFilterContext()
+        }
+    }
+}
+
 val jsonResponseForEmptyRequest = jsonObjectOf("code" to "internal-failure-empty-request")
 val baseJsonResponseForOverSizedChannelInfoIdempotencyKey = jsonObjectOf(
     "code" to "channel-idempotency-too-large"
@@ -696,6 +830,7 @@ val baseJsonResponseForStackOverflowData = jsonObjectOf(
 // we would be growing our working set of "cached data" up to millions of saved entries rather quickly,
 // just to save on the "cost" of reprocessing a tiny handful.
 class JsonToQueryableTranslatorVerticle(
+    private val counters: GlobalCounterContext,
     metrics: MeterRegistry,
     verticleOffset: Int,
 ): ServerVerticle(verticleOffset) {
@@ -724,6 +859,10 @@ class JsonToQueryableTranslatorVerticle(
         val channelBytes = convertStringToByteArray(channel)
         val byteBudget = this.byteBudget
         val maxJsonParsingRecursion = this.maxJsonParsingRecursion
+        val filterContext = when (val referenceCounts = this.counters.getKeyPathReferenceCountsForChannel(channel)) {
+            null -> AcceptNoneKeyValueFilterContext()
+            else -> OnlyPathsWithReferencesFilterContext(referenceCounts.subKeys)
+        }
 
         val getDataString = thunkForReportDataString {
             try {
@@ -748,7 +887,7 @@ class JsonToQueryableTranslatorVerticle(
                     )
                 )
             }
-            val (scalars, arrays) = encodeJsonToQueryableData(data, byteBudget, maxJsonParsingRecursion)
+            val (scalars, arrays) = encodeJsonToQueryableData(data, filterContext, byteBudget, maxJsonParsingRecursion)
             return HttpProtocolErrorOrReportDataWithIndex.ofSuccess(
                 ReportDataWithIndex(
                     index,
@@ -834,7 +973,7 @@ suspend fun registerQueryServer(
     }
     val lastServerVerticleOffset = serverVerticleOffset + serverVerticles
     for (i in serverVerticleOffset until lastServerVerticleOffset) {
-        futures.add(vertx.deployVerticle(JsonToQueryableTranslatorVerticle(metrics, i), opts))
+        futures.add(vertx.deployVerticle(JsonToQueryableTranslatorVerticle(counters, metrics, i), opts))
     }
 
     val deploymentIDs = mutableSetOf<String>()

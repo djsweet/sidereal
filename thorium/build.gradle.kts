@@ -28,6 +28,8 @@ val vertxVersion = "4.4.5"
 val micrometerVersion = "1.11.3"
 val nettyResolverDnsVersion = "4.1.92.Final"
 val netJqwik = "net.jqwik:jqwik:1.7.3"
+val kotlinXBenchmarkRuntime = "org.jetbrains.kotlinx:kotlinx-benchmark-runtime:0.4.7"
+val kotlinXCollectionsImmutable = "org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.5"
 
 val benchmarksImplementation: Configuration = configurations.getAt("benchmarksImplementation")
 
@@ -37,6 +39,7 @@ dependencies {
     implementation("io.vertx:vertx-lang-kotlin:${vertxVersion}")
     implementation("io.vertx:vertx-lang-kotlin-coroutines:${vertxVersion}")
     implementation("io.micrometer:micrometer-registry-prometheus:${micrometerVersion}")
+    implementation(kotlinXCollectionsImmutable)
 
     if (operatingSystem.isMacOsX) {
         // io.netty.resolver.dns.DnsServerAddressStreamProviders prints a warning on macOS about how it
@@ -60,7 +63,7 @@ dependencies {
     testImplementation(netJqwik)
 
     benchmarksImplementation(project(mapOf("path" to ":thorium")))
-    benchmarksImplementation("org.jetbrains.kotlinx:kotlinx-benchmark-runtime:0.4.7")
+    benchmarksImplementation(kotlinXBenchmarkRuntime)
     benchmarksImplementation(netJqwik)
     benchmarksImplementation(sourceSets.test.get().output + sourceSets.test.get().runtimeClasspath)
 }

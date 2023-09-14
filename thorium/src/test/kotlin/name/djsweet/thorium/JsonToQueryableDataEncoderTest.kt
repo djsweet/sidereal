@@ -74,7 +74,7 @@ class JsonToQueryableDataEncoderTest {
         var encodedKeyDepth = 0
         var jsonKeyDepth = 0
         while (keyDecoder.withByteArray {
-            val curKey = it.toString(Charset.forName("utf-8"))
+            val curKey = convertByteArrayToString(it)
             lastKey = curKey
             encodedKeyDepth++
             when (val resultingValue = curObj.getValue(curKey)) {
@@ -126,7 +126,7 @@ class JsonToQueryableDataEncoderTest {
         var encodedKeyDepth = 0
         var jsonKeyDepth = 0
         while (keyDecoder.withByteArray {
-                val curKey = it.toString(Charset.forName("utf-8"))
+                val curKey = convertByteArrayToString(it)
                 lastKey = curKey
                 encodedKeyDepth++
                 when (val resultingValue = curObj.getValue(curKey)) {
@@ -195,7 +195,7 @@ class JsonToQueryableDataEncoderTest {
     fun recursiveOnlyJsonEncoding(
         @ForAll @From("generateJsonObjectDepth5") obj: JsonObject
     ) {
-        val tries = encodeJsonToQueryableData(obj, byteBudget, 6)
+        val tries = encodeJsonToQueryableData(obj, AcceptAllKeyValueFilterContext(), byteBudget, 6)
         this.ensureTriesEncodeJsonObject(tries, obj)
     }
 
@@ -203,7 +203,7 @@ class JsonToQueryableDataEncoderTest {
     fun iterativeOnlyJsonEncoding(
         @ForAll @From("generateJsonObjectDepth5") obj: JsonObject
     ) {
-        val tries = encodeJsonToQueryableData(obj, byteBudget, 0)
+        val tries = encodeJsonToQueryableData(obj, AcceptAllKeyValueFilterContext(), byteBudget, 0)
         this.ensureTriesEncodeJsonObject(tries, obj)
     }
 
@@ -211,7 +211,7 @@ class JsonToQueryableDataEncoderTest {
     fun hybridJsonEncoding(
         @ForAll @From("generateJsonObjectDepth8") obj: JsonObject
     ) {
-        val tries = encodeJsonToQueryableData(obj, byteBudget, 3)
+        val tries = encodeJsonToQueryableData(obj, AcceptAllKeyValueFilterContext(), byteBudget, 3)
         this.ensureTriesEncodeJsonObject(tries, obj)
     }
 }

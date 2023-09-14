@@ -6,132 +6,6 @@ import org.junit.jupiter.api.Test
 import java.nio.charset.Charset
 import java.util.*
 
-private fun decodeByteArray(src: ByteArray, srcOffset: Int): Pair<ByteArray, Int> {
-    var curOffset = srcOffset + 1
-    while (src[curOffset].toInt() != 0) {
-        curOffset++
-    }
-    val encodedSize = curOffset - srcOffset - 1
-    // println("encoded size is $encodedSize")
-    val modLength = encodedSize.mod(4)
-    var decodedSize = encodedSize / 4 * 3
-    when (modLength) {
-        3 -> {
-            decodedSize += 2
-        }
-        2 -> {
-            decodedSize += 1
-        }
-        1 -> {
-            throw IllegalArgumentException("Invalid encoding length by way of mod length $encodedSize")
-        }
-    }
-    val result = ByteArray(decodedSize)
-    val endOffset = curOffset - modLength
-    curOffset = srcOffset + 1
-    var dstOffset = 0
-    if (encodedSize >= 4) {
-        while (curOffset < endOffset) {
-            val src0 = src[curOffset].toInt().and(0x7e).shr(1)
-            val src1 = src[curOffset + 1].toInt().and(0x7e).shr(1)
-            val src2 = src[curOffset + 2].toInt().and(0x7e).shr(1)
-            val src3 = src[curOffset + 3].toInt().and(0x7e).shr(1)
-            val dst0 = src0.shl(2).or(src1.shr(4)).toByte()
-            val dst1 = src1.shl(4).or(src2.shr(2)).toByte()
-            val dst2 = src2.shl(6).or(src3).toByte()
-            result[dstOffset] = dst0
-            result[dstOffset + 1] = dst1
-            result[dstOffset + 2] = dst2
-            curOffset += 4
-            dstOffset += 3
-        }
-    }
-    when (modLength) {
-        3 -> {
-            curOffset = endOffset
-            val src0 = src[curOffset].toInt().and(0x7e).shr(1)
-            val src1 = src[curOffset + 1].toInt().and(0x7e).shr(1)
-            val src2 = src[curOffset + 2].toInt().and(0x7e).shr(3)
-            val dst0 = src0.shl(2).or(src1.shr(4)).toByte()
-            val dst1 = src1.shl(4).or(src2).toByte()
-            result[dstOffset] = dst0
-            result[dstOffset + 1] = dst1
-        }
-        2 -> {
-            curOffset = endOffset
-            val src0 = src[curOffset].toInt().and(0x7e).shr(1)
-            val src1 = src[curOffset + 1].toInt().and(0x7e).shr(5)
-            val dst0 = src0.shl(2).or(src1).toByte()
-            result[dstOffset] = dst0
-        }
-    }
-    return Pair(result, endOffset + modLength + 1)
-}
-
-internal class Radix64LowLevelDecoder(
-    private val bytes: ByteArray
-) {
-    private var offset: Int = 0
-
-    fun withByteArray(fn: (r: ByteArray) -> Unit): Boolean {
-        if (this.offset >= this.bytes.size) {
-            return false
-        }
-        val firstByte = this.bytes[this.offset]
-        if (firstByte == 0x00.toByte()) {
-            // We're at the end of a subArray and need to return upwards.
-            return false
-        }
-        if (firstByte != 0xff.toByte()) {
-            println("${this.offset} ${this.bytes.toList()}")
-            throw IllegalArgumentException("Invalid start of encoded element")
-        }
-        // This might be the start of a sub-array. We can't execute on those.
-        if (this.offset + 1 >= this.bytes.size) {
-            return false
-        }
-        val nextByte = this.bytes[this.offset + 1]
-        if (nextByte == 0xff.toByte() || nextByte == 0x81.toByte()) {
-            // This is, in fact, a sub-array, so we have to bail.
-            return false
-        }
-        val (byteArray, nextOffset) = decodeByteArray(this.bytes, this.offset)
-        // println("decoded ${this.offset} $nextOffset ${this.bytes.toList()}")
-        this.offset = nextOffset
-        fn(byteArray)
-        return true
-    }
-
-    fun withSubArray(fn: (d: Radix64LowLevelDecoder) -> Unit): Boolean {
-        if (this.offset >= this.bytes.size) {
-            return false
-        }
-        val firstByte = this.bytes[this.offset]
-        if (firstByte != 0xff.toByte()) {
-            return false
-        }
-        if (this.offset + 1 >= this.bytes.size) {
-            return false
-        }
-
-        val nextByte = this.bytes[this.offset + 1]
-        if (nextByte == 0x81.toByte()) {
-            // We assume a form 0xff 0x81 0x00, which means "empty subArray"
-            fn(Radix64LowLevelDecoder(byteArrayOf()))
-            this.offset += 3
-            return true
-        }
-        if (nextByte != 0xff.toByte()) {
-            return false
-        }
-        val decoder = Radix64LowLevelDecoder(this.bytes)
-        decoder.offset = this.offset + 1
-        fn(decoder)
-        this.offset = decoder.offset + 1
-        return true
-    }
-}
-
 private fun byteArrayListsAreEqual(l: List<ByteArray>, r: List<ByteArray>): Boolean {
     if (l.size != r.size) {
         return false
@@ -393,7 +267,7 @@ internal class Radix64JsonDecoder(bytes: ByteArray) {
             return false
         }
 
-        val valueAsString = value.toString(Charset.forName("utf-8"))
+        val valueAsString = convertByteArrayToString(value)
         fn(valueAsString, arrayCount > 2)
 
         this.currentTagValue = null

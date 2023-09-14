@@ -2,6 +2,7 @@ package name.djsweet.thorium.benchmarks
 
 import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
+import name.djsweet.thorium.AcceptAllKeyValueFilterContext
 import name.djsweet.thorium.ShareableScalarListQueryableData
 import name.djsweet.thorium.encodeJsonToQueryableData
 import name.djsweet.thorium.maxSafeKeyValueSizeSync
@@ -70,12 +71,22 @@ class JsonSpec {
 class JsonToQueryableDataEncoderBenchmark {
     @Benchmark
     fun convertJsonToQueryableData(spec: JsonSpec): ShareableScalarListQueryableData {
-        return encodeJsonToQueryableData(spec.jsonObject, spec.byteBudget, 128)
+        return encodeJsonToQueryableData(
+            spec.jsonObject,
+            AcceptAllKeyValueFilterContext(),
+            spec.byteBudget,
+            128
+        )
     }
 
     @Benchmark
     fun convertJsonToQueryableDataFullParsing(spec: JsonSpec): ShareableScalarListQueryableData {
         val decoded = JsonObject(spec.jsonString)
-        return encodeJsonToQueryableData(decoded, spec.byteBudget, 128)
+        return encodeJsonToQueryableData(
+            decoded,
+            AcceptAllKeyValueFilterContext(),
+            spec.byteBudget,
+            128
+        )
     }
 }

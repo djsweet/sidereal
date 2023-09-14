@@ -421,6 +421,10 @@ class QueryPath internal constructor(internal val breadcrumbs: ListNode<Intermed
     override fun toString(): String {
         return "QueryPath(${this.breadcrumbs})"
     }
+
+    fun keys(): Iterator<ByteArray> {
+        return listIterator(this.breadcrumbs).asSequence().map { it.key.copyOf() }.iterator()
+    }
 }
 
 /**

@@ -87,18 +87,34 @@ private inline fun updateResultForKeyValue(
     }
 }
 
+interface KeyValueFilterContext {
+    fun willAcceptNone(): Boolean {
+        return false
+    }
+
+    fun includeKeyValue(key: String, value: Any?): Boolean
+    fun contextForObject(key: String): KeyValueFilterContext
+}
+
 internal fun encodeJsonToQueryableDataIterative(
     obj: JsonObject,
     baseResult: NonShareableScalarListQueryableData,
     topKeyPath: Radix64LowLevelEncoder,
+    filterContext: KeyValueFilterContext,
     byteBudget: Int,
 ): NonShareableScalarListQueryableData {
-    val queue = ArrayDeque<Pair<Radix64LowLevelEncoder, JsonObject>>()
-    queue.add(topKeyPath to obj)
+    if (filterContext.willAcceptNone()) {
+        return baseResult
+    }
+    val queue = ArrayDeque<Triple<Radix64LowLevelEncoder, JsonObject, KeyValueFilterContext>>()
+    queue.add(Triple(topKeyPath, obj, filterContext))
     var result = baseResult
     while (!queue.isEmpty()) {
-        val (parentKeyPath, curObj) = queue.removeFirst()
+        val (parentKeyPath, curObj, curFilterContext) = queue.removeFirst()
         for ((key, value) in curObj) {
+            if (!curFilterContext.includeKeyValue(key, value)) {
+                continue
+            }
             val keyPath = parentKeyPath.clone().addString(key)
             val keyContentLength = keyPath.getOriginalContentLength()
             if (keyContentLength >= byteBudget) {
@@ -110,7 +126,7 @@ internal fun encodeJsonToQueryableDataIterative(
                 value,
                 byteBudget - keyContentLength,
             ) {
-                queue.addLast(keyPath to it)
+                queue.addLast(Triple(keyPath, it, curFilterContext.contextForObject(key)))
                 result
             }
         }
@@ -122,11 +138,18 @@ internal fun encodeJsonToQueryableDataRecursive(
     obj: JsonObject,
     baseResult: NonShareableScalarListQueryableData,
     topKeyPath: Radix64LowLevelEncoder,
+    filterContext: KeyValueFilterContext,
     byteBudget: Int,
     recurseDepth: Int
 ): NonShareableScalarListQueryableData {
+    if (filterContext.willAcceptNone()) {
+        return baseResult
+    }
     var result = baseResult
     for ((key, value) in obj) {
+        if (!filterContext.includeKeyValue(key, value)) {
+            continue
+        }
         val keyPath = topKeyPath.clone().addString(key)
         val keyContentLength = keyPath.getOriginalContentLength()
         if (keyContentLength >= byteBudget) {
@@ -138,10 +161,24 @@ internal fun encodeJsonToQueryableDataRecursive(
             value,
             byteBudget - keyContentLength,
         ) {
+            val filterContextForObject = filterContext.contextForObject(key)
             if (recurseDepth <= 0) {
-                encodeJsonToQueryableDataIterative(it, result, keyPath, byteBudget)
+                encodeJsonToQueryableDataIterative(
+                    it,
+                    result,
+                    keyPath,
+                    filterContextForObject,
+                    byteBudget
+                )
             } else {
-                encodeJsonToQueryableDataRecursive(it, result, keyPath, byteBudget, recurseDepth - 1)
+                encodeJsonToQueryableDataRecursive(
+                    it,
+                    result,
+                    keyPath,
+                    filterContextForObject,
+                    byteBudget,
+                    recurseDepth - 1
+                )
             }
         }
     }
@@ -153,12 +190,42 @@ data class ShareableScalarListQueryableData(
     val arrays: ShareableQPTrieOfByteArrayLists
 )
 
+class AcceptAllKeyValueFilterContext: KeyValueFilterContext {
+    override fun includeKeyValue(key: String, value: Any?): Boolean {
+        return true
+    }
+
+    override fun contextForObject(key: String): KeyValueFilterContext {
+        return this
+    }
+}
+
+class AcceptNoneKeyValueFilterContext: KeyValueFilterContext {
+    override fun willAcceptNone(): Boolean {
+        return true
+    }
+
+    override fun includeKeyValue(key: String, value: Any?): Boolean {
+        return false
+    }
+
+    override fun contextForObject(key: String): KeyValueFilterContext {
+        return this
+    }
+}
+
 // This is used in benchmarking, so it can't be internal.
-fun encodeJsonToQueryableData(obj: JsonObject, byteBudget: Int, recurseDepth: Int): ShareableScalarListQueryableData {
+fun encodeJsonToQueryableData(
+    obj: JsonObject,
+    filterContext: KeyValueFilterContext,
+    byteBudget: Int,
+    recurseDepth: Int
+): ShareableScalarListQueryableData {
     val result = encodeJsonToQueryableDataRecursive(
         obj,
         NonShareableScalarListQueryableData(scalars=QPTrie(), arrays=QPTrie()),
         Radix64LowLevelEncoder(),
+        filterContext,
         byteBudget,
         recurseDepth
     )

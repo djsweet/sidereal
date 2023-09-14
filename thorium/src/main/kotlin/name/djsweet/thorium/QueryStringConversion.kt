@@ -132,7 +132,16 @@ private val jsonObjectForTooManyTerms = JsonObject()
     .put("code", "too-many-terms")
     .put("message", "This query has too many terms.")
 
-fun convertQueryStringToFullQuery(qs: Map<String, List<String>>, maxTerms: Int, byteBudget: Int): HttpProtocolErrorOr<FullQuery> {
+data class FullQueryAndAffectedKeyIncrements(
+    val fullQuery: FullQuery,
+    val affectedKeyIncrements: List<Pair<List<String>, Int>>
+)
+
+fun convertQueryStringToFullQuery(
+    qs: Map<String, List<String>>,
+    maxTerms: Int,
+    byteBudget: Int
+): HttpProtocolErrorOr<FullQueryAndAffectedKeyIncrements> {
     var error: HttpProtocolError? = null
     var treeSpec = QuerySpec.empty
     var arrayContains: QPTrie<QPTrie<Boolean>> = QPTrie()
@@ -141,6 +150,7 @@ fun convertQueryStringToFullQuery(qs: Map<String, List<String>>, maxTerms: Int, 
     var inequalityKey: ByteArray? = null
     var inequalityValue: ByteArray? = null
     var termCount = 0
+    val affectedKeyIncrements = mutableListOf<Pair<List<String>, Int>>()
     for ((key, values) in qs) {
         for (value in values) {
             termCount++
@@ -152,6 +162,7 @@ fun convertQueryStringToFullQuery(qs: Map<String, List<String>>, maxTerms: Int, 
             stringOrJsonPointerToStringKeyPath(key).whenError {
                 error = it
             }.whenSuccess { stringKeyPath ->
+                affectedKeyIncrements.add(Pair(stringKeyPath, 1))
                 val (encodedKey, encodedKeyOriginalLength) = stringKeyPathToEncodedKeyPath(stringKeyPath)
                 val remainingByteBudget = byteBudget - encodedKeyOriginalLength
                 if (value.isEmpty()) {
@@ -267,5 +278,8 @@ fun convertQueryStringToFullQuery(qs: Map<String, List<String>>, maxTerms: Int, 
             return HttpProtocolErrorOr.ofError(lastError)
         }
     }
-    return HttpProtocolErrorOr.ofSuccess(FullQuery(treeSpec, arrayContains, notEquals))
+    return HttpProtocolErrorOr.ofSuccess(FullQueryAndAffectedKeyIncrements(
+        fullQuery = FullQuery(treeSpec, arrayContains, notEquals),
+        affectedKeyIncrements = affectedKeyIncrements
+    ))
 }

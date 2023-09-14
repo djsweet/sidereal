@@ -352,11 +352,12 @@ class QueryStringConversionTest {
         convertQueryStringToFullQuery(queryString, this.maxQueryStringTerms, this.maxStringByteLength * 3)
             .whenError {
                 fail<String>("Should have decoded query string: ${it.contents}")
-            }.whenSuccess {
+            }.whenSuccess { (fullQuery) ->
+                // FIXME: Test the affectedKeyIncrements as well
                 succeeded = true
-                assertEquals(querySpec, it.treeSpec)
-                assertEquals(convertBooleanQPTrieToList(arrayContains), convertBooleanQPTrieToList(it.arrayContains))
-                assertEquals(convertBooleanQPTrieToList(notEquals), convertBooleanQPTrieToList(it.notEquals))
+                assertEquals(querySpec, fullQuery.treeSpec)
+                assertEquals(convertBooleanQPTrieToList(arrayContains), convertBooleanQPTrieToList(fullQuery.arrayContains))
+                assertEquals(convertBooleanQPTrieToList(notEquals), convertBooleanQPTrieToList(fullQuery.notEquals))
             }
         assertTrue(succeeded)
     }

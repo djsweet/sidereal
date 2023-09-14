@@ -14,6 +14,7 @@ import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
 import io.vertx.kotlin.core.json.jsonObjectOf
 import io.vertx.kotlin.coroutines.await
+import kotlinx.collections.immutable.PersistentMap
 import name.djsweet.thorium.*
 import java.net.URLDecoder
 import java.util.concurrent.ThreadLocalRandom
@@ -72,7 +73,10 @@ class QueryClientSSEVerticle(
         if (this.resp.headWritten()) {
             return
         }
-        val connectPayload = jsonObjectOf("timestamp" to wallNowAsString(), "clientID" to this.clientID).toString()
+        val connectPayload = jsonObjectOf(
+            "timestamp" to wallNowAsString(),
+            "clientID" to this.clientID
+        ).encode()
         writeCommonHeaders(this.resp)
             .setChunked(true)
             .setStatusCode(200)
@@ -172,12 +176,13 @@ class QueryClientSSEVerticle(
 
 const val channelsPrefix = "/channels/"
 const val metricsPrefix = "/metrics"
+const val keyReferenceCountPrefix = "/metrics/keycounts/"
 val baseInvalidMethodJson = jsonObjectOf("code" to "invalid-method")
 val baseInvalidChannelJson = jsonObjectOf("code" to "invalid-channel")
 val internalFailureJson = jsonObjectOf("code" to "internal-failure")
 
 fun failRequest(req: HttpServerRequest): Future<Void> {
-    return jsonStatusCodeResponse(req, 500).end(internalFailureJson.toString())
+    return jsonStatusCodeResponse(req, 500).end(internalFailureJson.encode())
 }
 
 fun handleQuery(vertx: Vertx, counters: GlobalCounterContext, channel: String, req: HttpServerRequest) {
@@ -238,7 +243,7 @@ fun handleQuery(vertx: Vertx, counters: GlobalCounterContext, channel: String, r
                 failRequest(req)
             } else {
                 it.result().body().whenError { err ->
-                    jsonStatusCodeResponse(req, err.statusCode).end(err.contents.toString())
+                    jsonStatusCodeResponse(req, err.statusCode).end(err.contents.encode())
                 }.whenSuccess {
                     // At this point, the entire request lifecycle is governed by the verticle we just registered.
                     // But we still need to make sure the headers get written, so we'll send an arbitrary string
@@ -284,7 +289,7 @@ fun handleDataWithUnpackRequest(
     if (priorQueryCount >= limit) {
         counters.decrementOutstandingDataCount(dataIncrement)
         jsonStatusCodeResponse(httpReq, 429).end(
-            baseExceededDataLimitJson.put("count", newOutstandingDataCount).put("limit", limit).toString()
+            baseExceededDataLimitJson.put("count", newOutstandingDataCount).put("limit", limit).encode()
         )
         return
     }
@@ -320,7 +325,7 @@ fun handleDataWithUnpackRequest(
             var hadError = false
             responseList.whenError { error ->
                 counters.decrementOutstandingDataCount(dataIncrement)
-                jsonStatusCodeResponse(httpReq, error.statusCode).end(error.contents.toString())
+                jsonStatusCodeResponse(httpReq, error.statusCode).end(error.contents.encode())
                 hadError = true
             }.whenSuccess { reports ->
                 for (maybeResponse in reports.responses) {
@@ -353,7 +358,7 @@ fun handleDataWithUnpackRequest(
 
         jsonStatusCodeResponse(httpReq, 202)
             .putHeader(eventEncodeTimeHeader, "${monotonicNowMS() - translatorSendStartTime} ms")
-            .end(acceptedJson.toString())
+            .end(acceptedJson.encode())
     }
 }
 
@@ -372,7 +377,7 @@ fun readBodyTryParseJsonObject(vertx: Vertx, req: HttpServerRequest, handle: (ob
         }.onFailure {
             jsonStatusCodeResponse(req, 400)
                 .putHeader(jsonParseTimeHeader, "${monotonicNowMS() - jsonParseStartTime} ms")
-                .end(invalidJsonBodyJson.toString())
+                .end(invalidJsonBodyJson.encode())
         }.onSuccess {
             resp.putHeader(jsonParseTimeHeader, "${monotonicNowMS() - jsonParseStartTime} ms")
             handle(it)
@@ -395,7 +400,7 @@ fun readBodyTryParseJsonArray(vertx: Vertx, req: HttpServerRequest, handle: (arr
         }.onFailure {
             jsonStatusCodeResponse(req,400)
                 .putHeader(jsonParseTimeHeader, "${monotonicNowMS() - jsonParseStartTime} ms")
-                .end(invalidJsonBodyJson.toString())
+                .end(invalidJsonBodyJson.encode())
         }.onSuccess {
             handle(it, jsonParseStartTime)
         }
@@ -405,7 +410,7 @@ fun readBodyTryParseJsonArray(vertx: Vertx, req: HttpServerRequest, handle: (arr
 fun handleData(vertx: Vertx, counters: GlobalCounterContext, channel: String, req: HttpServerRequest) {
     val withParams = req.headers().get("Content-Type")
     if (withParams == null) {
-        jsonStatusCodeResponse(req, 400).end(missingContentTypeJson.toString())
+        jsonStatusCodeResponse(req, 400).end(missingContentTypeJson.encode())
         return
     }
     val paramOffset = withParams.indexOf(";")
@@ -413,12 +418,12 @@ fun handleData(vertx: Vertx, counters: GlobalCounterContext, channel: String, re
         "application/json" -> {
             val eventSource = req.headers().get("ce-source")
             if (eventSource == null) {
-                jsonStatusCodeResponse(req, 400).end(missingEventSourceJson.toString())
+                jsonStatusCodeResponse(req, 400).end(missingEventSourceJson.encode())
                 return
             }
             val eventID = req.headers().get("ce-id")
             if (eventID == null) {
-                jsonStatusCodeResponse(req, 400).end(missingEventIDJson.toString())
+                jsonStatusCodeResponse(req, 400).end(missingEventIDJson.encode())
                 return
             }
             val idempotencyKey = "$eventSource $eventID"
@@ -440,19 +445,19 @@ fun handleData(vertx: Vertx, counters: GlobalCounterContext, channel: String, re
             readBodyTryParseJsonObject(vertx, req) { json ->
                 val eventSource = json.getValue("source")
                 if (eventSource !is String) {
-                    jsonStatusCodeResponse(req, 400).end(missingEventSourceJson.toString())
+                    jsonStatusCodeResponse(req, 400).end(missingEventSourceJson.encode())
                     return@readBodyTryParseJsonObject
                 }
 
                 val eventID = json.getValue("id")
                 if (eventID !is String) {
-                    jsonStatusCodeResponse(req, 400).end(missingEventIDJson.toString())
+                    jsonStatusCodeResponse(req, 400).end(missingEventIDJson.encode())
                     return@readBodyTryParseJsonObject
                 }
 
                 val data = json.getValue("data")
                 if (data !is JsonObject) {
-                    jsonStatusCodeResponse(req, 400).end(invalidDataFieldJson.toString())
+                    jsonStatusCodeResponse(req, 400).end(invalidDataFieldJson.encode())
                     return@readBodyTryParseJsonObject
                 }
 
@@ -477,10 +482,7 @@ fun handleData(vertx: Vertx, counters: GlobalCounterContext, channel: String, re
                     val elem = json.getValue(i)
                     if (elem !is JsonObject) {
                         jsonStatusCodeResponse(req,400).end(
-                            invalidJsonBodyJson
-                                .copy()
-                                .put("offset", i)
-                                .toString()
+                            invalidJsonBodyJson.copy().put("offset", i).encode()
                         )
                         return@readBodyTryParseJsonArray
                     }
@@ -488,10 +490,7 @@ fun handleData(vertx: Vertx, counters: GlobalCounterContext, channel: String, re
                     val eventSource = elem.getValue("source")
                     if (eventSource !is String) {
                         jsonStatusCodeResponse(req, 400).end(
-                            missingEventSourceJson
-                                .copy()
-                                .put("offset", i)
-                                .toString()
+                            missingEventSourceJson.copy().put("offset", i).encode()
                         )
                         return@readBodyTryParseJsonArray
                     }
@@ -499,10 +498,7 @@ fun handleData(vertx: Vertx, counters: GlobalCounterContext, channel: String, re
                     val eventID = elem.getValue("id")
                     if (eventID !is String) {
                         jsonStatusCodeResponse(req, 400).end(
-                            missingEventIDJson
-                                .copy()
-                                .put("offset", i)
-                                .toString()
+                            missingEventIDJson.copy().put("offset", i).encode()
                         )
                         return@readBodyTryParseJsonArray
                     }
@@ -510,10 +506,7 @@ fun handleData(vertx: Vertx, counters: GlobalCounterContext, channel: String, re
                     val data = elem.getValue("data")
                     if (data !is JsonObject) {
                         jsonStatusCodeResponse(req, 400).end(
-                            invalidDataFieldJson
-                                .copy()
-                                .put("offset", i)
-                                .toString()
+                            invalidDataFieldJson.copy().put("offset", i).encode()
                         )
                         return@readBodyTryParseJsonArray
                     }
@@ -538,13 +531,45 @@ fun handleData(vertx: Vertx, counters: GlobalCounterContext, channel: String, re
         }
         else -> {
             jsonStatusCodeResponse(req, 400).end(
-                baseUnsupportedContentTypeJson.put("content-type", withParams).toString()
+                baseUnsupportedContentTypeJson.put("content-type", withParams).encode()
             )
         }
     }
 }
 
 val notFoundJson = jsonObjectOf("code" to "not-found")
+
+fun extractReferenceCountsToJSON(counts: PersistentMap<String, KeyPathReferenceCount>): JsonObject {
+    val baseResult = jsonObjectOf()
+    for ((key, value) in counts) {
+        if (value.isEmpty()) {
+            continue
+        }
+        if (value.subKeys.isEmpty()) {
+            baseResult.put(key, value.references)
+        } else {
+            baseResult.put(key, extractReferenceCountsToJSON(value.subKeys))
+        }
+    }
+    return baseResult
+}
+
+fun handleKeyReferenceCounts(counts: KeyPathReferenceCount, req: HttpServerRequest) {
+    val result = extractReferenceCountsToJSON(counts.subKeys)
+    jsonStatusCodeResponse(req,200).end(result.encode())
+}
+
+fun extractChannelFromRemainingPath(remainingPath: String): String? {
+    val slashIndex = remainingPath.indexOf("/")
+    if (slashIndex > 0 && slashIndex != remainingPath.length - 1) {
+        return null
+    }
+    return URLDecoder.decode(if (slashIndex < 0) {
+        remainingPath
+    } else {
+        remainingPath.substring(0, slashIndex)
+    }, "UTF-8")
+}
 
 class WebServerVerticle(
     private val counters: GlobalCounterContext,
@@ -570,18 +595,13 @@ class WebServerVerticle(
                 val path = req.path()
                 if (path.startsWith(channelsPrefix)) {
                     val possiblyChannel = req.path().substring(channelsPrefix.length)
-                    val slashIndex = possiblyChannel.indexOf("/")
-                    if (slashIndex > 0 && slashIndex != possiblyChannel.length - 1) {
+                    val channel = extractChannelFromRemainingPath(possiblyChannel)
+                    if (channel == null) {
                         jsonStatusCodeResponse(req, 400).end(
-                            baseInvalidChannelJson.copy().put("channel", possiblyChannel).toString()
+                            baseInvalidChannelJson.copy().put("channel", possiblyChannel).encode()
                         )
                         return@requestHandler
                     }
-                    val channel = URLDecoder.decode(if (slashIndex < 0) {
-                        possiblyChannel
-                    } else {
-                        possiblyChannel.substring(0, slashIndex)
-                    }, "UTF-8")
 
                     if (req.method() == HttpMethod.POST || req.method() == HttpMethod.PUT) {
                         handleData(vertx, this.counters, channel, req)
@@ -589,17 +609,36 @@ class WebServerVerticle(
                         handleQuery(vertx, this.counters, channel, req)
                     } else {
                         jsonStatusCodeResponse(req, 400)
-                            .end(baseInvalidMethodJson.copy().put("method", req.method()).toString())
+                            .end(baseInvalidMethodJson.copy().put("method", req.method()).encode())
                     }
-                } else if (
-                    path.startsWith(metricsPrefix)
-                        && (path.length == metricsPrefix.length
-                            || (path.length == metricsPrefix.length + 1 && path[metricsPrefix.length] == '/'))) {
-                    writeCommonHeaders(req.response())
-                        .putHeader("Content-Type", "text/plain; version=0.0.4")
-                        .end(this.meterRegistry.scrape())
+                } else if (path.startsWith(metricsPrefix)) {
+                    if (path.length == metricsPrefix.length
+                            || (path.length == metricsPrefix.length + 1 && path[metricsPrefix.length] == '/')) {
+                        writeCommonHeaders(req.response())
+                            .putHeader("Content-Type", "text/plain; version=0.0.4")
+                            .end(this.meterRegistry.scrape())
+                    } else if (path.startsWith(keyReferenceCountPrefix)) {
+                        val possiblyChannel = req.path().substring(keyReferenceCountPrefix.length)
+                        val channel = extractChannelFromRemainingPath(possiblyChannel)
+                        if (channel == null) {
+                            jsonStatusCodeResponse(req, 400).end(
+                                baseInvalidChannelJson.copy().put("channel", possiblyChannel).encode()
+                            )
+                            return@requestHandler
+                        }
+
+                        val forChannel = counters.getKeyPathReferenceCountsForChannel(channel)
+                        if (forChannel == null) {
+                            jsonStatusCodeResponse(req, 404).end(notFoundJson.encode())
+                            return@requestHandler
+                        }
+
+                        handleKeyReferenceCounts(forChannel, req)
+                    } else {
+                        jsonStatusCodeResponse(req, 404).end(notFoundJson.encode())
+                    }
                 } else {
-                    jsonStatusCodeResponse(req, 404).end(notFoundJson.toString())
+                    jsonStatusCodeResponse(req, 404).end(notFoundJson.encode())
                 }
             } catch (e: Exception) {
                 val resp = req.response()
