@@ -84,8 +84,8 @@ fun compareStringLists(left: List<String>, right: List<String>): Int {
 }
 
 fun mutateCoalesceRemovedPathIncrements(rpi: MutableList<Pair<List<String>, Int>>): Int {
-    if (rpi.size < 1) {
-        return 0
+    if (rpi.size <= 1) {
+        return rpi.size
     }
     rpi.sortWith { left, right ->
         compareStringLists(left.first, right.first)
