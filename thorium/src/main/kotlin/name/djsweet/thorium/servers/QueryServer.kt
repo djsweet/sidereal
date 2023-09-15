@@ -108,22 +108,15 @@ abstract class ServerVerticle(protected val verticleOffset: Int): AbstractVertic
     }
 }
 
-data class ChannelInfoPathChangeResult(
-    val newChannelInfo: ChannelInfo,
-    val involvedPath: QueryPath?
-)
+class ChannelInfo {
+    var queryTree = QuerySetTree<QueryResponderSpec>()
+    val queriesByClientID = HashMap<String, Pair<QueryResponderSpec, QueryPath>>()
 
-data class ChannelInfo(
-    val channel: String,
-    val queryTree: QuerySetTree<QueryResponderSpec>,
-    val queriesByClientID: QPTrie<Pair<QueryResponderSpec, QueryPath>>,
-) {
-    constructor(channel: String): this(channel, QuerySetTree(), QPTrie())
+    fun registerQuery(query: FullQuery, clientID: String, respondTo: String): QueryPath {
+        val queryTree = this.queryTree
+        val queriesByClientID = this.queriesByClientID
+        val priorQuery = queriesByClientID[clientID]
 
-    fun registerQuery(query: FullQuery, clientID: String, respondTo: String): ChannelInfoPathChangeResult {
-        val clientIDBytes = convertStringToByteArray(clientID)
-        val (_, queryTree, queriesByClientID) = this
-        val priorQuery = queriesByClientID.get(clientIDBytes)
         val basisQueryTree = if (priorQuery == null) {
             queryTree
         } else {
@@ -138,30 +131,23 @@ data class ChannelInfo(
             query.countArrayContainsConditions()
         )
         val (newPath, newQueryTree) = basisQueryTree.addElementByQuery(query.treeSpec, responderSpec)
-        return ChannelInfoPathChangeResult(
-            newChannelInfo = this.copy(
-                queryTree=newQueryTree,
-                queriesByClientID=queriesByClientID.put(clientIDBytes, responderSpec to newPath),
-            ),
-            involvedPath = newPath
-        )
+
+        this.queryTree = newQueryTree
+        queriesByClientID[clientID] = responderSpec to newPath
+        return newPath
     }
 
-    fun unregisterQuery(clientID: String): ChannelInfoPathChangeResult {
-        val (_, queryTree, queriesByClientID) = this
-        val clientIDBytes = convertStringToByteArray(clientID)
-        val priorQuery = queriesByClientID.get(clientIDBytes) ?: return ChannelInfoPathChangeResult(
-            newChannelInfo = this,
-            involvedPath = null
-        )
+    fun unregisterQuery(clientID: String): QueryPath? {
+        val queriesByClientID = this.queriesByClientID
+        val priorQuery = queriesByClientID[clientID] ?: return null
         val (responder, path) = priorQuery
-        return ChannelInfoPathChangeResult(
-            newChannelInfo = this.copy(
-                queryTree=queryTree.removeElementByPath(path, responder),
-                queriesByClientID=queriesByClientID.remove(clientIDBytes)
-            ),
-            involvedPath = path
-        )
+        this.queryTree = this.queryTree.removeElementByPath(path, responder)
+        queriesByClientID.remove(clientID)
+        return path
+    }
+
+    fun isEmpty(): Boolean {
+        return this.queriesByClientID.isEmpty()
     }
 }
 
@@ -184,12 +170,12 @@ class QueryRouterVerticle(
     verticleOffset: Int,
     private val idempotencyKeyCacheSize: Int
 ): ServerVerticle(verticleOffset) {
-    private val routerTimer = Timer.builder(routerMetricName)
-        .description(routerMetricDescription)
-        .tag("worker", verticleOffset.toString())
+    private val routerTimer = Timer.builder(routerTimerName)
+        .description(routerTimerDescription)
+        .tag("router", verticleOffset.toString())
         .register(metrics)
 
-    private var channels = QPTrie<ChannelInfo>()
+    private val channels = HashMap<String, ChannelInfo>()
     private val idempotencyKeys = HashMap<String, HashSet<String>>(
         ceil(idempotencyKeyCacheSize / idempotencyKeyLoadFactor).toInt(),
         idempotencyKeyLoadFactor.toFloat()
@@ -208,15 +194,18 @@ class QueryRouterVerticle(
     init {
         Gauge.builder(idempotencyKeyCacheSizeName) { idempotencyKeys.size }
             .description(idempotencyKeyCacheSizeDescription)
-            .tag("worker", verticleOffset.toString())
+            .tag("router", verticleOffset.toString())
+            .register(metrics)
+        Gauge.builder(queryCountName) { this.counters.getQueryCountForThread(this.verticleOffset) }
+            .description(queryCountDescription)
+            .tag("router", verticleOffset.toString())
             .register(metrics)
     }
 
     override fun resetForNewByteBudget() {
         val eventBus = this.vertx.eventBus()
         val counters = this.counters
-        for ((_, channelInfo) in this.channels) {
-            val channel = channelInfo.channel
+        for ((channel, channelInfo) in this.channels) {
             val removePathIncrements = ArrayList<Pair<List<String>, Int>>()
             for ((_, responderSpecToPath) in channelInfo.queriesByClientID) {
                 val (responderSpec, queryPath) = responderSpecToPath
@@ -228,7 +217,7 @@ class QueryRouterVerticle(
             }
             counters.updateKeyPathReferenceCountsForChannel(channel, removePathIncrements)
         }
-        this.channels = QPTrie()
+        this.channels.clear()
         this.idempotencyKeys.clear()
         this.idempotencyKeyRemovalSchedule.clear()
         this.counters.resetQueryCountForThread(this.verticleOffset)
@@ -300,17 +289,17 @@ class QueryRouterVerticle(
                     .whenError { cont.resumeWith(Result.success(HttpProtocolErrorOrJson.ofError(it))) }
                     .whenSuccess { (query, increments) ->
                         val (channel) = req
-                        val channelBytes = convertStringToByteArray(channel)
-                        this.channels = this.channels.update(channelBytes) {
-                            val basis = (it ?: ChannelInfo(channel))
-                            val (newChannelInfo) = basis.registerQuery(query, req.clientID, req.returnAddress)
-                            this.counters.alterQueryCountForThread(
-                                this.verticleOffset,
-                                newChannelInfo.queryTree.size - basis.queryTree.size
-                            )
-                            newChannelInfo
-                        }
-                        this.counters.updateKeyPathReferenceCountsForChannel(channel, increments)
+                        val channels = this.channels
+                        val counters = this.counters
+                        val channelInfo = channels[channel] ?: ChannelInfo()
+                        val basisQueryTreeSize = channelInfo.queryTree.size
+                        channelInfo.registerQuery(query, req.clientID, req.returnAddress)
+                        channels[channel] = channelInfo
+                        counters.alterQueryCountForThread(
+                            this.verticleOffset,
+                            channelInfo.queryTree.size - basisQueryTreeSize
+                        )
+                        counters.updateKeyPathReferenceCountsForChannel(channel, increments)
                         cont.resumeWith(
                             Result.success(
                                 HttpProtocolErrorOrJson.ofSuccess(
@@ -328,43 +317,43 @@ class QueryRouterVerticle(
     }
 
     private fun unregisterQuery(
-        channelString: String,
+        channel: String,
         clientID: String,
         withRemovedPath: (QueryPath) -> Unit
     ): HttpProtocolErrorOrJson {
-        val channelBytes = convertStringToByteArray(channelString)
-        val channel = this.channels.get(channelBytes) ?: return HttpProtocolErrorOrJson.ofError(
+        val channelInfo = this.channels[channel] ?: return HttpProtocolErrorOrJson.ofError(
             HttpProtocolError(
                 404, jsonObjectOf(
                     "code" to "missing-channel",
-                    "channel" to channelString
+                    "channel" to channel
                 )
             )
         )
 
-        val (updatedChannel, involvedPath) = channel.unregisterQuery(clientID)
-        if (involvedPath != null) {
-            withRemovedPath(involvedPath)
-        }
-        return if (updatedChannel === channel) {
+        val basisQueryTreeSize = channelInfo.queryTree.size
+        val involvedPath = channelInfo.unregisterQuery(clientID)
+        return if (involvedPath == null) {
             HttpProtocolErrorOrJson.ofError(
                 HttpProtocolError(
                     404, jsonObjectOf(
                         "code" to "missing-client-id",
-                        "channel" to channelString,
+                        "channel" to channel,
                         "clientID" to clientID
                     )
                 )
             )
         } else {
-            this.channels = this.channels.put(channelBytes, updatedChannel)
+            withRemovedPath(involvedPath)
             this.counters.alterQueryCountForThread(
                 this.verticleOffset,
-                updatedChannel.queryTree.size - channel.queryTree.size
+                channelInfo.queryTree.size - basisQueryTreeSize
             )
+            if (channelInfo.isEmpty()) {
+                this.channels.remove(channel)
+            }
             HttpProtocolErrorOrJson.ofSuccess(
                 jsonObjectOf(
-                    "channel" to channelString,
+                    "channel" to channel,
                     "clientID" to clientID
                 )
             )
@@ -412,9 +401,8 @@ class QueryRouterVerticle(
 
         try {
             val eventBus = this.vertx.eventBus()
-            val channelBytes = convertStringToByteArray(channel)
-            val respondingChannel = this.channels.get(channelBytes) ?: return
-            val (_, queryTree) = respondingChannel
+            val respondingChannel = this.channels[channel] ?: return
+            val queryTree = respondingChannel.queryTree
             val idempotencySet = idempotencyKeys[idempotencyKey]
             if (idempotencySet?.contains(channel) == true) {
                 return
@@ -620,9 +608,9 @@ class JsonToQueryableTranslatorVerticle(
     metrics: MeterRegistry,
     verticleOffset: Int,
 ): ServerVerticle(verticleOffset) {
-    private val unpackRequestTimer = Timer.builder(translationMetricName)
-        .description(translationMetricDescription)
-        .tag("worker", verticleOffset.toString())
+    private val unpackRequestTimer = Timer.builder(translationTimerName)
+        .description(translationTimerDescription)
+        .tag("translator", verticleOffset.toString())
         .register(metrics)
     private var maxJsonParsingRecursion = 16
     private var requestHandler: MessageConsumer<UnpackDataRequestList>? = null
