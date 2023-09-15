@@ -505,7 +505,11 @@ class QueryRouterVerticle(
             respondFutures.onComplete {
                 val counters = this.counters
 
-                counters.updateKeyPathReferenceCountsForChannel(channel, removedPathIncrements)
+                // This is logically redundant, but profiling indicates that calling into
+                // updateKeyPathReferenceCountsForChannel is surprisingly expensive!
+                if (removedPathIncrements.size > 0) {
+                    counters.updateKeyPathReferenceCountsForChannel(channel, removedPathIncrements)
+                }
                 counters.decrementOutstandingDataCount(1)
             }
 
