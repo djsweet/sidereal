@@ -359,6 +359,17 @@ data class ChannelInfo(
 
 private val ciRemoveMin = { ci: ChannelInfo -> ci.removeMinimumIdempotencyKeys() }
 
+inline fun extractKeyPathsFromQueryPath(qp: QueryPath, increment: Int, withKeyPath: (Pair<List<String>, Int>) -> Unit) {
+    for (pathComponent in qp.keys()) {
+        val decoder = Radix64LowLevelDecoder(pathComponent)
+        val sublist = mutableListOf<String>()
+        while (decoder.withString { sublist.add(it) }) {
+            // This seems silly, but withString already causes a break on `false`.
+        }
+        withKeyPath(Pair(sublist, increment))
+    }
+}
+
 class QueryRouterVerticle(
     private val counters: GlobalCounterContext,
     metrics: MeterRegistry,
@@ -380,13 +391,19 @@ class QueryRouterVerticle(
 
     override fun resetForNewByteBudget() {
         val eventBus = this.vertx.eventBus()
+        val counters = this.counters
         for ((_, channelInfo) in this.channels) {
             val channel = channelInfo.channel
+            val removePathIncrements = ArrayList<Pair<List<String>, Int>>()
             for ((_, responderSpecToPath) in channelInfo.queriesByClientID) {
-                val (responderSpec) = responderSpecToPath
+                val (responderSpec, queryPath) = responderSpecToPath
                 val (_, respondTo, clientID) = responderSpec
                 eventBus.publish(respondTo, UnregisterQueryRequest(channel, clientID))
+                extractKeyPathsFromQueryPath(queryPath, -1) {
+                    removePathIncrements.add(it)
+                }
             }
+            counters.updateKeyPathReferenceCountsForChannel(channel, removePathIncrements)
         }
         this.channels = QPTrie()
         this.idempotencyKeyRemovalSchedule.clear()
@@ -524,13 +541,8 @@ class QueryRouterVerticle(
     private fun unregisterQuery(req: UnregisterQueryRequest): HttpProtocolErrorOrJson {
         return this.unregisterQuery(req.channel, req.clientID) { queryPath ->
             val decrements = mutableListOf<Pair<List<String>, Int>>()
-            for (pathComponent in queryPath.keys()) {
-                val decoder = Radix64LowLevelDecoder(pathComponent)
-                val sublist = mutableListOf<String>()
-                while (decoder.withString { sublist.add(it) }) {
-                    // This seems silly, but withString already causes a break on `false`.
-                }
-                decrements.add(Pair(sublist, -1))
+            extractKeyPathsFromQueryPath(queryPath, -1) {
+                decrements.add(it)
             }
             this.counters.updateKeyPathReferenceCountsForChannel(req.channel, decrements)
         }
@@ -546,13 +558,8 @@ class QueryRouterVerticle(
         val (_, respondTo, clientID) = responder
         val current = eventBus.request<Any>(respondTo, data, localRequestOptions).onFailure {
             this.unregisterQuery(data.channel, responder.clientID) { queryPath ->
-                for (pathComponent in queryPath.keys()) {
-                    val decoder = Radix64LowLevelDecoder(pathComponent)
-                    val sublist = mutableListOf<String>()
-                    while (decoder.withString { sublist.add(it) }) {
-                        // This seems silly, but withString already causes a break on `false`.
-                    }
-                    removedPathIncrements.add(Pair(sublist, -1))
+                extractKeyPathsFromQueryPath(queryPath, -1) {
+                    removedPathIncrements.add(it)
                 }
             }
             eventBus.publish(respondTo, UnregisterQueryRequest(data.channel, clientID))
