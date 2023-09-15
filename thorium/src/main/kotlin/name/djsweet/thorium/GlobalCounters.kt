@@ -5,7 +5,7 @@ import kotlinx.collections.immutable.persistentMapOf
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.LongAdder
 
-class DecrementHeavyGague {
+class DecrementHeavyGauge {
     private val increments = AtomicLong()
     private val decrements = LongAdder()
 
@@ -111,7 +111,7 @@ private const val updateKeyPathIncrementsBatch = 128
 class GlobalCounterContext(queryServerCount: Int) {
     private val queryCounters = Array(queryServerCount) { AtomicLong() }
     private val globalQueryCount = AtomicLong()
-    private val globalDataCount = DecrementHeavyGague()
+    private val globalDataCount = DecrementHeavyGauge()
 
     @Volatile private var keyPathReferenceCountsByChannel: PersistentMap<String, KeyPathReferenceCount>
         = persistentMapOf()

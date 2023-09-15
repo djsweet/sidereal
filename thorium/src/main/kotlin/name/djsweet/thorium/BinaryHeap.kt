@@ -1,10 +1,9 @@
 package name.djsweet.thorium
 
-import java.util.Arrays
 import kotlin.collections.ArrayList
 
-abstract class BinaryHeap<T, U : BinaryHeap<T, U>> {
-    private val backing = ArrayList<T>()
+abstract class BinaryHeap<T, U : BinaryHeap<T, U>>(initialCapacity: Int) {
+    private val backing = ArrayList<T>(initialCapacity)
     val size get() = this.backing.size
 
     protected abstract fun self(): U
@@ -142,14 +141,18 @@ abstract class BinaryHeap<T, U : BinaryHeap<T, U>> {
     }
 }
 
-class ByteArrayKeyedBinaryMinHeap<T>: BinaryHeap<Pair<ByteArray, T>, ByteArrayKeyedBinaryMinHeap<T>>() {
-    override fun self(): ByteArrayKeyedBinaryMinHeap<T> {
+class LongKeyedBinaryMinHeap<T>(
+    initialCapacity: Int
+): BinaryHeap<Pair<Long, T>, LongKeyedBinaryMinHeap<T>>(initialCapacity) {
+    constructor(): this(16)
+
+    override fun self(): LongKeyedBinaryMinHeap<T> {
         return this
     }
 
-    override fun maintainsHeapInvariant(parent: Pair<ByteArray, T>, child: Pair<ByteArray, T>): Boolean {
-        val (parentBytes) = parent
-        val (childBytes) = child
-        return Arrays.compareUnsigned(parentBytes, childBytes) <= 0
+    override fun maintainsHeapInvariant(parent: Pair<Long, T>, child: Pair<Long, T>): Boolean {
+        val (parentKey) = parent
+        val (childKey) = child
+        return parentKey <= childKey
     }
 }

@@ -1,23 +1,19 @@
 package name.djsweet.thorium
 
-import name.djsweet.query.tree.QPTrie
 import net.jqwik.api.ForAll
 import net.jqwik.api.Property
 import org.junit.jupiter.api.Assertions.*
-
-fun byteArrayConversionForSignedLongs(l: Long): ByteArray {
-    return convertLongToByteArray(if (l < 0) { l.and(Long.MAX_VALUE) } else { l.or(Long.MIN_VALUE) })
-}
+import java.util.*
 
 class BinaryHeapTest {
     @Property
     fun maintainsHeapInvariantPopOnly(
         @ForAll numbers: List<Long>
     ) {
-        val heap = ByteArrayKeyedBinaryMinHeap<Long>()
+        val heap = LongKeyedBinaryMinHeap<Long>()
         for (i in numbers.indices) {
             val num = numbers[i]
-            heap.push(byteArrayConversionForSignedLongs(num) to num)
+            heap.push(num to num)
             assertEquals(i + 1, heap.size)
         }
 
@@ -40,33 +36,37 @@ class BinaryHeapTest {
     fun maintainsHeapInvariant(
         @ForAll numbers: List<Long>
     ) {
-        val heap = ByteArrayKeyedBinaryMinHeap<Long>()
-        var currentsTrie = QPTrie<Int>()
+        val heap = LongKeyedBinaryMinHeap<Long>()
+        val currents = TreeMap<Long, Int>()
         for (i in 0 until numbers.size/2) {
             val num = numbers[i]
-            val heapKey = byteArrayConversionForSignedLongs(num)
-            heap.push(byteArrayConversionForSignedLongs(num) to num)
+            heap.push(num to num)
             assertEquals(i + 1, heap.size)
-            currentsTrie = currentsTrie.update(heapKey) { (it ?: 0) + 1 }
+            val priorCount = currents[num] ?: 0
+            currents[num] = priorCount + 1
         }
 
         var endHeapSize = heap.size
 
         for (i in numbers.size/2 until numbers.size) {
             val newNumber = numbers[i]
-            val heapKey = byteArrayConversionForSignedLongs(newNumber)
-            val prior = heap.popPush(byteArrayConversionForSignedLongs(newNumber) to newNumber)
+            val prior = heap.popPush(newNumber to newNumber)
             if (prior != null) {
                 val (priorHeapKey) = prior
-                val minBeforePopPush = currentsTrie.minKeyValueUnsafeSharedKey()
+                val minBeforePopPush = currents.firstEntry()
                 assertNotNull(minBeforePopPush)
-                assertArrayEquals(minBeforePopPush!!.key, priorHeapKey)
-                currentsTrie = currentsTrie.update(priorHeapKey) {
-                    if (it == null) { null } else if (it == 1) { null } else { it - 1 }
+                assertEquals(minBeforePopPush!!.key, priorHeapKey)
+                val priorCount = currents[priorHeapKey] ?: 0
+                if (priorCount <= 1) {
+                    currents.remove(priorHeapKey)
+                } else {
+                    currents[priorHeapKey] = priorCount - 1
                 }
                 endHeapSize--
             }
-            currentsTrie = currentsTrie.update(heapKey) { (it ?: 0) + 1 }
+
+            val priorNew = currents[newNumber] ?: 0
+            currents[newNumber] = priorNew + 1
             endHeapSize++
         }
 
