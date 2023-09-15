@@ -26,12 +26,6 @@ internal fun convertLongIntoGivenByteArray(l: Long, bs: ByteArray) {
     bs[7] = l.and(0xff).toByte()
 }
 
-internal fun convertLongToByteArray(l: Long): ByteArray {
-    val result = ByteArray(8)
-    convertLongIntoGivenByteArray(l, result)
-    return result
-}
-
 internal fun convertByteArrayToLong(b: ByteArray): Long {
     // The .and(0xff) deals with promotion of negative bytes to long: all the upper bits will be 1 if we don't
     // explicitly reset them to 0, and this will interfere with the or operations later
