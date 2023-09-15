@@ -85,7 +85,7 @@ class QueryClientSSEVerticle(
     }
 
     private fun writePing(): Future<Void> {
-        return this.resp.write(": { \"timestamp\": \"${wallNowAsString()}\" }\n\n")
+        return this.resp.write("event: ping\ndata: {\"timestamp\":\"${wallNowAsString()}\"}\n\n")
     }
 
     private fun setupPingTimer() {
