@@ -134,7 +134,7 @@ private val jsonObjectForTooManyTerms = JsonObject()
 
 data class FullQueryAndAffectedKeyIncrements(
     val fullQuery: FullQuery,
-    val affectedKeyIncrements: List<Pair<List<String>, Int>>
+    val affectedKeyIncrements: MutableList<Pair<List<String>, Int>>
 )
 
 fun convertQueryStringToFullQuery(

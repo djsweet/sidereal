@@ -358,47 +358,6 @@ data class ChannelInfo(
 }
 
 private val ciRemoveMin = { ci: ChannelInfo -> ci.removeMinimumIdempotencyKeys() }
-private const val removePathIncrementsBatch = 128
-
-fun compareStringLists(left: List<String>, right: List<String>): Int {
-    var i = 0
-    val lastIndex = left.size.coerceAtMost(right.size)
-    while (i < lastIndex) {
-        val leftEntry = left[i]
-        val rightEntry = right[i]
-        val leftRightCompare = leftEntry.compareTo(rightEntry)
-        if (leftRightCompare != 0) {
-            return leftRightCompare
-        }
-        i++
-    }
-    return left.size - right.size
-}
-
-fun mutateCoalesceRemovedPathIncrements(rpi: MutableList<Pair<List<String>, Int>>) {
-    if (rpi.size < 1) {
-        return
-    }
-    rpi.sortWith { left, right ->
-        compareStringLists(left.first, right.first)
-    }
-    var accumulateIndex = 0
-    var lastInspect = rpi[0]
-    for (inspectIndex in 1 until rpi.size) {
-        val curInspect = rpi[inspectIndex]
-        val (keyPath, increment) = curInspect
-        lastInspect = if (keyPath == lastInspect.first) {
-            Pair(lastInspect.first, lastInspect.second + increment)
-        } else {
-            accumulateIndex++
-            curInspect
-        }
-        rpi[accumulateIndex] = lastInspect
-    }
-    for (removeIndex in rpi.size - 1 downTo  accumulateIndex + 1) {
-        rpi.removeAt(removeIndex)
-    }
-}
 
 class QueryRouterVerticle(
     private val counters: GlobalCounterContext,
@@ -729,16 +688,9 @@ class QueryRouterVerticle(
             // If we time out, we remove the query and attempt to notify the client that we have done so.
             // However, this won't block us from processing any other messages in this worker.
             respondFutures.onComplete {
-                mutateCoalesceRemovedPathIncrements(removedPathIncrements)
                 val counters = this.counters
-                for (i in 0 until removedPathIncrements.size step removePathIncrementsBatch) {
-                    // This is done in batches to reduce lock contention in updateReferenceCountsForChannel.
-                    val sends = removedPathIncrements.subList(
-                        i,
-                        (i + removePathIncrementsBatch).coerceAtMost(removedPathIncrements.size)
-                    )
-                    counters.updateKeyPathReferenceCountsForChannel(channel, sends)
-                }
+
+                counters.updateKeyPathReferenceCountsForChannel(channel, removedPathIncrements)
                 counters.decrementOutstandingDataCount(1)
             }
 

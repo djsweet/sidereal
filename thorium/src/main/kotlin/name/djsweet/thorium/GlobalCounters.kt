@@ -68,6 +68,46 @@ data class KeyPathReferenceCount(
     }
 }
 
+fun compareStringLists(left: List<String>, right: List<String>): Int {
+    var i = 0
+    val lastIndex = left.size.coerceAtMost(right.size)
+    while (i < lastIndex) {
+        val leftEntry = left[i]
+        val rightEntry = right[i]
+        val leftRightCompare = leftEntry.compareTo(rightEntry)
+        if (leftRightCompare != 0) {
+            return leftRightCompare
+        }
+        i++
+    }
+    return left.size - right.size
+}
+
+fun mutateCoalesceRemovedPathIncrements(rpi: MutableList<Pair<List<String>, Int>>): Int {
+    if (rpi.size < 1) {
+        return 0
+    }
+    rpi.sortWith { left, right ->
+        compareStringLists(left.first, right.first)
+    }
+    var accumulateIndex = 0
+    var lastInspect = rpi[0]
+    for (inspectIndex in 1 until rpi.size) {
+        val curInspect = rpi[inspectIndex]
+        val (keyPath, increment) = curInspect
+        lastInspect = if (keyPath == lastInspect.first) {
+            Pair(lastInspect.first, lastInspect.second + increment)
+        } else {
+            accumulateIndex++
+            curInspect
+        }
+        rpi[accumulateIndex] = lastInspect
+    }
+    return accumulateIndex + 1
+}
+
+private const val updateKeyPathIncrementsBatch = 128
+
 class GlobalCounterContext(queryServerCount: Int) {
     private val queryCounters = Array(queryServerCount) { AtomicLong() }
     private val globalQueryCount = AtomicLong()
@@ -80,13 +120,16 @@ class GlobalCounterContext(queryServerCount: Int) {
         return this.keyPathReferenceCountsByChannel[channel]
     }
 
-    @Synchronized fun updateKeyPathReferenceCountsForChannel(
+    @Synchronized private fun updateSortedCoalescedReferenceCountsForChannel(
         channel: String,
-        updates: Iterable<Pair<List<String>, Int>>
+        updates: List<Pair<List<String>, Int>>,
+        startFrom: Int,
+        stopAt: Int
     ) {
         val current = this.keyPathReferenceCountsByChannel[channel] ?: KeyPathReferenceCount()
         var channelUpdate = current
-        for ((keyPath, increment) in updates) {
+        for (i in startFrom until stopAt) {
+            val (keyPath, increment) = updates[i]
             channelUpdate = channelUpdate.update(keyPath) {
                 it.copy(references = it.references + increment).nullIfEmpty()
             } ?: KeyPathReferenceCount()
@@ -95,6 +138,22 @@ class GlobalCounterContext(queryServerCount: Int) {
             this.keyPathReferenceCountsByChannel = this.keyPathReferenceCountsByChannel.remove(channel)
         } else {
             this.keyPathReferenceCountsByChannel = this.keyPathReferenceCountsByChannel.put(channel, channelUpdate)
+        }
+    }
+
+    fun updateKeyPathReferenceCountsForChannel(
+        channel: String,
+        updates: MutableList<Pair<List<String>, Int>>
+    ) {
+        val stopAt = mutateCoalesceRemovedPathIncrements(updates)
+        for (offset in 0 until stopAt step updateKeyPathIncrementsBatch) {
+            // This is done in batches to reduce lock contention in updateSortedCoalescedReferenceCountsForChannel.
+            this.updateSortedCoalescedReferenceCountsForChannel(
+                channel,
+                updates,
+                offset,
+                (offset + updateKeyPathIncrementsBatch).coerceAtMost(stopAt)
+            )
         }
     }
 
