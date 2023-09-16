@@ -1,5 +1,6 @@
 package name.djsweet.thorium.servers
 
+import io.micrometer.core.instrument.FunctionTimer
 import io.micrometer.core.instrument.Gauge
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Timer
@@ -23,6 +24,8 @@ import name.djsweet.thorium.*
 import name.djsweet.thorium.convertStringToByteArray
 import name.djsweet.thorium.reestablishByteBudget
 import java.util.*
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.collections.ArrayList
 import kotlin.coroutines.suspendCoroutine
 import kotlin.math.ceil
@@ -170,10 +173,8 @@ class QueryRouterVerticle(
     verticleOffset: Int,
     private val idempotencyKeyCacheSize: Int
 ): ServerVerticle(verticleOffset) {
-    private val routerTimer = Timer.builder(routerTimerName)
-        .description(routerTimerDescription)
-        .tag("router", verticleOffset.toString())
-        .register(metrics)
+    private val respondToDataCount = AtomicLong()
+    private val respondToDataTotalTime = AtomicLong()
 
     private val channels = HashMap<String, ChannelInfo>()
     private val idempotencyKeys = HashMap<String, HashSet<String>>(
@@ -198,6 +199,17 @@ class QueryRouterVerticle(
             .register(metrics)
         Gauge.builder(queryCountName) { this.counters.getQueryCountForThread(this.verticleOffset) }
             .description(queryCountDescription)
+            .tag("router", verticleOffset.toString())
+            .register(metrics)
+        FunctionTimer
+            .builder(
+                routerTimerName,
+                this,
+                { this.respondToDataCount.get() },
+                { this.respondToDataTotalTime.get().toDouble() },
+                TimeUnit.NANOSECONDS,
+            )
+            .description(routerTimerDescription)
             .tag("router", verticleOffset.toString())
             .register(metrics)
     }
@@ -520,7 +532,13 @@ class QueryRouterVerticle(
     }
 
     private fun respondToDataTimed(reportData: ReportData) {
-        return this.routerTimer.record<Unit> { this.respondToData(reportData) }!!
+        val startTime = System.nanoTime()
+        try {
+            return this.respondToData(reportData)
+        } finally {
+            this.respondToDataCount.addAndGet(1)
+            this.respondToDataTotalTime.addAndGet(System.nanoTime() - startTime)
+        }
     }
 
     private fun respondToDataList(reportDataList: ReportDataList) {
@@ -612,12 +630,25 @@ class JsonToQueryableTranslatorVerticle(
     metrics: MeterRegistry,
     verticleOffset: Int,
 ): ServerVerticle(verticleOffset) {
-    private val unpackRequestTimer = Timer.builder(translationTimerName)
-        .description(translationTimerDescription)
-        .tag("translator", verticleOffset.toString())
-        .register(metrics)
+    private val handleUnpackDataRequestCount = AtomicLong()
+    private val handleUnpackDataRequestTotalTime = AtomicLong()
+
     private var maxJsonParsingRecursion = 16
     private var requestHandler: MessageConsumer<UnpackDataRequestList>? = null
+
+    init {
+        FunctionTimer
+            .builder(
+                translationTimerName,
+                this,
+                { this.handleUnpackDataRequestCount.get() },
+                { this.handleUnpackDataRequestTotalTime.get().toDouble() },
+                TimeUnit.NANOSECONDS,
+            )
+            .description(translationTimerDescription)
+            .tag("translator", verticleOffset.toString())
+            .register(metrics)
+    }
 
     override fun resetForNewByteBudget() {
         // We aren't keeping any state that is affected by the byte budget.
@@ -692,9 +723,13 @@ class JsonToQueryableTranslatorVerticle(
     }
 
     private fun handleUnpackDataRequestTimed(req: UnpackDataRequestWithIndex): HttpProtocolErrorOrReportDataWithIndex {
-        return this.unpackRequestTimer.record<HttpProtocolErrorOrReportDataWithIndex> {
-            this.handleUnpackDataRequest(req)
-        }!!
+        val startTime = System.nanoTime()
+        try {
+            return this.handleUnpackDataRequest(req)
+        } finally {
+            this.handleUnpackDataRequestCount.addAndGet(1)
+            this.handleUnpackDataRequestTotalTime.addAndGet(System.nanoTime() - startTime)
+        }
     }
 
     private fun handleUnpackDataRequestList(requests: UnpackDataRequestList): HttpProtocolErrorOrReportDataListWithIndexes {
