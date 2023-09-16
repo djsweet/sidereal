@@ -17,6 +17,7 @@ import io.vertx.kotlin.coroutines.await
 import kotlinx.collections.immutable.PersistentMap
 import name.djsweet.thorium.*
 import java.net.URLDecoder
+import java.net.URLEncoder
 import java.util.concurrent.ThreadLocalRandom
 import kotlin.math.absoluteValue
 
@@ -49,6 +50,10 @@ fun jsonStatusCodeResponse(req: HttpServerRequest, code: Int): HttpServerRespons
 }
 
 const val serverSentPingTimeout = 30_000.toLong()
+
+fun urlEncode(s: String): String {
+    return URLEncoder.encode(s, "UTF-8")
+}
 
 val clientSerial: ThreadLocal<Long> = ThreadLocal.withInitial { 0.toLong() }
 fun getClientIDFromSerial(): String {
@@ -153,7 +158,9 @@ class QueryClientSSEVerticle(
             if (messageBody is ReportData) {
                 val dataPayload = messageBody.actualData.value.replace("\n", "\ndata: ")
                 resp.write(
-                    ": { \"timestamp\": \"${wallNowAsString()}\" }\nevent: data\nid: ${messageBody.idempotencyKey}\ndata: $dataPayload\n\n"
+                    ": {\"timestamp\":\"${wallNowAsString()}\"}\nevent: data\nid: ${
+                        urlEncode(messageBody.idempotencyKey)
+                    }\ndata: $dataPayload\n\n"
                 ).onComplete {
                     message.reply("handled")
                 }
@@ -407,6 +414,10 @@ fun readBodyTryParseJsonArray(vertx: Vertx, req: HttpServerRequest, handle: (arr
     }
 }
 
+fun encodeEventSourceIDAsIdempotencyKey(source: String, id: String): String {
+    return "${urlEncode(source)} ${urlEncode(id)}"
+}
+
 fun handleData(vertx: Vertx, counters: GlobalCounterContext, channel: String, req: HttpServerRequest) {
     val withParams = req.headers().get("Content-Type")
     if (withParams == null) {
@@ -426,7 +437,7 @@ fun handleData(vertx: Vertx, counters: GlobalCounterContext, channel: String, re
                 jsonStatusCodeResponse(req, 400).end(missingEventIDJson.encode())
                 return
             }
-            val idempotencyKey = "$eventSource $eventID"
+            val idempotencyKey = encodeEventSourceIDAsIdempotencyKey(eventSource, eventID)
             readBodyTryParseJsonObject(vertx, req) { data ->
                 val unpackRequest = UnpackDataRequest(
                     channel,
@@ -461,7 +472,7 @@ fun handleData(vertx: Vertx, counters: GlobalCounterContext, channel: String, re
                     return@readBodyTryParseJsonObject
                 }
 
-                val idempotencyKey = "$eventSource $eventID"
+                val idempotencyKey = encodeEventSourceIDAsIdempotencyKey(eventSource, eventID)
                 val unpackRequest = UnpackDataRequest(
                     channel,
                     idempotencyKey,
@@ -511,7 +522,7 @@ fun handleData(vertx: Vertx, counters: GlobalCounterContext, channel: String, re
                         return@readBodyTryParseJsonArray
                     }
 
-                    val idempotencyKey = "$eventSource $eventID"
+                    val idempotencyKey = encodeEventSourceIDAsIdempotencyKey(eventSource, eventID)
                     unpackRequests.add(UnpackDataRequest(
                         channel,
                         idempotencyKey,
