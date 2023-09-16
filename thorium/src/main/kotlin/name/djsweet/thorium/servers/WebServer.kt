@@ -415,7 +415,7 @@ fun readBodyTryParseJsonArray(vertx: Vertx, req: HttpServerRequest, handle: (arr
 }
 
 fun encodeEventSourceIDAsIdempotencyKey(source: String, id: String): String {
-    return "${urlEncode(source)} ${urlEncode(id)}"
+    return "$source $id"
 }
 
 fun handleData(vertx: Vertx, counters: GlobalCounterContext, channel: String, req: HttpServerRequest) {
