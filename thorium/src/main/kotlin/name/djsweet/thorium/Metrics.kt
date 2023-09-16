@@ -14,3 +14,6 @@ const val queryCountDescription = "Number of queries being serviced by this quer
 
 const val outstandingEventsCountName = "thorium.outstanding.events"
 const val outstandingEventsCountDescription = "Number of events not yet acknowledged by all interested clients"
+
+const val byteBudgetGaugeName = "thorium.data.byte.budget"
+const val byteBudgetGaugeDescription = "Maximum length of the combined bytes of any key/value pair ingested"

@@ -50,13 +50,20 @@ internal class ThoriumCommand {
         val vertx = Vertx.vertx()
         val initialSafeKeyValueSize = maxSafeKeyValueSizeSync(vertx)
         println("Byte budget for key/value pairs is $initialSafeKeyValueSize")
-        establishByteBudget(vertx.sharedData(), initialSafeKeyValueSize)
+
+        val sharedData = vertx.sharedData()
+        establishByteBudget(sharedData, initialSafeKeyValueSize)
         registerMessageCodecs(vertx)
-        val queryThreads = getQueryThreads(vertx.sharedData())
+
+        val queryThreads = getQueryThreads(sharedData)
         val counters = GlobalCounterContext(queryThreads)
 
         Gauge.builder(outstandingEventsCountName) { counters.getOutstandingEventCount() }
             .description(outstandingEventsCountDescription)
+            .register(meterRegistry)
+
+        Gauge.builder(byteBudgetGaugeName) { getByteBudget(sharedData) }
+            .description(byteBudgetGaugeDescription)
             .register(meterRegistry)
 
         return runBlocking {
@@ -67,17 +74,17 @@ internal class ThoriumCommand {
                 0,
                 queryThreads,
                 0,
-                getTranslatorThreads(vertx.sharedData())
+                getTranslatorThreads(sharedData)
             )
             try {
                 val webServerDeploymentIDs = registerWebServer(
                     vertx,
                     counters,
                     meterRegistry,
-                    getWebServerThreads(vertx.sharedData())
+                    getWebServerThreads(sharedData)
                 )
                 val allDeploymentIDs = queryDeploymentIDs.union(webServerDeploymentIDs)
-                println("Listening on :${getServerPort(vertx.sharedData())}")
+                println("Listening on :${getServerPort(sharedData)}")
                 while (vertx.deploymentIDs().containsAll(allDeploymentIDs)) {
                     delay(250)
                 }
