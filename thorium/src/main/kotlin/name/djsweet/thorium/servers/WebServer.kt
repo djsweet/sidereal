@@ -267,7 +267,7 @@ val baseUnsupportedContentTypeJson = jsonObjectOf("code" to "invalid-content-typ
 val missingEventSourceJson = jsonObjectOf("code" to "missing-event-source")
 val missingEventIDJson = jsonObjectOf("code" to "missing-event-id")
 val invalidJsonBodyJson = jsonObjectOf("code" to "invalid-json-body")
-val baseExceededDataLimitJson = jsonObjectOf("code" to "exceeded-outstanding-data-limit")
+val baseExceededEventLimitJson = jsonObjectOf("code" to "exceeded-outstanding-event-limit")
 val invalidDataFieldJson = jsonObjectOf("code" to "invalid-data-field")
 val acceptedJson = jsonObjectOf("code" to "accepted")
 // The X- prefix was deprecated in IETF RFC 6648, dated June 2012, so it's something of a free-for-all now.
@@ -288,15 +288,15 @@ fun handleDataWithUnpackRequest(
     val queryThreads = getQueryThreads(sharedData)
     val translatorThreads = getTranslatorThreads(sharedData)
 
-    val dataIncrement = (unpackReqs.size * queryThreads).toLong()
-    val newOutstandingDataCount = counters.incrementOutstandingDataCountByAndGet(dataIncrement)
+    val eventIncrement = (unpackReqs.size * queryThreads).toLong()
+    val newOutstandingEventCount = counters.incrementOutstandingEventCountByAndGet(eventIncrement)
 
-    val priorQueryCount = newOutstandingDataCount - dataIncrement
-    val limit = getMaxOutstandingData(sharedData)
-    if (priorQueryCount >= limit) {
-        counters.decrementOutstandingDataCount(dataIncrement)
+    val priorEventCount = newOutstandingEventCount - eventIncrement
+    val eventLimit = getMaxOutstandingEvents(sharedData)
+    if (priorEventCount >= eventLimit) {
+        counters.decrementOutstandingEventCount(eventIncrement)
         jsonStatusCodeResponse(httpReq, 429).end(
-            baseExceededDataLimitJson.put("count", newOutstandingDataCount).put("limit", limit).encode()
+            baseExceededEventLimitJson.put("count", newOutstandingEventCount).put("limit", eventLimit).encode()
         )
         return
     }
@@ -317,7 +317,7 @@ fun handleDataWithUnpackRequest(
         )
     }
     join(translatorSends).onFailure {
-        counters.decrementOutstandingDataCount(dataIncrement)
+        counters.decrementOutstandingEventCount(eventIncrement)
         failRequest(httpReq)
     }.onSuccess translatorResults@ { futures ->
         val futuresSize = futures.size()
@@ -331,7 +331,7 @@ fun handleDataWithUnpackRequest(
             val responseList = futures.resultAt<Message<HttpProtocolErrorOrReportDataListWithIndexes>>(i).body()
             var hadError = false
             responseList.whenError { error ->
-                counters.decrementOutstandingDataCount(dataIncrement)
+                counters.decrementOutstandingEventCount(eventIncrement)
                 jsonStatusCodeResponse(httpReq, error.statusCode).end(error.contents.encode())
                 hadError = true
             }.whenSuccess { reports ->

@@ -510,7 +510,7 @@ class QueryRouterVerticle(
                 if (removedPathIncrements.size > 0) {
                     counters.updateKeyPathReferenceCountsForChannel(channel, removedPathIncrements)
                 }
-                counters.decrementOutstandingDataCount(1)
+                counters.decrementOutstandingEventCount(1)
             }
 
             responders.clear()

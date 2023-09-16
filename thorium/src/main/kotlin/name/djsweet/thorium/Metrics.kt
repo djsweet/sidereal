@@ -11,3 +11,6 @@ const val idempotencyKeyCacheSizeDescription = "Number of entries in the idempot
 
 const val queryCountName = "thorium.active.query.count"
 const val queryCountDescription = "Number of queries being serviced by this query router"
+
+const val outstandingEventsCountName = "thorium.outstanding.events"
+const val outstandingEventsCountDescription = "Number of events not yet acknowledged by all interested clients"

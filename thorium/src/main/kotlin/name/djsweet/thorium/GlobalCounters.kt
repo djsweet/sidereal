@@ -111,7 +111,7 @@ private const val updateKeyPathIncrementsBatch = 128
 class GlobalCounterContext(queryServerCount: Int) {
     private val queryCounters = Array(queryServerCount) { AtomicLong() }
     private val globalQueryCount = AtomicLong()
-    private val globalDataCount = DecrementHeavyGauge()
+    private val globalEventCount = DecrementHeavyGauge()
 
     @Volatile private var keyPathReferenceCountsByChannel: PersistentMap<String, KeyPathReferenceCount>
         = persistentMapOf()
@@ -175,16 +175,16 @@ class GlobalCounterContext(queryServerCount: Int) {
         this.queryCounters[thread].set(0)
     }
 
-    fun getOutstandingDataCount(): Long {
-        return this.globalDataCount.current
+    fun getOutstandingEventCount(): Long {
+        return this.globalEventCount.current
     }
 
-    fun incrementOutstandingDataCountByAndGet(incrementBy: Long): Long {
-        return this.globalDataCount.incrementByAndGet(incrementBy)
+    fun incrementOutstandingEventCountByAndGet(incrementBy: Long): Long {
+        return this.globalEventCount.incrementByAndGet(incrementBy)
     }
 
-    fun decrementOutstandingDataCount(decrementBy: Long) {
-        this.globalDataCount.decrement(decrementBy)
+    fun decrementOutstandingEventCount(decrementBy: Long) {
+        this.globalEventCount.decrement(decrementBy)
     }
 
     fun incrementGlobalQueryCountByAndGet(incrementBy: Long): Long {

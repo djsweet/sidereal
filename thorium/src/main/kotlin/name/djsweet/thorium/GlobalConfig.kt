@@ -61,8 +61,8 @@ fun getWebServerThreads(sharedData: SharedData): Int {
     return getDefaultToAvailableProcessors(limitLocalMap(sharedData), "webServerThreads")
 }
 
-fun getMaxOutstandingData(sharedData: SharedData): Long {
-    return limitLocalMap(sharedData).computeIfAbsent("maxOutstandingData") {
+fun getMaxOutstandingEvents(sharedData: SharedData): Long {
+    return limitLocalMap(sharedData).computeIfAbsent("maxOutstandingEvents") {
         128 * 1024 * getQueryThreads(sharedData)
     }.toLong()
 }

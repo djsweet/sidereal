@@ -1,5 +1,6 @@
 package name.djsweet.thorium
 
+import io.micrometer.core.instrument.Gauge
 import io.micrometer.prometheus.PrometheusConfig
 import io.micrometer.prometheus.PrometheusMeterRegistry
 import io.vertx.core.*
@@ -53,6 +54,11 @@ internal class ThoriumCommand {
         registerMessageCodecs(vertx)
         val queryThreads = getQueryThreads(vertx.sharedData())
         val counters = GlobalCounterContext(queryThreads)
+
+        Gauge.builder(outstandingEventsCountName) { counters.getOutstandingEventCount() }
+            .description(outstandingEventsCountDescription)
+            .register(meterRegistry)
+
         return runBlocking {
             val queryDeploymentIDs = registerQueryServer(
                 vertx,
