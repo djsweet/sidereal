@@ -3,7 +3,6 @@ package name.djsweet.thorium.servers
 import io.micrometer.core.instrument.FunctionTimer
 import io.micrometer.core.instrument.Gauge
 import io.micrometer.core.instrument.MeterRegistry
-import io.micrometer.core.instrument.Timer
 import io.vertx.core.AbstractVerticle
 import io.vertx.core.DeploymentOptions
 import io.vertx.core.Future
@@ -166,6 +165,7 @@ inline fun extractKeyPathsFromQueryPath(qp: QueryPath, increment: Int, withKeyPa
 }
 
 const val idempotencyKeyLoadFactor = 0.75
+const val outstandingDecrementDelayMS = 8L
 
 class QueryRouterVerticle(
     private val counters: GlobalCounterContext,
@@ -189,6 +189,7 @@ class QueryRouterVerticle(
     private var idempotencyCleanupTimerID: Long? = null
     private var idempotencyExpirationMS = 0
     private var maxQueryTerms = 0
+    private var maxOutstandingDecrements = 1024L
     private var queryHandler: MessageConsumer<Any>? = null
     private var dataHandler: MessageConsumer<ReportDataList>? = null
 
@@ -401,6 +402,33 @@ class QueryRouterVerticle(
         return prior.eventually { current }
     }
 
+    private var outstandingDecrements = 0L
+    private var reportDecrementTimerID: Long? = null
+
+    private fun reportOutstandingDecrements() {
+        val toReport = this.outstandingDecrements
+        if (toReport > 0) {
+            this.outstandingDecrements = 0
+            this.counters.decrementOutstandingEventCount(toReport)
+        }
+        this.reportDecrementTimerID = null
+    }
+
+    private fun deferOutstandingDecrement() {
+        this.outstandingDecrements += 1
+        if (this.outstandingDecrements >= this.maxOutstandingDecrements) {
+            val timerID = this.reportDecrementTimerID
+            if (timerID != null) {
+                this.vertx.cancelTimer(timerID)
+            }
+            this.reportOutstandingDecrements()
+        } else if (this.reportDecrementTimerID == null) {
+            this.reportDecrementTimerID = this.vertx.setTimer(outstandingDecrementDelayMS) {
+                this.reportOutstandingDecrements()
+            }
+        }
+    }
+
     private fun respondToData(response: ReportData) {
         val responders = this.responders
         val idempotencyKeys = this.idempotencyKeys
@@ -515,14 +543,12 @@ class QueryRouterVerticle(
             // If we time out, we remove the query and attempt to notify the client that we have done so.
             // However, this won't block us from processing any other messages in this worker.
             respondFutures.onComplete {
-                val counters = this.counters
-
                 // This is logically redundant, but profiling indicates that calling into
                 // updateKeyPathReferenceCountsForChannel is surprisingly expensive!
                 if (removedPathIncrements.size > 0) {
-                    counters.updateKeyPathReferenceCountsForChannel(channel, removedPathIncrements)
+                    this.counters.updateKeyPathReferenceCountsForChannel(channel, removedPathIncrements)
                 }
-                counters.decrementOutstandingEventCount(1)
+                this.deferOutstandingDecrement()
             }
 
             responders.clear()
@@ -553,11 +579,12 @@ class QueryRouterVerticle(
     override fun start() {
         super.start()
 
-        this.idempotencyExpirationMS = getIdempotencyExpirationMS(this.vertx.sharedData())
-        this.maxQueryTerms = getMaxQueryTerms(this.vertx.sharedData())
+        val sharedData = this.vertx.sharedData()
+        this.idempotencyExpirationMS = getIdempotencyExpirationMS(sharedData)
+        this.maxQueryTerms = getMaxQueryTerms(sharedData)
+        this.maxOutstandingDecrements = getMaxOutstandingEvents(sharedData) / getQueryThreads(sharedData)
 
         val eventBus = this.vertx.eventBus()
-        val sharedData = this.vertx.sharedData()
         val queryAddress = addressForQueryServerQuery(sharedData, this.verticleOffset)
         this.queryHandler = eventBus.localConsumer(queryAddress) { message ->
             when (val body = message.body()) {
@@ -581,11 +608,17 @@ class QueryRouterVerticle(
         this.dataHandler?.unregister()
         this.queryHandler?.unregister()
 
-        val timerID = this.idempotencyCleanupTimerID
-        if (timerID != null) {
-            this.vertx.cancelTimer(timerID)
+        val idempotencyCleanupTimerID = this.idempotencyCleanupTimerID
+        if (idempotencyCleanupTimerID != null) {
+            this.vertx.cancelTimer(idempotencyCleanupTimerID)
         }
 
+        val reportDecrementTimerID = this.reportDecrementTimerID
+        if (reportDecrementTimerID != null) {
+            this.vertx.cancelTimer(reportDecrementTimerID)
+        }
+
+        this.reportOutstandingDecrements()
         super.stop()
     }
 }

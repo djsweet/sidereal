@@ -3,31 +3,6 @@ package name.djsweet.thorium
 import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentMapOf
 import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.LongAdder
-
-class DecrementHeavyGauge {
-    private val increments = AtomicLong()
-    private val decrements = LongAdder()
-
-    val current: Long get() {
-        // We expect the invariant of increments before decrements,
-        // so if we read the decrements before the increments, we are
-        // biased in terms of the increments. This is the behavior we want.
-        val decrement = this.decrements.sum()
-        return this.increments.get() - decrement
-    }
-
-    fun incrementByAndGet(value: Long): Long {
-        val decrement = this.decrements.sum()
-        val increment = this.increments.addAndGet(value)
-        return increment - decrement
-    }
-
-    fun decrement(value: Long) {
-        // increments.current can become expensive, so for decrements we avoid it.
-        this.decrements.add(value)
-    }
-}
 
 data class KeyPathReferenceCount(
     val references: Int,
@@ -111,7 +86,7 @@ private const val updateKeyPathIncrementsBatch = 128
 class GlobalCounterContext(queryServerCount: Int) {
     private val queryCounters = Array(queryServerCount) { AtomicLong() }
     private val globalQueryCount = AtomicLong()
-    private val globalEventCount = DecrementHeavyGauge()
+    private val globalEventCount = AtomicLong()
 
     @Volatile private var keyPathReferenceCountsByChannel: PersistentMap<String, KeyPathReferenceCount>
         = persistentMapOf()
@@ -176,15 +151,15 @@ class GlobalCounterContext(queryServerCount: Int) {
     }
 
     fun getOutstandingEventCount(): Long {
-        return this.globalEventCount.current
+        return this.globalEventCount.get()
     }
 
     fun incrementOutstandingEventCountByAndGet(incrementBy: Long): Long {
-        return this.globalEventCount.incrementByAndGet(incrementBy)
+        return this.globalEventCount.addAndGet(incrementBy)
     }
 
     fun decrementOutstandingEventCount(decrementBy: Long) {
-        this.globalEventCount.decrement(decrementBy)
+        this.globalEventCount.addAndGet(-decrementBy)
     }
 
     fun incrementGlobalQueryCountByAndGet(incrementBy: Long): Long {
