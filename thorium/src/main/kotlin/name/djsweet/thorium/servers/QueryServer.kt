@@ -542,13 +542,13 @@ class QueryRouterVerticle(
             // Backpressure: we don't return until all clients either accept the message, or we time out.
             // If we time out, we remove the query and attempt to notify the client that we have done so.
             // However, this won't block us from processing any other messages in this worker.
-            respondFutures.onComplete {
-                // This is logically redundant, but profiling indicates that calling into
-                // updateKeyPathReferenceCountsForChannel is surprisingly expensive!
-                if (removedPathIncrements.size > 0) {
+            respondFutures.onComplete { this.deferOutstandingDecrement() }
+            // This is logically redundant, but profiling indicates that calling into
+            // updateKeyPathReferenceCountsForChannel is surprisingly expensive!
+            if (removedPathIncrements.size > 0) {
+                respondFutures.onComplete {
                     this.counters.updateKeyPathReferenceCountsForChannel(channel, removedPathIncrements)
                 }
-                this.deferOutstandingDecrement()
             }
 
             responders.clear()
