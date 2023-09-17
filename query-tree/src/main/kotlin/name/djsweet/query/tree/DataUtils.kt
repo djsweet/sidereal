@@ -1,24 +1,14 @@
 package name.djsweet.query.tree
 
-fun<T> workingDataForAvailableKeys(fullData: QPTrie<ByteArray>, keyDispatch: QPTrie<T>?): QPTrie<ByteArray> {
-    if (keyDispatch == null) {
-        return QPTrie()
+fun<T> keysForValueUnion(fullData: QPTrie<ByteArray>, keyDispatch: QPTrie<T>?): ArrayList<ByteArray> {
+    if (keyDispatch == null || keyDispatch.size == 0L) {
+        // This is a slight optimization over the normal behavior: if keyDispatch
+        // is null or empty, we're not going to iterate over any keys successfully anyway.
+        return ArrayList()
     }
-    var result = QPTrie<ByteArray>()
-    if (fullData.size < keyDispatch.size) {
-        fullData.visitUnsafeSharedKey { (key, value) ->
-            if (keyDispatch.get(key) != null) {
-                result = result.putUnsafeSharedKey(key, value)
-            }
-        }
-    } else {
-        keyDispatch.visitUnsafeSharedKey { (key) ->
-            val value = fullData.get(key)
-            if (value != null) {
-                result = result.putUnsafeSharedKey(key, value)
-            }
-        }
-    }
+    val bestTrie = if (fullData.size <= keyDispatch.size) { fullData } else { keyDispatch }
+    val result = ArrayList<ByteArray>(bestTrie.size.toInt())
+    bestTrie.keysIntoUnsafeSharedKey(result)
     return result
 }
 

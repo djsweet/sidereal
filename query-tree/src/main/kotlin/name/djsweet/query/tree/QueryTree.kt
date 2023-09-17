@@ -1059,14 +1059,14 @@ private fun<V: SizeComputable> visitTermsByDataImpl(
         receiver(QueryPathValue(node.path, nodeValue))
     }
     val nodeKeys = node.keys
-    val keys = workingDataForAvailableKeys(fullData, nodeKeys).keysIntoUnsafeSharedKey(ArrayList())
+    val keys = keysForValueUnion(fullData, nodeKeys)
     val handleTrieResult = { value: QPTrieKeyValue<QueryPathValue<V>> -> receiver(value.value) }
     val handleRangeResult = { value: IntervalTreeKeyValue<ByteArrayButComparable, QueryPathValue<V>> ->
         receiver(value.value)
     }
     for (targetKey in keys) {
         val terms = nodeKeys.get(targetKey) ?: continue
-        val fullDataValue = fullData.get(targetKey)!!
+        val fullDataValue = fullData.get(targetKey) ?: continue
         val maybeEquality = terms.equalityTerms?.get(fullDataValue)
         if (maybeEquality != null) {
             visitTermsByDataImpl(maybeEquality, fullData.remove(targetKey), receiver)
@@ -1155,7 +1155,7 @@ private class GetByDataIterator<V: SizeComputable> private constructor(
     private val fullData: QPTrie<ByteArray>,
     private var state: GetByDataIteratorState,
 ): ConcatenatedIterator<QueryPathValue<V>>() {
-    private val keys = workingDataForAvailableKeys(fullData, node.keys).keysIntoUnsafeSharedKey(ArrayList())
+    private val keys = keysForValueUnion(fullData, node.keys)
     private var keyOffset = 0
 
     constructor(
