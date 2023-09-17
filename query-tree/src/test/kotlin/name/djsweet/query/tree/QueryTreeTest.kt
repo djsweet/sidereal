@@ -397,6 +397,27 @@ class QueryTreeTest {
         }
     }
 
+    @Property
+    fun queryPathKeys(
+        @ForAll @From("intermediateQueryTerms") publicQueryTerms: PersistentList<PublicIntermediateQueryTerm>
+    ) {
+        var unseenKeys = QPTrie<Int>()
+        // Note that the QueryPath constructor doesn't perform any dedpulication with keys,
+        // so we have to test by way of keeping reference counts.
+        for (item in publicQueryTerms) {
+            val key = item.actual.key
+            unseenKeys = unseenKeys.update(key) { (it ?: 0) + 1 }
+        }
+
+        val queryPath = QueryPath(publicQueryTerms.map { it.actual })
+        for (key in queryPath.keys()) {
+            assertNotNull(unseenKeys.get(key))
+            unseenKeys = unseenKeys.update(key) { if (it == null || it <= 1) { null } else { it - 1 } }
+        }
+
+        assertEquals(0, unseenKeys.size)
+    }
+
     private fun arbitraryDataForKeySpace(keySpace: List<ByteArray>): Arbitrary<QPTrie<ByteArray>> {
         val empty = QPTrie<ByteArray>()
         if (keySpace.isEmpty()) {
