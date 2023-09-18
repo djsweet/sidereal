@@ -92,7 +92,7 @@ interface KeyValueFilterContext {
         return false
     }
 
-    fun includeKeyValue(key: String, value: Any?): Boolean
+    fun keysForObject(obj: JsonObject): Iterable<String>
     fun contextForObject(key: String): KeyValueFilterContext
 }
 
@@ -111,10 +111,12 @@ internal fun encodeJsonToQueryableDataIterative(
     var result = baseResult
     while (!queue.isEmpty()) {
         val (parentKeyPath, curObj, curFilterContext) = queue.removeFirst()
-        for ((key, value) in curObj) {
-            if (!curFilterContext.includeKeyValue(key, value)) {
+        val fieldNames = curObj.fieldNames()
+        for (key in curFilterContext.keysForObject(curObj)) {
+            if (!fieldNames.contains(key)) {
                 continue
             }
+            val value = curObj.getValue(key)
             val keyPath = parentKeyPath.clone().addString(key)
             val keyContentLength = keyPath.getOriginalContentLength()
             if (keyContentLength >= byteBudget) {
@@ -146,10 +148,12 @@ internal fun encodeJsonToQueryableDataRecursive(
         return baseResult
     }
     var result = baseResult
-    for ((key, value) in obj) {
-        if (!filterContext.includeKeyValue(key, value)) {
+    val fieldNames = obj.fieldNames()
+    for (key in filterContext.keysForObject(obj)) {
+        if (!fieldNames.contains(key)) {
             continue
         }
+        val value = obj.getValue(key)
         val keyPath = topKeyPath.clone().addString(key)
         val keyContentLength = keyPath.getOriginalContentLength()
         if (keyContentLength >= byteBudget) {
@@ -191,8 +195,8 @@ data class ShareableScalarListQueryableData(
 )
 
 class AcceptAllKeyValueFilterContext: KeyValueFilterContext {
-    override fun includeKeyValue(key: String, value: Any?): Boolean {
-        return true
+    override fun keysForObject(obj: JsonObject): Iterable<String> {
+        return obj.fieldNames()
     }
 
     override fun contextForObject(key: String): KeyValueFilterContext {
@@ -200,13 +204,15 @@ class AcceptAllKeyValueFilterContext: KeyValueFilterContext {
     }
 }
 
+private val emptyKeySet = setOf<String>()
+
 class AcceptNoneKeyValueFilterContext: KeyValueFilterContext {
     override fun willAcceptNone(): Boolean {
         return true
     }
 
-    override fun includeKeyValue(key: String, value: Any?): Boolean {
-        return false
+    override fun keysForObject(obj: JsonObject): Iterable<String> {
+        return emptyKeySet
     }
 
     override fun contextForObject(key: String): KeyValueFilterContext {

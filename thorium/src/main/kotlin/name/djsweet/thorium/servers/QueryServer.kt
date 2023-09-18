@@ -626,12 +626,12 @@ class QueryRouterVerticle(
 class OnlyPathsWithReferencesFilterContext(
     private val referenceCounts: PersistentMap<String, KeyPathReferenceCount>
 ): KeyValueFilterContext {
-    override fun includeKeyValue(key: String, value: Any?): Boolean {
-        val refCountForKey = this.referenceCounts[key] ?: return false
-        return if (value is JsonObject) {
-            refCountForKey.subKeys.size > 0
+    override fun keysForObject(obj: JsonObject): Iterable<String> {
+        val referenceCounts = this.referenceCounts
+        return if (referenceCounts.size < obj.size()) {
+            referenceCounts.keys
         } else {
-            refCountForKey.references > 0
+            obj.fieldNames()
         }
     }
 
