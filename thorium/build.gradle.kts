@@ -79,6 +79,14 @@ application {
     mainClass.set("name.djsweet.thorium.AppKt")
 }
 
+tasks.named("compileKotlin", org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask::class.java) {
+    compilerOptions {
+        freeCompilerArgs.add("-Xno-call-assertions")
+        freeCompilerArgs.add("-Xno-param-assertions")
+        freeCompilerArgs.add("-Xno-receiver-assertions")
+    }
+}
+
 tasks.test {
     // As silly as this looks, Gradle sometimes gets very confused about
     // whether it needs to run the `test` task, because the artifacts

@@ -39,7 +39,9 @@ dependencies {
 
 tasks.named("compileKotlin", org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask::class.java) {
     compilerOptions {
+        freeCompilerArgs.add("-Xno-call-assertions")
         freeCompilerArgs.add("-Xno-param-assertions")
+        freeCompilerArgs.add("-Xno-receiver-assertions")
     }
 }
 
