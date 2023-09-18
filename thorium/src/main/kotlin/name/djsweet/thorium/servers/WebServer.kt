@@ -17,7 +17,6 @@ import io.vertx.kotlin.coroutines.await
 import kotlinx.collections.immutable.PersistentMap
 import name.djsweet.thorium.*
 import java.net.URLDecoder
-import java.net.URLEncoder
 import java.util.concurrent.ThreadLocalRandom
 import kotlin.math.absoluteValue
 
@@ -50,10 +49,6 @@ fun jsonStatusCodeResponse(req: HttpServerRequest, code: Int): HttpServerRespons
 }
 
 const val serverSentPingTimeout = 30_000.toLong()
-
-fun urlEncode(s: String): String {
-    return URLEncoder.encode(s, "UTF-8")
-}
 
 val clientSerial: ThreadLocal<Long> = ThreadLocal.withInitial { 0.toLong() }
 fun getClientIDFromSerial(): String {
@@ -156,12 +151,7 @@ class QueryClientSSEVerticle(
             this.writeHeadersIfNecessary()
             this.setupPingTimer()
             if (messageBody is ReportData) {
-                val dataPayload = messageBody.actualData.value.replace("\n", "\ndata: ")
-                resp.write(
-                    ": {\"timestamp\":\"${wallNowAsString()}\"}\nevent: data\nid: ${
-                        urlEncode(messageBody.idempotencyKey)
-                    }\ndata: $dataPayload\n\n"
-                ).onComplete {
+                resp.write(messageBody.serverSentEventPayload.value).onComplete {
                     message.reply("handled")
                 }
             }

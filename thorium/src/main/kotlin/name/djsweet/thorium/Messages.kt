@@ -296,6 +296,17 @@ data class ReportData(
     val queryableArrayData: ShareableQPTrieOfByteArrayLists,
     val actualData: Lazy<String>,
 ) {
+    // This is an unfortunate complection, but beneficial for performance:
+    // We only need to generate a server-sent event payload "once" with this, possibly only up to once per thread.
+    // This reduces the amount of string processing necessary for widely broadcast messages.
+    val serverSentEventPayload = thunkForReportDataString {
+        val dataPayload = this.actualData.value.replace("\n", "\ndata: ")
+
+        ": {\"timestamp\":\"${wallNowAsString()}\"}\nevent: data\nid: ${
+            urlEncode(this.idempotencyKey)
+        }\ndata: $dataPayload\n\n"
+    }
+
     constructor() : this(
         "",
         "",
