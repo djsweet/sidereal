@@ -169,7 +169,7 @@ const val outstandingDecrementDelayMS = 8L
 
 class QueryRouterVerticle(
     private val counters: GlobalCounterContext,
-    metrics: MeterRegistry,
+    private val metrics: MeterRegistry,
     verticleOffset: Int,
     private val idempotencyKeyCacheSize: Int
 ): ServerVerticle(verticleOffset) {
@@ -193,26 +193,11 @@ class QueryRouterVerticle(
     private var queryHandler: MessageConsumer<Any>? = null
     private var dataHandler: MessageConsumer<ReportDataList>? = null
 
+    private var cacheKeyGauge: Gauge? = null
+    private var queryCountGauge: Gauge? = null
+    private var functionTimer: FunctionTimer? = null
+
     init {
-        Gauge.builder(idempotencyKeyCacheSizeName) { idempotencyKeys.size }
-            .description(idempotencyKeyCacheSizeDescription)
-            .tag("router", verticleOffset.toString())
-            .register(metrics)
-        Gauge.builder(queryCountName) { this.counters.getQueryCountForThread(this.verticleOffset) }
-            .description(queryCountDescription)
-            .tag("router", verticleOffset.toString())
-            .register(metrics)
-        FunctionTimer
-            .builder(
-                routerTimerName,
-                this,
-                { this.respondToDataCount.get() },
-                { this.respondToDataTotalTime.get().toDouble() },
-                TimeUnit.NANOSECONDS,
-            )
-            .description(routerTimerDescription)
-            .tag("router", verticleOffset.toString())
-            .register(metrics)
     }
 
     override fun resetForNewByteBudget() {
@@ -579,6 +564,30 @@ class QueryRouterVerticle(
     override fun start() {
         super.start()
 
+        val verticleOffsetString = this.verticleOffset.toString()
+
+        this.cacheKeyGauge = Gauge
+            .builder(idempotencyKeyCacheSizeName) { this.idempotencyKeys.size }
+            .description(idempotencyKeyCacheSizeDescription)
+            .tag("router", verticleOffsetString)
+            .register(this.metrics)
+        this.queryCountGauge = Gauge
+            .builder(queryCountName) { this.counters.getQueryCountForThread(this.verticleOffset) }
+            .description(queryCountDescription)
+            .tag("router", verticleOffsetString)
+            .register(this.metrics)
+        this.functionTimer = FunctionTimer
+            .builder(
+                routerTimerName,
+                this,
+                { this.respondToDataCount.get() },
+                { this.respondToDataTotalTime.get().toDouble() },
+                TimeUnit.NANOSECONDS,
+            )
+            .description(routerTimerDescription)
+            .tag("router", verticleOffsetString)
+            .register(this.metrics)
+
         val sharedData = this.vertx.sharedData()
         this.idempotencyExpirationMS = getIdempotencyExpirationMS(sharedData)
         this.maxQueryTerms = getMaxQueryTerms(sharedData)
@@ -619,6 +628,22 @@ class QueryRouterVerticle(
         }
 
         this.reportOutstandingDecrements()
+
+        val functionTimer = this.functionTimer
+        if (functionTimer != null) {
+            this.metrics.remove(functionTimer)
+        }
+
+        val queryCountGauge = this.queryCountGauge
+        if (queryCountGauge != null) {
+            this.metrics.remove(queryCountGauge)
+        }
+
+        val cacheKeyGauge = this.cacheKeyGauge
+        if (cacheKeyGauge != null) {
+            this.metrics.remove(cacheKeyGauge)
+        }
+
         super.stop()
     }
 }
@@ -660,7 +685,7 @@ val baseJsonResponseForStackOverflowData = jsonObjectOf(
 // just to save on the "cost" of reprocessing a tiny handful.
 class JsonToQueryableTranslatorVerticle(
     private val counters: GlobalCounterContext,
-    metrics: MeterRegistry,
+    private val metrics: MeterRegistry,
     verticleOffset: Int,
 ): ServerVerticle(verticleOffset) {
     private val handleUnpackDataRequestCount = AtomicLong()
@@ -668,20 +693,7 @@ class JsonToQueryableTranslatorVerticle(
 
     private var maxJsonParsingRecursion = 16
     private var requestHandler: MessageConsumer<UnpackDataRequestList>? = null
-
-    init {
-        FunctionTimer
-            .builder(
-                translationTimerName,
-                this,
-                { this.handleUnpackDataRequestCount.get() },
-                { this.handleUnpackDataRequestTotalTime.get().toDouble() },
-                TimeUnit.NANOSECONDS,
-            )
-            .description(translationTimerDescription)
-            .tag("translator", verticleOffset.toString())
-            .register(metrics)
-    }
+    private var functionTimer: FunctionTimer? = null
 
     override fun resetForNewByteBudget() {
         // We aren't keeping any state that is affected by the byte budget.
@@ -786,6 +798,18 @@ class JsonToQueryableTranslatorVerticle(
     override fun start() {
         super.start()
 
+        this.functionTimer = FunctionTimer
+            .builder(
+                translationTimerName,
+                this,
+                { this.handleUnpackDataRequestCount.get() },
+                { this.handleUnpackDataRequestTotalTime.get().toDouble() },
+                TimeUnit.NANOSECONDS,
+            )
+            .description(translationTimerDescription)
+            .tag("translator", this.verticleOffset.toString())
+            .register(this.metrics)
+
         val vertx = this.vertx
         val sharedData = vertx.sharedData()
         val eventBus = vertx.eventBus()
@@ -798,6 +822,12 @@ class JsonToQueryableTranslatorVerticle(
 
     override fun stop() {
         this.requestHandler?.unregister()
+
+        val functionTimer = this.functionTimer
+        if (functionTimer != null) {
+            this.metrics.remove(functionTimer)
+        }
+
         super.stop()
     }
 }

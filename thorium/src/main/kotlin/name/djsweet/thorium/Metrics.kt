@@ -9,7 +9,7 @@ const val routerTimerDescription = "Time spent routing data to active queries"
 const val idempotencyKeyCacheSizeName = "thorium.idempotency.key.cache.size"
 const val idempotencyKeyCacheSizeDescription = "Number of entries in the idempotency key cache"
 
-const val queryCountName = "thorium.active.query.count"
+const val queryCountName = "thorium.active.queries"
 const val queryCountDescription = "Number of queries being serviced by this query router"
 
 const val outstandingEventsCountName = "thorium.outstanding.events"
