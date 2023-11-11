@@ -61,7 +61,6 @@ fun getClientIDFromSerial(): String {
 
 class QueryClientSSEVerticle(
     private val resp: HttpServerResponse,
-    private val counters: GlobalCounterContext,
     private val clientAddress: String,
     private val clientID: String,
     private val channel: String,
@@ -213,7 +212,7 @@ fun handleQuery(
     }
     val serverAddress = addressForQueryServerQuery(config, bestOffset)
     val response = req.response()
-    val sseClient = QueryClientSSEVerticle(response, counters, returnAddress, clientID, channel, serverAddress)
+    val sseClient = QueryClientSSEVerticle(response, returnAddress, clientID, channel, serverAddress)
     val registerRequest = RegisterQueryRequest(
         channel,
         clientID,
