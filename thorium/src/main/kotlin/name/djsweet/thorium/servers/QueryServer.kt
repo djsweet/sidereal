@@ -21,7 +21,6 @@ import name.djsweet.query.tree.QueryPath
 import name.djsweet.query.tree.QuerySetTree
 import name.djsweet.thorium.*
 import name.djsweet.thorium.convertStringToByteArray
-import name.djsweet.thorium.reestablishByteBudget
 import java.util.*
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
@@ -37,7 +36,10 @@ data class QueryResponderSpec(
     val arrayContainsCounter: Long,
 )
 
-abstract class ServerVerticle(protected val verticleOffset: Int): AbstractVerticle() {
+abstract class ServerVerticle(
+    protected val config: GlobalConfig,
+    protected val verticleOffset: Int
+): AbstractVerticle() {
     private var byteBudgetResetConsumer: MessageConsumer<ResetByteBudget>? = null
     private var lastFuture = Future.succeededFuture<Unit>()
     protected var byteBudget = 0
@@ -45,7 +47,7 @@ abstract class ServerVerticle(protected val verticleOffset: Int): AbstractVertic
     protected abstract fun resetForNewByteBudget()
 
     protected fun handleStackOverflowWithNewByteBudget() {
-        val newByteBudget = reestablishByteBudget(this.vertx.sharedData())
+        val newByteBudget = this.config.reestablishByteBudget()
         this.byteBudget = newByteBudget
         this.resetForNewByteBudget()
         this.vertx
@@ -91,7 +93,7 @@ abstract class ServerVerticle(protected val verticleOffset: Int): AbstractVertic
         super.start()
         val vertx = this.vertx
 
-        this.byteBudget = getByteBudget(vertx.sharedData())
+        this.byteBudget = this.config.byteBudget
         this.byteBudgetResetConsumer = vertx.eventBus().localConsumer(addressForByteBudgetReset) { message ->
             this.lastFuture = this.lastFuture.eventually {
                 val (newByteBudget) = message.body()
@@ -168,11 +170,12 @@ const val idempotencyKeyLoadFactor = 0.75
 const val outstandingDecrementDelayMS = 8L
 
 class QueryRouterVerticle(
+    config: GlobalConfig,
     private val counters: GlobalCounterContext,
     private val metrics: MeterRegistry,
     verticleOffset: Int,
     private val idempotencyKeyCacheSize: Int
-): ServerVerticle(verticleOffset) {
+): ServerVerticle(config, verticleOffset) {
     private val respondToDataCount = AtomicLong()
     private val respondToDataTotalTime = AtomicLong()
 
@@ -196,9 +199,6 @@ class QueryRouterVerticle(
     private var cacheKeyGauge: Gauge? = null
     private var queryCountGauge: Gauge? = null
     private var functionTimer: FunctionTimer? = null
-
-    init {
-    }
 
     override fun resetForNewByteBudget() {
         val eventBus = this.vertx.eventBus()
@@ -588,13 +588,12 @@ class QueryRouterVerticle(
             .tag("router", verticleOffsetString)
             .register(this.metrics)
 
-        val sharedData = this.vertx.sharedData()
-        this.idempotencyExpirationMS = getIdempotencyExpirationMS(sharedData)
-        this.maxQueryTerms = getMaxQueryTerms(sharedData)
-        this.maxOutstandingDecrements = getMaxOutstandingEvents(sharedData) / getQueryThreads(sharedData)
+        this.idempotencyExpirationMS = this.config.idempotencyExpirationMS
+        this.maxQueryTerms = this.config.maxQueryTerms
+        this.maxOutstandingDecrements = this.config.maxOutstandingEventsPerQueryThread.toLong()
 
         val eventBus = this.vertx.eventBus()
-        val queryAddress = addressForQueryServerQuery(sharedData, this.verticleOffset)
+        val queryAddress = addressForQueryServerQuery(this.config, this.verticleOffset)
         this.queryHandler = eventBus.localConsumer(queryAddress) { message ->
             when (val body = message.body()) {
                 is RegisterQueryRequest -> this.runCoroutineAndReply(message) { this.registerQuery(body) }
@@ -684,10 +683,11 @@ val baseJsonResponseForStackOverflowData = jsonObjectOf(
 // we would be growing our working set of "cached data" up to millions of saved entries rather quickly,
 // just to save on the "cost" of reprocessing a tiny handful.
 class JsonToQueryableTranslatorVerticle(
+    config: GlobalConfig,
     private val counters: GlobalCounterContext,
     private val metrics: MeterRegistry,
     verticleOffset: Int,
-): ServerVerticle(verticleOffset) {
+): ServerVerticle(config, verticleOffset) {
     private val handleUnpackDataRequestCount = AtomicLong()
     private val handleUnpackDataRequestTotalTime = AtomicLong()
 
@@ -810,12 +810,10 @@ class JsonToQueryableTranslatorVerticle(
             .tag("translator", this.verticleOffset.toString())
             .register(this.metrics)
 
-        val vertx = this.vertx
-        val sharedData = vertx.sharedData()
-        val eventBus = vertx.eventBus()
-        this.maxJsonParsingRecursion = getMaxJsonParsingRecursion(sharedData)
+        val eventBus = this.vertx.eventBus()
+        this.maxJsonParsingRecursion = this.config.maxJsonParsingRecursion
 
-        this.requestHandler = eventBus.localConsumer(addressForTranslatorServer(sharedData, this.verticleOffset)) {
+        this.requestHandler = eventBus.localConsumer(addressForTranslatorServer(this.config, this.verticleOffset)) {
             message -> this.runBlockingAndReply(message) { this.handleUnpackDataRequestList(it) }
         }
     }
@@ -834,23 +832,22 @@ class JsonToQueryableTranslatorVerticle(
 
 suspend fun registerQueryServer(
     vertx: Vertx,
+    config: GlobalConfig,
     counters: GlobalCounterContext,
     metrics: MeterRegistry,
-    queryVerticleOffset: Int,
-    queryVerticles: Int,
-    serverVerticleOffset: Int,
-    serverVerticles: Int
 ): Set<String> {
     val opts = DeploymentOptions().setWorker(true)
     val futures = mutableListOf<Future<String>>()
-    val lastQueryVerticleOffset = queryVerticleOffset + queryVerticles
-    val idempotencyKeyCacheSize = getMaximumIdempotencyKeys(vertx.sharedData())
-    for (i in queryVerticleOffset until lastQueryVerticleOffset) {
-        futures.add(vertx.deployVerticle(QueryRouterVerticle(counters, metrics, i, idempotencyKeyCacheSize), opts))
+    val queryThreads = config.queryThreads
+    val idempotencyKeyCacheSize = config.maximumIdempotencyKeys
+    for (i in 0 until queryThreads) {
+        futures.add(
+            vertx.deployVerticle(QueryRouterVerticle(config, counters, metrics, i, idempotencyKeyCacheSize), opts)
+        )
     }
-    val lastServerVerticleOffset = serverVerticleOffset + serverVerticles
-    for (i in serverVerticleOffset until lastServerVerticleOffset) {
-        futures.add(vertx.deployVerticle(JsonToQueryableTranslatorVerticle(counters, metrics, i), opts))
+    val translatorThreads = config.translatorThreads
+    for (i in 0 until translatorThreads) {
+        futures.add(vertx.deployVerticle(JsonToQueryableTranslatorVerticle(config, counters, metrics, i), opts))
     }
 
     val deploymentIDs = mutableSetOf<String>()

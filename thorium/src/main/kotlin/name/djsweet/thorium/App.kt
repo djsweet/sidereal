@@ -37,39 +37,37 @@ internal class ServeCommand: CliktCommand(
         println("Byte budget for key/value pairs is $initialSafeKeyValueSize")
 
         val sharedData = vertx.sharedData()
-        establishByteBudget(sharedData, initialSafeKeyValueSize)
+        val config = GlobalConfig(sharedData)
+        config.establishByteBudget(initialSafeKeyValueSize)
         registerMessageCodecs(vertx)
 
-        val queryThreads = getQueryThreads(sharedData)
+        val queryThreads = config.queryThreads
         val counters = GlobalCounterContext(queryThreads)
 
         Gauge.builder(outstandingEventsCountName) { counters.getOutstandingEventCount() }
             .description(outstandingEventsCountDescription)
             .register(meterRegistry)
 
-        Gauge.builder(byteBudgetGaugeName) { getByteBudget(sharedData) }
+        Gauge.builder(byteBudgetGaugeName) { config.byteBudget }
             .description(byteBudgetGaugeDescription)
             .register(meterRegistry)
 
         return runBlocking {
             val queryDeploymentIDs = registerQueryServer(
                 vertx,
+                config,
                 counters,
                 meterRegistry,
-                0,
-                queryThreads,
-                0,
-                getTranslatorThreads(sharedData)
             )
             try {
                 val webServerDeploymentIDs = registerWebServer(
                     vertx,
+                    config,
                     counters,
                     meterRegistry,
-                    getWebServerThreads(sharedData)
                 )
                 val allDeploymentIDs = queryDeploymentIDs.union(webServerDeploymentIDs)
-                println("Listening on :${getServerPort(sharedData)}")
+                println("Listening on :${config.serverPort}")
                 while (vertx.deploymentIDs().containsAll(allDeploymentIDs)) {
                     delay(250)
                 }

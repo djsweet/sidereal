@@ -3,74 +3,67 @@ package name.djsweet.thorium
 import io.vertx.core.shareddata.LocalMap
 import io.vertx.core.shareddata.SharedData
 
-internal fun timingLocalMap(sharedData: SharedData): LocalMap<String, Int> {
-    return sharedData.getLocalMap("thorium.timings")
-}
+internal fun availableProcessors(): Int = Runtime.getRuntime().availableProcessors()
 
-fun getIdempotencyExpirationMS(sharedData: SharedData): Int {
-    // That's 10 minutes by default.
-    return timingLocalMap(sharedData).getOrDefault("idempotencyExpirationMS", 3 * 60_000)
-}
+class GlobalConfig(private val sharedData: SharedData) {
+    private val timingLocalMap: LocalMap<String, Int> get() = this.sharedData.getLocalMap("thorium.timings")
 
-internal fun limitLocalMap(sharedData: SharedData): LocalMap<String, Int> {
-    return sharedData.getLocalMap("thorium.limits")
-}
+    private val limitLocalMap: LocalMap<String, Int> get() = this.sharedData.getLocalMap("thorium.limits")
 
-fun getMaximumIdempotencyKeys(sharedData: SharedData): Int {
-    return limitLocalMap(sharedData).getOrDefault("maxIdempotencyKeys", 1024 * 1024)
-}
+    private val intParamsLocalMap: LocalMap<String, Int> get() = this.sharedData.getLocalMap("thorium.intParams")
 
-private const val byteBudgetKey = "byteBudget"
-
-fun getByteBudget(sharedData: SharedData): Int {
-    return limitLocalMap(sharedData).computeIfAbsent(byteBudgetKey) { maxSafeKeyValueSizeSync() }
-}
-
-internal fun reestablishByteBudget(sharedData: SharedData): Int {
-    limitLocalMap(sharedData).compute(byteBudgetKey) { _, prior ->
-        maxSafeKeyValueSizeSync().coerceAtMost(prior ?: Int.MAX_VALUE)
+    companion object {
+        const val defaultServerPort = 8232
+        const val defaultIdempotencyExpirationMS = 3 * 60_000
+        const val defaultMaximumIdempotencyKeys = 1024 * 1024
+        const val defaultMaxQueryTerms = 32
+        const val defaultMaxJsonParsingRecursion = 64
+        val defaultQueryThreads = availableProcessors()
+        val defaultTranslatorThreads = availableProcessors()
+        val defaultWebServerThreads = availableProcessors()
+        const val defaultMaxOutstandingEventsPerQueryThread = 128 * 1024
     }
-    return getByteBudget(sharedData)
-}
 
-internal fun establishByteBudget(sharedData: SharedData, byteBudget: Int) {
-    limitLocalMap(sharedData).putIfAbsent(byteBudgetKey, byteBudget)
-}
+    val serverPort: Int get() = this.intParamsLocalMap.getOrDefault("serverPort", defaultServerPort)
 
-fun getMaxQueryTerms(sharedData: SharedData): Int {
-    return limitLocalMap(sharedData).getOrDefault("maxQueryTerms", 32)
-}
+    val idempotencyExpirationMS: Int
+        get() = this.timingLocalMap.getOrDefault("idempotencyExpirationMS", defaultIdempotencyExpirationMS)
 
-fun getMaxJsonParsingRecursion(sharedData: SharedData): Int {
-    return limitLocalMap(sharedData).getOrDefault("maxJsonParsingRecursion", 64)
-}
+    val maximumIdempotencyKeys: Int
+        get() = this.limitLocalMap.getOrDefault("maxIdempotencyKeys", defaultMaximumIdempotencyKeys)
 
-private fun getDefaultToAvailableProcessors(localMap: LocalMap<String, Int>, key: String): Int {
-    return localMap.computeIfAbsent(key) { Runtime.getRuntime().availableProcessors() }
-}
+    private val byteBudgetKey = "byteBudget"
 
-fun getQueryThreads(sharedData: SharedData): Int {
-    return getDefaultToAvailableProcessors(limitLocalMap(sharedData), "queryThreads")
-}
+    val byteBudget: Int get() = this.limitLocalMap.computeIfAbsent(this.byteBudgetKey) { maxSafeKeyValueSizeSync() }
 
-fun getTranslatorThreads(sharedData: SharedData): Int {
-    return getDefaultToAvailableProcessors(limitLocalMap(sharedData),"translatorThreads")
-}
+    fun establishByteBudget(newByteBudget: Int) {
+        this.limitLocalMap.putIfAbsent(this.byteBudgetKey, newByteBudget)
+    }
 
-fun getWebServerThreads(sharedData: SharedData): Int {
-    return getDefaultToAvailableProcessors(limitLocalMap(sharedData), "webServerThreads")
-}
+    fun reestablishByteBudget(): Int {
+        return this.limitLocalMap.compute(this.byteBudgetKey) { _, prior ->
+            maxSafeKeyValueSizeSync().coerceAtMost(prior ?: Int.MAX_VALUE)
+        }!!
+    }
 
-fun getMaxOutstandingEvents(sharedData: SharedData): Long {
-    return limitLocalMap(sharedData).computeIfAbsent("maxOutstandingEvents") {
-        128 * 1024 * getQueryThreads(sharedData)
-    }.toLong()
-}
+    val maxQueryTerms: Int get() = this.limitLocalMap.getOrDefault("maxQueryTerms", defaultMaxQueryTerms)
 
-internal fun intParamsLocalMap(sharedData: SharedData): LocalMap<String, Int> {
-    return sharedData.getLocalMap("thorium.intParams")
-}
+    val maxJsonParsingRecursion: Int
+        get() = this.limitLocalMap.getOrDefault("maxJsonParsingRecursion", defaultMaxJsonParsingRecursion)
 
-fun getServerPort(sharedData: SharedData): Int {
-    return intParamsLocalMap(sharedData).getOrDefault("serverPort", 8232)
+    val queryThreads: Int get() = this.limitLocalMap.getOrDefault("queryThreads", defaultQueryThreads)
+
+    val translatorThreads: Int
+        get() = this.limitLocalMap.getOrDefault("translatorThreads", defaultTranslatorThreads)
+
+    val webServerThreads: Int
+        get() = this.limitLocalMap.getOrDefault("webServerThreads", defaultWebServerThreads)
+
+    val maxOutstandingEventsPerQueryThread: Int
+        get() = this.limitLocalMap.getOrDefault(
+            "maxOutstandingEventsPerThread",
+            defaultMaxOutstandingEventsPerQueryThread
+        )
+
+    val maxOutstandingEvents: Int get() = this.maxOutstandingEventsPerQueryThread * this.queryThreads
 }

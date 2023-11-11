@@ -182,8 +182,13 @@ fun failRequest(req: HttpServerRequest): Future<Void> {
     return jsonStatusCodeResponse(req, 500).end(internalFailureJson.encode())
 }
 
-fun handleQuery(vertx: Vertx, counters: GlobalCounterContext, channel: String, req: HttpServerRequest) {
-    val sharedData = vertx.sharedData()
+fun handleQuery(
+    vertx: Vertx,
+    config: GlobalConfig,
+    counters: GlobalCounterContext,
+    channel: String,
+    req: HttpServerRequest
+) {
     counters.incrementGlobalQueryCountByAndGet(1)
     val queryMap = QueryStringDecoder(req.query() ?: "", false).parameters()
     val clientID = getClientIDFromSerial()
@@ -191,7 +196,7 @@ fun handleQuery(vertx: Vertx, counters: GlobalCounterContext, channel: String, r
 
     // The initial proposed query server is randomized, to ensure that too many concurrent connections
     // don't overwhelm a single query server.
-    val queryThreads = getQueryThreads(sharedData)
+    val queryThreads = config.queryThreads
     val initialOffset = ThreadLocalRandom.current().nextInt().absoluteValue % queryThreads
     var bestOffset = 0
     var bestQueryCount = Int.MAX_VALUE
@@ -204,7 +209,7 @@ fun handleQuery(vertx: Vertx, counters: GlobalCounterContext, channel: String, r
             bestQueryCount = queryCount
         }
     }
-    val serverAddress = addressForQueryServerQuery(sharedData, bestOffset)
+    val serverAddress = addressForQueryServerQuery(config, bestOffset)
     val response = req.response()
     val sseClient = QueryClientSSEVerticle(response, counters, returnAddress, clientID, channel, serverAddress)
     val registerRequest = RegisterQueryRequest(
@@ -268,21 +273,21 @@ const val reportBatchSize = 256
 
 fun handleDataWithUnpackRequest(
     vertx: Vertx,
+    config: GlobalConfig,
     counters: GlobalCounterContext,
     unpackReqs: List<UnpackDataRequest>,
     httpReq: HttpServerRequest
 ) {
     val eventBus = vertx.eventBus()
-    val sharedData = vertx.sharedData()
 
-    val queryThreads = getQueryThreads(sharedData)
-    val translatorThreads = getTranslatorThreads(sharedData)
+    val queryThreads = config.queryThreads
+    val translatorThreads = config.translatorThreads
 
     val eventIncrement = (unpackReqs.size * queryThreads).toLong()
     val newOutstandingEventCount = counters.incrementOutstandingEventCountByAndGet(eventIncrement)
 
     val priorEventCount = newOutstandingEventCount - eventIncrement
-    val eventLimit = getMaxOutstandingEvents(sharedData)
+    val eventLimit = config.maxOutstandingEvents
     if (priorEventCount >= eventLimit) {
         counters.decrementOutstandingEventCount(eventIncrement)
         jsonStatusCodeResponse(httpReq, 429).end(
@@ -299,7 +304,7 @@ fun handleDataWithUnpackRequest(
         requestLists[targetTranslatorOffset].add(UnpackDataRequestWithIndex(i, unpackReq))
     }
     val translatorSends = requestLists.mapIndexed { index, unpackDataRequestsWithIndices ->
-        val sendAddress = addressForTranslatorServer(sharedData, index)
+        val sendAddress = addressForTranslatorServer(config, index)
         eventBus.request<HttpProtocolErrorOrReportDataListWithIndexes>(
             sendAddress,
             UnpackDataRequestList(unpackDataRequestsWithIndices),
@@ -408,7 +413,13 @@ fun encodeEventSourceIDAsIdempotencyKey(source: String, id: String): String {
     return "$source $id"
 }
 
-fun handleData(vertx: Vertx, counters: GlobalCounterContext, channel: String, req: HttpServerRequest) {
+fun handleData(
+    vertx: Vertx,
+    config: GlobalConfig,
+    counters: GlobalCounterContext,
+    channel: String,
+    req: HttpServerRequest
+) {
     val withParams = req.headers().get("Content-Type")
     if (withParams == null) {
         jsonStatusCodeResponse(req, 400).end(missingContentTypeJson.encode())
@@ -436,6 +447,7 @@ fun handleData(vertx: Vertx, counters: GlobalCounterContext, channel: String, re
                 )
                 handleDataWithUnpackRequest(
                     vertx,
+                    config,
                     counters,
                     listOf(unpackRequest),
                     req
@@ -470,6 +482,7 @@ fun handleData(vertx: Vertx, counters: GlobalCounterContext, channel: String, re
                 )
                 handleDataWithUnpackRequest(
                     vertx,
+                    config,
                     counters,
                     listOf(unpackRequest),
                     req
@@ -523,6 +536,7 @@ fun handleData(vertx: Vertx, counters: GlobalCounterContext, channel: String, re
                 req.response().putHeader(jsonParseTimeHeader, "${monotonicNowMS() - jsonParseStartTime} ms")
                 handleDataWithUnpackRequest(
                     vertx,
+                    config,
                     counters,
                     unpackRequests,
                     req
@@ -573,6 +587,7 @@ fun extractChannelFromRemainingPath(remainingPath: String): String? {
 }
 
 class WebServerVerticle(
+    private val config: GlobalConfig,
     private val counters: GlobalCounterContext,
     private val meterRegistry: PrometheusMeterRegistry
 ): AbstractVerticle() {
@@ -605,9 +620,9 @@ class WebServerVerticle(
                     }
 
                     if (req.method() == HttpMethod.POST || req.method() == HttpMethod.PUT) {
-                        handleData(vertx, this.counters, channel, req)
+                        handleData(vertx, this.config, this.counters, channel, req)
                     } else if (req.method() == HttpMethod.GET) {
-                        handleQuery(vertx, this.counters, channel, req)
+                        handleQuery(vertx, this.config, this.counters, channel, req)
                     } else {
                         jsonStatusCodeResponse(req, 400)
                             .end(baseInvalidMethodJson.copy().put("method", req.method()).encode())
@@ -651,7 +666,7 @@ class WebServerVerticle(
                 }
             }
         }
-        server.listen(getServerPort(this.vertx.sharedData())) {
+        server.listen(this.config.serverPort) {
             if (it.failed()) {
                 promise.fail(it.cause())
             } else {
@@ -668,13 +683,14 @@ class WebServerVerticle(
 
 suspend fun registerWebServer(
     vertx: Vertx,
+    config: GlobalConfig,
     counters: GlobalCounterContext,
     prom: PrometheusMeterRegistry,
-    webServerVerticles: Int
 ): Set<String> {
     val deploymentIDs = mutableSetOf<String>()
-    for (i in 0 until webServerVerticles) {
-        val deploymentID = vertx.deployVerticle(WebServerVerticle(counters, prom)).await()
+    val webServerThreads = config.webServerThreads
+    for (i in 0 until webServerThreads) {
+        val deploymentID = vertx.deployVerticle(WebServerVerticle(config, counters, prom)).await()
         deploymentIDs.add(deploymentID)
     }
     return deploymentIDs

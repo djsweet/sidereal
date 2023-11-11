@@ -612,20 +612,20 @@ fun addressForQueryClientAtOffset(clientID: String): String {
 }
 
 private var queryServerQueryAddresses: Array<String>? = null
-fun addressForQueryServerQuery(sharedData: SharedData, verticleOffset: Int): String {
+fun addressForQueryServerQuery(config: GlobalConfig, verticleOffset: Int): String {
     var currentQueryServerQueryAddresses = queryServerQueryAddresses
     if (currentQueryServerQueryAddresses == null) {
-        currentQueryServerQueryAddresses = Array(getQueryThreads(sharedData)) { addressForQueryServerQueryAtOffset(it) }
+        currentQueryServerQueryAddresses = Array(config.queryThreads) { addressForQueryServerQueryAtOffset(it) }
         queryServerQueryAddresses = currentQueryServerQueryAddresses
     }
     return currentQueryServerQueryAddresses[verticleOffset]
 }
 
 private var translatorServerAddresses: Array<String>? = null
-fun addressForTranslatorServer(sharedData: SharedData, verticleOffset: Int): String {
+fun addressForTranslatorServer(config: GlobalConfig, verticleOffset: Int): String {
     var currentTranslatorServerAddresses = translatorServerAddresses
     if (currentTranslatorServerAddresses == null) {
-        currentTranslatorServerAddresses = Array(getTranslatorThreads(sharedData)) { addressForTranslatorServerAtOffset(it) }
+        currentTranslatorServerAddresses = Array(config.translatorThreads) { addressForTranslatorServerAtOffset(it) }
         translatorServerAddresses = currentTranslatorServerAddresses
     }
     return currentTranslatorServerAddresses[verticleOffset]
