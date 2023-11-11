@@ -15,7 +15,7 @@ class GlobalConfig(private val sharedData: SharedData) {
     companion object {
         const val defaultServerPort = 8232
         const val defaultIdempotencyExpirationMS = 3 * 60_000
-        const val defaultMaximumIdempotencyKeys = 1024 * 1024
+        const val defaultMaxIdempotencyKeys = 1024 * 1024
         const val defaultMaxQueryTerms = 32
         const val defaultMaxJsonParsingRecursion = 64
         val defaultQueryThreads = availableProcessors()
@@ -24,16 +24,28 @@ class GlobalConfig(private val sharedData: SharedData) {
         const val defaultMaxOutstandingEventsPerQueryThread = 128 * 1024
     }
 
-    val serverPort: Int get() = this.intParamsLocalMap.getOrDefault("serverPort", defaultServerPort)
+    private val serverPortKey = "serverPort"
+    var serverPort: Int
+        get() = this.intParamsLocalMap.getOrDefault(this.serverPortKey, defaultServerPort)
+        set(newPort) {
+            this.intParamsLocalMap[this.serverPortKey] = newPort
+                .coerceAtLeast(1)
+                .coerceAtMost(65535)
+        }
 
-    val idempotencyExpirationMS: Int
-        get() = this.timingLocalMap.getOrDefault("idempotencyExpirationMS", defaultIdempotencyExpirationMS)
+    private val idempotencyExpirationKey = "idempotencyExpirationMS"
+    var idempotencyExpirationMS: Int
+        get() = this.timingLocalMap.getOrDefault(this.idempotencyExpirationKey, defaultIdempotencyExpirationMS)
+        set(newExpiration) {
+            this.timingLocalMap[this.idempotencyExpirationKey] = newExpiration.coerceAtLeast(0)
+        }
 
-    val maximumIdempotencyKeys: Int
-        get() = this.limitLocalMap.getOrDefault("maxIdempotencyKeys", defaultMaximumIdempotencyKeys)
+    private val maxIdempotencyMapKey = "maxIdempotencyKeys"
+    var maxIdempotencyKeys: Int
+        get() = this.limitLocalMap.getOrDefault(this.maxIdempotencyMapKey, defaultMaxIdempotencyKeys)
+        set(newKeySize) { this.limitLocalMap[this.maxIdempotencyMapKey] = newKeySize.coerceAtLeast(0) }
 
     private val byteBudgetKey = "byteBudget"
-
     val byteBudget: Int get() = this.limitLocalMap.computeIfAbsent(this.byteBudgetKey) { maxSafeKeyValueSizeSync() }
 
     fun establishByteBudget(newByteBudget: Int) {
@@ -46,24 +58,57 @@ class GlobalConfig(private val sharedData: SharedData) {
         }!!
     }
 
-    val maxQueryTerms: Int get() = this.limitLocalMap.getOrDefault("maxQueryTerms", defaultMaxQueryTerms)
+    private val maxQueryTermsKey = "maxQueryTerms"
+    var maxQueryTerms: Int
+        get() = this.limitLocalMap.getOrDefault(this.maxQueryTermsKey, defaultMaxQueryTerms)
+        set(newTermsCount) {
+            this.limitLocalMap[this.maxQueryTermsKey] = newTermsCount.coerceAtLeast(1)
+        }
 
-    val maxJsonParsingRecursion: Int
-        get() = this.limitLocalMap.getOrDefault("maxJsonParsingRecursion", defaultMaxJsonParsingRecursion)
+    private val maxJsonParsingRecursionKey = "maxJsonParsingRecursion"
+    var maxJsonParsingRecursion: Int
+        get() = this.limitLocalMap.getOrDefault(this.maxJsonParsingRecursionKey, defaultMaxJsonParsingRecursion)
+        set(newRecursionLimit) {
+            this.limitLocalMap[this.maxJsonParsingRecursionKey] = newRecursionLimit.coerceAtLeast(0)
+        }
 
-    val queryThreads: Int get() = this.limitLocalMap.getOrDefault("queryThreads", defaultQueryThreads)
+    private val queryThreadsKey = "queryThreads"
+    var queryThreads: Int
+        get() = this.limitLocalMap.getOrDefault(this.queryThreadsKey, defaultQueryThreads)
+        set(newQueryThreadCount) {
+            this.limitLocalMap[this.queryThreadsKey] = newQueryThreadCount
+                .coerceAtLeast(1)
+                .coerceAtMost(availableProcessors())
+        }
 
-    val translatorThreads: Int
-        get() = this.limitLocalMap.getOrDefault("translatorThreads", defaultTranslatorThreads)
+    private val translatorThreadsKey = "translatorThreads"
+    var translatorThreads: Int
+        get() = this.limitLocalMap.getOrDefault(this.translatorThreadsKey, defaultTranslatorThreads)
+        set(newTranslatorThreadCount) {
+            this.limitLocalMap[this.translatorThreadsKey] = newTranslatorThreadCount
+                .coerceAtLeast(1)
+                .coerceAtMost(availableProcessors())
+        }
 
-    val webServerThreads: Int
-        get() = this.limitLocalMap.getOrDefault("webServerThreads", defaultWebServerThreads)
+    private val webServerThreadsKey = "webServerThreads"
+    var webServerThreads: Int
+        get() = this.limitLocalMap.getOrDefault(this.webServerThreadsKey, defaultWebServerThreads)
+        set(newWebServerThreadCount) {
+            this.limitLocalMap[this.webServerThreadsKey] = newWebServerThreadCount
+                .coerceAtLeast(1)
+                .coerceAtMost(2 * availableProcessors())
+        }
 
-    val maxOutstandingEventsPerQueryThread: Int
+    private val maxOutstandingEventsPerQueryKey = "maxOutstandingEventsPerThread"
+    var maxOutstandingEventsPerQueryThread: Int
         get() = this.limitLocalMap.getOrDefault(
-            "maxOutstandingEventsPerThread",
+            this.maxOutstandingEventsPerQueryKey,
             defaultMaxOutstandingEventsPerQueryThread
         )
+        set(newOutstandingEventsPerQuery) {
+            this.limitLocalMap[this.maxOutstandingEventsPerQueryKey] = newOutstandingEventsPerQuery
+                .coerceAtLeast(1)
+        }
 
     val maxOutstandingEvents: Int get() = this.maxOutstandingEventsPerQueryThread * this.queryThreads
 }

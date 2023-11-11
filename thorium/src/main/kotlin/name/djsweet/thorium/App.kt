@@ -2,8 +2,10 @@ package name.djsweet.thorium
 
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.subcommands
+import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
+import com.github.ajalt.clikt.parameters.types.int
 import io.micrometer.core.instrument.Gauge
 import io.micrometer.prometheus.PrometheusConfig
 import io.micrometer.prometheus.PrometheusMeterRegistry
@@ -28,17 +30,81 @@ internal class KvpByteBudgetCommand: CliktCommand(
 }
 
 internal class ServeCommand: CliktCommand(
-    help =" Runs the server"
+    help =" Runs the Thorium Reactive Query Server"
 ) {
+    private val serverPort by option(
+        help = "Listen to this TCP port",
+        envvar = "THORIUM_SERVER_PORT"
+    ).int().default(GlobalConfig.defaultServerPort)
+
+    private val queryThreads by option(
+        help = "Number of threads to use for queries. Expected to be between 1 and the number of logical processors available",
+        envvar = "THORIUM_QUERY_THREADS"
+    ).int().default(GlobalConfig.defaultQueryThreads)
+
+    private val translatorThreads by option(
+        help = "Number of threads to use for translating ingested data into its index representation. Expected to be between 1 and the number of logical processors available",
+        envvar = "THORIUM_TRANSLATOR_THREADS"
+    ).int().default(GlobalConfig.defaultTranslatorThreads)
+
+    private val webServerThreads by option(
+        help = "Number of threads to use for the web server. Expected to be between 1 and twice the number of logical processors available",
+        envvar = "THORIUM_WEB_SERVER_THREADS"
+    ).int().default(GlobalConfig.defaultWebServerThreads)
+
+    private val maxIdempotencyKeys by option(
+        help = "Maximum number of idempotency keys to store before forgetting the oldest key",
+        envvar = "THORIUM_MAX_IDEMPOTENCY_KEYS"
+    ).int().default(GlobalConfig.defaultMaxIdempotencyKeys)
+
+    private val maxJsonParsingRecursion by option(
+        help = "Maximum stack recursion used by JSON parsing. This is only a performance optimization, and does not prevent deeper JSON nesting than the configured value",
+        envvar = "THORIUM_MAX_JSON_PARSING_RECURSION"
+    ).int().default(GlobalConfig.defaultMaxJsonParsingRecursion)
+
+    private val maxOutstandingEventsPerQueryThread by option(
+        help = "Number of outstanding events per query thread. The global maximum is calculated by multiplying this by the number of query threads",
+        envvar = "THORIUM_MAX_OUTSTANDING_EVENTS_PER_QUERY_THREAD"
+    ).int().default(GlobalConfig.defaultMaxOutstandingEventsPerQueryThread)
+
+    private val maxQueryTerms by option(
+        help = "Maximum number of terms in a query",
+        envvar = "THORIUM_MAX_QUERY_TERMS"
+    ).int().default(GlobalConfig.defaultMaxQueryTerms)
+
+    private val idempotencyExpirationMS by option(
+        help = "Lifetime (in milliseconds) of an idempotency key",
+        envvar = "THORIUM_IDEMPOTENCY_EXPIRATION_MS"
+    ).int().default(GlobalConfig.defaultIdempotencyExpirationMS)
+
     override fun run() {
         val meterRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
-        val vertx = Vertx.vertx()
+
+        val workerPoolSize = (this.queryThreads + this.webServerThreads)
+            .coerceAtMost(availableProcessors())
+        val nonblockingPoolSize = webServerThreads.coerceAtMost(2 * availableProcessors())
+        val opts = VertxOptions().setWorkerPoolSize(workerPoolSize).setEventLoopPoolSize(nonblockingPoolSize)
+
+        val vertx = Vertx.vertx(opts)
         val initialSafeKeyValueSize = maxSafeKeyValueSizeSync(vertx)
         println("Byte budget for key/value pairs is $initialSafeKeyValueSize")
 
         val sharedData = vertx.sharedData()
         val config = GlobalConfig(sharedData)
         config.establishByteBudget(initialSafeKeyValueSize)
+
+        config.serverPort = this.serverPort
+        config.idempotencyExpirationMS = this.idempotencyExpirationMS
+        config.maxIdempotencyKeys = this.maxIdempotencyKeys
+        config.maxQueryTerms = this.maxQueryTerms
+        config.maxJsonParsingRecursion = this.maxJsonParsingRecursion
+
+        config.queryThreads = this.queryThreads
+        config.translatorThreads = this.translatorThreads
+        config.webServerThreads = this.webServerThreads
+
+        config.maxOutstandingEventsPerQueryThread = this.maxOutstandingEventsPerQueryThread
+
         registerMessageCodecs(vertx)
 
         val queryThreads = config.queryThreads

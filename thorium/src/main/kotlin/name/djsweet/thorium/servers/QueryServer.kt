@@ -839,7 +839,7 @@ suspend fun registerQueryServer(
     val opts = DeploymentOptions().setWorker(true)
     val futures = mutableListOf<Future<String>>()
     val queryThreads = config.queryThreads
-    val idempotencyKeyCacheSize = config.maximumIdempotencyKeys
+    val idempotencyKeyCacheSize = config.maxIdempotencyKeys
     for (i in 0 until queryThreads) {
         futures.add(
             vertx.deployVerticle(QueryRouterVerticle(config, counters, metrics, i, idempotencyKeyCacheSize), opts)
