@@ -4,6 +4,7 @@ import io.micrometer.prometheus.PrometheusMeterRegistry
 import io.netty.handler.codec.http.QueryStringDecoder
 import io.vertx.core.*
 import io.vertx.core.Future.join
+import io.vertx.core.buffer.Buffer
 import io.vertx.core.eventbus.Message
 import io.vertx.core.eventbus.MessageConsumer
 import io.vertx.core.http.HttpMethod
@@ -16,6 +17,7 @@ import io.vertx.kotlin.core.json.jsonObjectOf
 import io.vertx.kotlin.coroutines.await
 import kotlinx.collections.immutable.PersistentMap
 import name.djsweet.thorium.*
+import java.lang.NumberFormatException
 import java.net.URLDecoder
 import java.util.concurrent.ThreadLocalRandom
 import kotlin.math.absoluteValue
@@ -262,6 +264,11 @@ val baseUnsupportedContentTypeJson = jsonObjectOf("code" to "invalid-content-typ
 val missingEventSourceJson = jsonObjectOf("code" to "missing-event-source")
 val missingEventIDJson = jsonObjectOf("code" to "missing-event-id")
 val invalidJsonBodyJson = jsonObjectOf("code" to "invalid-json-body")
+val missingContentLengthJson = jsonObjectOf("code" to "missing-content-length")
+val invalidContentLengthJson = jsonObjectOf("code" to "invalid-content-length")
+val partialContentJson = jsonObjectOf("code" to "partial-content")
+val bodyTooLargeJson = jsonObjectOf("code" to "body-too-large")
+val bodyTimeoutJson = jsonObjectOf("code" to "body-timeout")
 val baseExceededEventLimitJson = jsonObjectOf("code" to "exceeded-outstanding-event-limit")
 val invalidDataFieldJson = jsonObjectOf("code" to "invalid-data-field")
 val acceptedJson = jsonObjectOf("code" to "accepted")
@@ -364,12 +371,72 @@ fun handleDataWithUnpackRequest(
     }
 }
 
-fun readBodyTryParseJsonObject(vertx: Vertx, req: HttpServerRequest, handle: (obj: JsonObject) -> Unit) {
+fun readFullBodyBytes(
+    vertx: Vertx,
+    config: GlobalConfig,
+    req: HttpServerRequest,
+    handle: (resp: HttpServerResponse, bs: Buffer) -> Unit
+) {
     val resp = req.response()
+    val contentLengthString = req.headers()["content-length"]
+    if (contentLengthString == null) {
+        jsonStatusCodeResponse(req, 400)
+            .end(missingContentLengthJson.encode())
+        return
+    }
+    var contentLength = 0
+    try {
+        contentLength = Integer.parseInt(contentLengthString)
+    } catch (e: NumberFormatException) {
+        // Do nothing, we're going to handle this in the check below
+    }
+    if (contentLength <= 0) {
+        jsonStatusCodeResponse(req, 400)
+            .end(invalidContentLengthJson.encode())
+        return
+    }
+    if (contentLength > config.maxBodySizeBytes) {
+        jsonStatusCodeResponse(req, 413)
+            .end(bodyTooLargeJson.copy().put("maxBytes", config.maxBodySizeBytes).encode())
+        return
+    }
+    var bytesToGo = contentLength
+    val buffer = Buffer.buffer(contentLength)
     val bodyReadStartTime = monotonicNowMS()
-    req.bodyHandler { bodyBytes ->
+    val timeoutHandle = vertx.setTimer(config.bodyTimeoutMS.toLong()) {
+        if (bytesToGo > 0) {
+            jsonStatusCodeResponse(req, 408).end(bodyTimeoutJson.encode())
+        }
+    }
+    req.handler { chunk ->
+        if (chunk.length() > bytesToGo) {
+            req.connection().close()
+        }
+        buffer.appendBuffer(chunk)
+        bytesToGo -= chunk.length()
+    }
+    req.endHandler {
+        vertx.cancelTimer(timeoutHandle)
+        if (resp.closed()) {
+            return@endHandler
+        }
+        resp.putHeader(bodyReadTimeHeader, "${monotonicNowMS() - bodyReadStartTime} ms")
+        if (buffer.length() != contentLength) {
+            jsonStatusCodeResponse(req, 400).end(partialContentJson.encode())
+            return@endHandler
+        }
+        handle(resp, buffer)
+    }
+}
+
+fun readBodyTryParseJsonObject(
+    vertx: Vertx,
+    config: GlobalConfig,
+    req: HttpServerRequest,
+    handle: (obj: JsonObject) -> Unit
+) {
+    readFullBodyBytes(vertx, config, req) { resp, bodyBytes ->
         val jsonParseStartTime = monotonicNowMS()
-        resp.putHeader(bodyReadTimeHeader, "${jsonParseStartTime - bodyReadStartTime} ms")
 
         // Clients are expected to send very large bodies. We've measured 440 kB payloads taking up to 5 ms,
         // which is enough to become very uncomfortable on the event loop, so all JSON parsing happens in
@@ -387,12 +454,14 @@ fun readBodyTryParseJsonObject(vertx: Vertx, req: HttpServerRequest, handle: (ob
     }
 }
 
-fun readBodyTryParseJsonArray(vertx: Vertx, req: HttpServerRequest, handle: (arr: JsonArray, jsonParseStartTime: Long) -> Unit) {
-    val resp = req.response()
-    val bodyReadStartTime = monotonicNowMS()
-    req.bodyHandler { bodyBytes ->
+fun readBodyTryParseJsonArray(
+    vertx: Vertx,
+    config: GlobalConfig,
+    req: HttpServerRequest,
+    handle: (arr: JsonArray, jsonParseStartTime: Long) -> Unit
+) {
+    readFullBodyBytes(vertx, config, req) { resp, bodyBytes ->
         val jsonParseStartTime = monotonicNowMS()
-        resp.putHeader(bodyReadTimeHeader, "${jsonParseStartTime - bodyReadStartTime} ms")
 
         // Clients are expected to send very large bodies. We've measured 440 kB payloads taking up to 5 ms,
         // which is enough to become very uncomfortable on the event loop, so all JSON parsing happens in
@@ -404,6 +473,7 @@ fun readBodyTryParseJsonArray(vertx: Vertx, req: HttpServerRequest, handle: (arr
                 .putHeader(jsonParseTimeHeader, "${monotonicNowMS() - jsonParseStartTime} ms")
                 .end(invalidJsonBodyJson.encode())
         }.onSuccess {
+            resp.putHeader(jsonParseTimeHeader, "${monotonicNowMS() - jsonParseStartTime} ms")
             handle(it, jsonParseStartTime)
         }
     }
@@ -439,7 +509,7 @@ fun handleData(
                 return
             }
             val idempotencyKey = encodeEventSourceIDAsIdempotencyKey(eventSource, eventID)
-            readBodyTryParseJsonObject(vertx, req) { data ->
+            readBodyTryParseJsonObject(vertx, config, req) { data ->
                 val unpackRequest = UnpackDataRequest(
                     channel,
                     idempotencyKey,
@@ -455,7 +525,7 @@ fun handleData(
             }
         }
         "application/cloudevents+json" -> {
-            readBodyTryParseJsonObject(vertx, req) { json ->
+            readBodyTryParseJsonObject(vertx, config, req) { json ->
                 val eventSource = json.getValue("source")
                 if (eventSource !is String) {
                     jsonStatusCodeResponse(req, 400).end(missingEventSourceJson.encode())
@@ -490,7 +560,7 @@ fun handleData(
             }
         }
         "application/cloudevents-batch+json" -> {
-            readBodyTryParseJsonArray(vertx, req) { json, jsonParseStartTime ->
+            readBodyTryParseJsonArray(vertx, config, req) { json, jsonParseStartTime ->
                 val unpackRequests = mutableListOf<UnpackDataRequest>()
                 for (i in 0 until json.size()) {
                     val elem = json.getValue(i)
@@ -628,6 +698,10 @@ class WebServerVerticle(
                             .end(baseInvalidMethodJson.copy().put("method", req.method()).encode())
                     }
                 } else if (path.startsWith(metricsPrefix)) {
+                    if (req.method() != HttpMethod.GET) {
+                        jsonStatusCodeResponse(req, 400)
+                            .end(baseInvalidChannelJson.copy().put("method", req.method()).encode())
+                    }
                     if (path.length == metricsPrefix.length
                             || (path.length == metricsPrefix.length + 1 && path[metricsPrefix.length] == '/')) {
                         writeCommonHeaders(req.response())

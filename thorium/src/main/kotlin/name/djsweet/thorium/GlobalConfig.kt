@@ -14,14 +14,16 @@ class GlobalConfig(private val sharedData: SharedData) {
 
     companion object {
         const val defaultServerPort = 8232
+        const val defaultBodyTimeoutMS = 60_000
         const val defaultIdempotencyExpirationMS = 3 * 60_000
         const val defaultMaxIdempotencyKeys = 1024 * 1024
         const val defaultMaxQueryTerms = 32
         const val defaultMaxJsonParsingRecursion = 64
+        const val defaultMaxOutstandingEventsPerQueryThread = 128 * 1024
+        const val defaultMaxBodySize = 10 * 1024 * 1024
         val defaultQueryThreads = availableProcessors()
         val defaultTranslatorThreads = availableProcessors()
         val defaultWebServerThreads = availableProcessors()
-        const val defaultMaxOutstandingEventsPerQueryThread = 128 * 1024
     }
 
     private val serverPortKey = "serverPort"
@@ -31,6 +33,13 @@ class GlobalConfig(private val sharedData: SharedData) {
             this.intParamsLocalMap[this.serverPortKey] = newPort
                 .coerceAtLeast(1)
                 .coerceAtMost(65535)
+        }
+
+    private val bodyTimeoutKey = "bodyTimeoutMS"
+    var bodyTimeoutMS: Int
+        get() = this.limitLocalMap.getOrDefault(this.bodyTimeoutKey, defaultBodyTimeoutMS)
+        set(newBodyTimeout) {
+            this.limitLocalMap[this.bodyTimeoutKey] = newBodyTimeout.coerceAtLeast(100)
         }
 
     private val idempotencyExpirationKey = "idempotencyExpirationMS"
@@ -72,6 +81,26 @@ class GlobalConfig(private val sharedData: SharedData) {
             this.limitLocalMap[this.maxJsonParsingRecursionKey] = newRecursionLimit.coerceAtLeast(0)
         }
 
+    private val maxOutstandingEventsPerQueryKey = "maxOutstandingEventsPerThread"
+    var maxOutstandingEventsPerQueryThread: Int
+        get() = this.limitLocalMap.getOrDefault(
+            this.maxOutstandingEventsPerQueryKey,
+            defaultMaxOutstandingEventsPerQueryThread
+        )
+        set(newOutstandingEventsPerQuery) {
+            this.limitLocalMap[this.maxOutstandingEventsPerQueryKey] = newOutstandingEventsPerQuery
+                .coerceAtLeast(1)
+        }
+
+    val maxOutstandingEvents: Int get() = this.maxOutstandingEventsPerQueryThread * this.queryThreads
+
+    private val maxBodySizeBytesKey = "maxBodySizeBytes"
+    var maxBodySizeBytes: Int
+        get() = this.limitLocalMap.getOrDefault(this.maxBodySizeBytesKey, defaultMaxBodySize)
+        set(newMaxBodySize) {
+            this.limitLocalMap[this.maxBodySizeBytesKey] = newMaxBodySize.coerceAtLeast(128)
+        }
+
     private val queryThreadsKey = "queryThreads"
     var queryThreads: Int
         get() = this.limitLocalMap.getOrDefault(this.queryThreadsKey, defaultQueryThreads)
@@ -99,16 +128,4 @@ class GlobalConfig(private val sharedData: SharedData) {
                 .coerceAtMost(2 * availableProcessors())
         }
 
-    private val maxOutstandingEventsPerQueryKey = "maxOutstandingEventsPerThread"
-    var maxOutstandingEventsPerQueryThread: Int
-        get() = this.limitLocalMap.getOrDefault(
-            this.maxOutstandingEventsPerQueryKey,
-            defaultMaxOutstandingEventsPerQueryThread
-        )
-        set(newOutstandingEventsPerQuery) {
-            this.limitLocalMap[this.maxOutstandingEventsPerQueryKey] = newOutstandingEventsPerQuery
-                .coerceAtLeast(1)
-        }
-
-    val maxOutstandingEvents: Int get() = this.maxOutstandingEventsPerQueryThread * this.queryThreads
 }

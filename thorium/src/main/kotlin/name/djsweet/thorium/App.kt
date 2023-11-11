@@ -52,6 +52,11 @@ internal class ServeCommand: CliktCommand(
         envvar = "THORIUM_WEB_SERVER_THREADS"
     ).int().default(GlobalConfig.defaultWebServerThreads)
 
+    private val maxBodySizeBytes by option(
+        help = "Maximum size of all HTTP bodies. Any HTTP request with a body size greater than this value will result in an HTTP 413 result",
+        envvar = "THORIUM_MAX_BODY_SIZE_BYTES"
+    ).int().default(GlobalConfig.defaultMaxBodySize)
+
     private val maxIdempotencyKeys by option(
         help = "Maximum number of idempotency keys to store before forgetting the oldest key",
         envvar = "THORIUM_MAX_IDEMPOTENCY_KEYS"
@@ -71,6 +76,11 @@ internal class ServeCommand: CliktCommand(
         help = "Maximum number of terms in a query",
         envvar = "THORIUM_MAX_QUERY_TERMS"
     ).int().default(GlobalConfig.defaultMaxQueryTerms)
+
+    private val bodyTimeoutMS by option(
+        help = "Maximum time (in milliseconds) to allow for HTTP body transmission",
+        envvar = "THORIUM_BODY_TIMEOUT_MS"
+    ).int().default(GlobalConfig.defaultBodyTimeoutMS)
 
     private val idempotencyExpirationMS by option(
         help = "Lifetime (in milliseconds) of an idempotency key",
@@ -95,15 +105,16 @@ internal class ServeCommand: CliktCommand(
 
         config.serverPort = this.serverPort
         config.idempotencyExpirationMS = this.idempotencyExpirationMS
+        config.bodyTimeoutMS = this.bodyTimeoutMS
         config.maxIdempotencyKeys = this.maxIdempotencyKeys
         config.maxQueryTerms = this.maxQueryTerms
         config.maxJsonParsingRecursion = this.maxJsonParsingRecursion
+        config.maxBodySizeBytes = this.maxBodySizeBytes
+        config.maxOutstandingEventsPerQueryThread = this.maxOutstandingEventsPerQueryThread
 
         config.queryThreads = this.queryThreads
         config.translatorThreads = this.translatorThreads
         config.webServerThreads = this.webServerThreads
-
-        config.maxOutstandingEventsPerQueryThread = this.maxOutstandingEventsPerQueryThread
 
         registerMessageCodecs(vertx)
 
