@@ -1,5 +1,3 @@
-@file:Suppress("UnstableApiUsage")
-
 import kotlinx.benchmark.gradle.JvmBenchmarkTarget
 import kotlinx.benchmark.gradle.benchmark
 
@@ -7,7 +5,6 @@ plugins {
     id("name.djsweet.thorium.kotlin-application-conventions")
     id("org.jetbrains.kotlinx.benchmark") version "0.4.7"
     id("org.jetbrains.kotlin.plugin.allopen") version "1.8.21"
-    kotlin("kapt")
 }
 
 allOpen {
@@ -23,7 +20,7 @@ sourceSets {
 
 val operatingSystem = org.gradle.nativeplatform.platform.internal.DefaultNativePlatform.getCurrentOperatingSystem()!!
 
-val picocliVersion = "4.7.3"
+val cliktVersion = "4.2.1"
 val vertxVersion = "4.4.5"
 val micrometerVersion = "1.11.3"
 val nettyResolverDnsVersion = "4.1.92.Final"
@@ -34,7 +31,7 @@ val kotlinXCollectionsImmutable = "org.jetbrains.kotlinx:kotlinx-collections-imm
 val benchmarksImplementation: Configuration = configurations.getAt("benchmarksImplementation")
 
 dependencies {
-    implementation("info.picocli:picocli:${picocliVersion}")
+    implementation("com.github.ajalt.clikt:clikt:${cliktVersion}")
     implementation("io.vertx:vertx-core:${vertxVersion}")
     implementation("io.vertx:vertx-lang-kotlin:${vertxVersion}")
     implementation("io.vertx:vertx-lang-kotlin-coroutines:${vertxVersion}")
@@ -55,8 +52,6 @@ dependencies {
     }
 
     implementation(project(":query-tree"))
-    annotationProcessor("info.picocli:picocli-codegen:${picocliVersion}")
-    kapt("info.picocli:picocli-codegen:${picocliVersion}")
 
     testImplementation(platform("org.junit:junit-bom:5.9.2"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.9.2")
@@ -66,12 +61,6 @@ dependencies {
     benchmarksImplementation(kotlinXBenchmarkRuntime)
     benchmarksImplementation(netJqwik)
     benchmarksImplementation(sourceSets.test.get().output + sourceSets.test.get().runtimeClasspath)
-}
-
-kapt {
-    arguments {
-        arg("project", "${project.group}/${project.name}")
-    }
 }
 
 application {

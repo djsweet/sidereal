@@ -1,5 +1,9 @@
 package name.djsweet.thorium
 
+import com.github.ajalt.clikt.core.CliktCommand
+import com.github.ajalt.clikt.core.subcommands
+import com.github.ajalt.clikt.parameters.options.flag
+import com.github.ajalt.clikt.parameters.options.option
 import io.micrometer.core.instrument.Gauge
 import io.micrometer.prometheus.PrometheusConfig
 import io.micrometer.prometheus.PrometheusMeterRegistry
@@ -8,44 +12,25 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import name.djsweet.thorium.servers.registerQueryServer
 import name.djsweet.thorium.servers.registerWebServer
-import picocli.CommandLine
-import picocli.CommandLine.Command
 import kotlin.system.exitProcess
 
-@Command(
-    name = "thorium",
-    version = ["0.8"],
-    description = ["A reactive query server"],
-    mixinStandardHelpOptions = true
-)
-internal class ThoriumCommand {
-    @Command(
-        name="kvp-byte-budget",
-        description = ["Determines the maximum key/value pair byte budget to prevent tree operations from throwing StackOverflowError"]
-    )
-    fun determineMaxSafeKeyValueSize(): Int {
+// FIXME: Set this elsewhere
+private const val versionString = "0.8.0"
+
+internal class KvpByteBudgetCommand: CliktCommand(
+    help="Determines the maximum key/value pair byte budget to prevent tree operations from throwing StackOverflowError"
+) {
+    override fun run() {
         val vertx = Vertx.vertx()
         println(maxSafeKeyValueSizeSync(vertx))
-        return 0
+        exitProcess(0)
     }
+}
 
-    @Command(
-        name="print-system-properties",
-        description = ["Prints all known System properties."]
-    )
-    fun printSystemProperties(): Int {
-        val properties = System.getProperties()
-        for (property in properties) {
-            println("${property.key}=${property.value}")
-        }
-        return 0
-    }
-
-    @Command(
-        name="serve",
-        description = ["Runs the server"]
-    )
-    fun serve(): Int {
+internal class ServeCommand: CliktCommand(
+    help =" Runs the server"
+) {
+    override fun run() {
         val meterRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
         val vertx = Vertx.vertx()
         val initialSafeKeyValueSize = maxSafeKeyValueSizeSync(vertx)
@@ -96,12 +81,21 @@ internal class ThoriumCommand {
                     vertx.undeploy(deploymentID)
                 }
             }
-            0
         }
     }
 }
 
-fun main(args: Array<String>) {
-    val exitCode = CommandLine(ThoriumCommand()).execute(*args)
-    exitProcess(exitCode)
+internal class ThoriumCommand: CliktCommand(
+    help = "Reactive queries over CloudEvents",
+) {
+    private val version by option(help="Show the version and exit").flag()
+
+    override fun run() {
+        if (this.version) {
+            println(versionString)
+            exitProcess(0)
+        }
+    }
 }
+
+fun main(args: Array<String>) = ThoriumCommand().subcommands(KvpByteBudgetCommand(), ServeCommand()).main(args)
