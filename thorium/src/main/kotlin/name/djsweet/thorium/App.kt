@@ -14,6 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import name.djsweet.thorium.servers.registerQueryServer
 import name.djsweet.thorium.servers.registerWebServer
+import org.slf4j.LoggerFactory
 import kotlin.system.exitProcess
 
 // FIXME: Set this elsewhere
@@ -32,6 +33,8 @@ internal class KvpByteBudgetCommand: CliktCommand(
 internal class ServeCommand: CliktCommand(
     help =" Runs the Thorium Reactive Query Server"
 ) {
+    private val logger = LoggerFactory.getLogger(ServeCommand::class.java)
+
     private val serverPort by option(
         help = "Listen to this TCP port",
         envvar = "THORIUM_SERVER_PORT"
@@ -78,7 +81,7 @@ internal class ServeCommand: CliktCommand(
     ).int().default(GlobalConfig.defaultMaxQueryTerms)
 
     private val bodyTimeoutMS by option(
-        help = "Maximum time (in milliseconds) to allow for HTTP body transmission",
+        help = "Maximum time (in milliseconds) to allow for HTTP body receipt",
         envvar = "THORIUM_BODY_TIMEOUT_MS"
     ).int().default(GlobalConfig.defaultBodyTimeoutMS)
 
@@ -97,7 +100,13 @@ internal class ServeCommand: CliktCommand(
 
         val vertx = Vertx.vertx(opts)
         val initialSafeKeyValueSize = maxSafeKeyValueSizeSync(vertx)
-        println("Byte budget for key/value pairs is $initialSafeKeyValueSize")
+
+        val logger = this.logger
+        logger.atInfo()
+            .setMessage("Byte budget for key/value pairs is {}")
+            .addArgument(initialSafeKeyValueSize)
+            .addKeyValue("initialSafeKeyValueSize", initialSafeKeyValueSize)
+            .log()
 
         val sharedData = vertx.sharedData()
         val config = GlobalConfig(sharedData)
@@ -144,7 +153,12 @@ internal class ServeCommand: CliktCommand(
                     meterRegistry,
                 )
                 val allDeploymentIDs = queryDeploymentIDs.union(webServerDeploymentIDs)
-                println("Listening on :${config.serverPort}")
+
+                logger.atInfo()
+                    .setMessage("Listening")
+                    .addKeyValue("serverPort", config.serverPort)
+                    .log()
+
                 while (vertx.deploymentIDs().containsAll(allDeploymentIDs)) {
                     delay(250)
                 }
