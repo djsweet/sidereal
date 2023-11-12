@@ -16,6 +16,7 @@ class GlobalConfig(private val sharedData: SharedData) {
         const val defaultServerPort = 8232
         const val defaultBodyTimeoutMS = 60_000
         const val defaultIdempotencyExpirationMS = 3 * 60_000
+        const val defaultTcpIdleTimeoutMS = 3 * 60_000
         const val defaultMaxIdempotencyKeys = 1024 * 1024
         const val defaultMaxQueryTerms = 32
         const val defaultMaxJsonParsingRecursion = 64
@@ -40,6 +41,13 @@ class GlobalConfig(private val sharedData: SharedData) {
         get() = this.limitLocalMap.getOrDefault(this.bodyTimeoutKey, defaultBodyTimeoutMS)
         set(newBodyTimeout) {
             this.limitLocalMap[this.bodyTimeoutKey] = newBodyTimeout.coerceAtLeast(100)
+        }
+
+    private val tcpIdleTimeoutKey = "tcpIdleTimeout"
+    var tcpIdleTimeoutMS: Int
+        get() = this.intParamsLocalMap.getOrDefault(this.tcpIdleTimeoutKey, defaultTcpIdleTimeoutMS)
+        set(newTcpTimeout) {
+            this.intParamsLocalMap[this.tcpIdleTimeoutKey] = newTcpTimeout.coerceAtLeast(200)
         }
 
     private val idempotencyExpirationKey = "idempotencyExpirationMS"

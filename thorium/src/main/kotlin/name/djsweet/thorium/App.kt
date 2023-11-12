@@ -1,7 +1,9 @@
 package name.djsweet.thorium
 
 import com.github.ajalt.clikt.core.CliktCommand
+import com.github.ajalt.clikt.core.context
 import com.github.ajalt.clikt.core.subcommands
+import com.github.ajalt.clikt.output.MordantHelpFormatter
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
@@ -90,6 +92,11 @@ internal class ServeCommand: CliktCommand(
         envvar = "THORIUM_IDEMPOTENCY_EXPIRATION_MS"
     ).int().default(GlobalConfig.defaultIdempotencyExpirationMS)
 
+    private val tcpIdleTimeoutMS by option(
+        help = "Maximum time (in milliseconds) to wait for TCP activity on an open connection",
+        envvar = "THORIUM_TCP_IDLE_TIMEOUT_MS"
+    ).int().default(GlobalConfig.defaultTcpIdleTimeoutMS)
+
     override fun run() {
         val meterRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
 
@@ -115,6 +122,8 @@ internal class ServeCommand: CliktCommand(
         config.serverPort = this.serverPort
         config.idempotencyExpirationMS = this.idempotencyExpirationMS
         config.bodyTimeoutMS = this.bodyTimeoutMS
+        config.tcpIdleTimeoutMS = this.tcpIdleTimeoutMS
+
         config.maxIdempotencyKeys = this.maxIdempotencyKeys
         config.maxQueryTerms = this.maxQueryTerms
         config.maxJsonParsingRecursion = this.maxJsonParsingRecursion
@@ -175,9 +184,15 @@ internal class ServeCommand: CliktCommand(
 }
 
 internal class ThoriumCommand: CliktCommand(
-    help = "Reactive queries over CloudEvents",
+    help = "Reactive queries over CloudEvents"
 ) {
     private val version by option(help="Show the version and exit").flag()
+
+    init {
+        context {
+            helpFormatter = { MordantHelpFormatter(it, showDefaultValues = true) }
+        }
+    }
 
     override fun run() {
         if (this.version) {

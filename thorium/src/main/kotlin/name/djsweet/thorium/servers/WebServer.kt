@@ -9,6 +9,7 @@ import io.vertx.core.eventbus.Message
 import io.vertx.core.eventbus.MessageConsumer
 import io.vertx.core.http.HttpMethod
 import io.vertx.core.http.HttpServer
+import io.vertx.core.http.HttpServerOptions
 import io.vertx.core.http.HttpServerRequest
 import io.vertx.core.http.HttpServerResponse
 import io.vertx.core.json.JsonArray
@@ -20,6 +21,7 @@ import name.djsweet.thorium.*
 import java.lang.NumberFormatException
 import java.net.URLDecoder
 import java.util.concurrent.ThreadLocalRandom
+import java.util.concurrent.TimeUnit
 import kotlin.math.absoluteValue
 
 fun writeCommonHeaders(resp: HttpServerResponse): HttpServerResponse {
@@ -664,8 +666,19 @@ class WebServerVerticle(
 
     override fun start(promise: Promise<Void>) {
         super.start()
-        val server = this.vertx.createHttpServer()
+
+        val config = this.config
+        val serverOptions = HttpServerOptions()
+            .setPort(config.serverPort)
+            .setCompressionSupported(false)
+            .setDecompressionSupported(false)
+            .setTcpKeepAlive(true)
+            .setIdleTimeoutUnit(TimeUnit.MILLISECONDS)
+            .setIdleTimeout(config.tcpIdleTimeoutMS)
+
+        val server = this.vertx.createHttpServer(serverOptions)
         this.server = server
+
         server.requestHandler { req ->
             req.exceptionHandler {
                 val resp = req.response()
@@ -739,7 +752,8 @@ class WebServerVerticle(
                 }
             }
         }
-        server.listen(this.config.serverPort) {
+
+        server.listen {
             if (it.failed()) {
                 promise.fail(it.cause())
             } else {
