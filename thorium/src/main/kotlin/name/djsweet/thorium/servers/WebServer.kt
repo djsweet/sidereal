@@ -715,12 +715,12 @@ class WebServerVerticle(
                     } else if (req.method() == HttpMethod.GET) {
                         handleQuery(vertx, this.config, this.counters, channel, req)
                     } else {
-                        jsonStatusCodeResponse(req, 400)
+                        jsonStatusCodeResponse(req, 405)
                             .end(baseInvalidMethodJson.copy().put("method", req.method()).encode())
                     }
                 } else if (path.startsWith(metricsPrefix)) {
                     if (req.method() != HttpMethod.GET) {
-                        jsonStatusCodeResponse(req, 400)
+                        jsonStatusCodeResponse(req, 405)
                             .end(baseInvalidChannelJson.copy().put("method", req.method()).encode())
                     }
                     if (path.length == metricsPrefix.length
