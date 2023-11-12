@@ -380,9 +380,13 @@ fun readFullBodyBytes(
 ) {
     val resp = req.response()
     val contentLengthString = req.headers()["content-length"]
+    // Note that the cases below need to close the underlying HTTP connection instead of just returning normally.
+    // In an HTTP/1.1 pipelined request model, we'll be waiting around to read the whole body before recovering,
+    // and incurring ingress bandwidth as a result, _unless_ we close the underlying connection.
     if (contentLengthString == null) {
         jsonStatusCodeResponse(req, 400)
             .end(missingContentLengthJson.encode())
+        req.connection().close()
         return
     }
     var contentLength = 0
@@ -394,11 +398,13 @@ fun readFullBodyBytes(
     if (contentLength <= 0) {
         jsonStatusCodeResponse(req, 400)
             .end(invalidContentLengthJson.encode())
+        req.connection().close()
         return
     }
     if (contentLength > config.maxBodySizeBytes) {
         jsonStatusCodeResponse(req, 413)
             .end(bodyTooLargeJson.copy().put("maxBytes", config.maxBodySizeBytes).encode())
+        req.connection().close()
         return
     }
     var bytesToGo = contentLength
@@ -424,6 +430,9 @@ fun readFullBodyBytes(
         resp.putHeader(bodyReadTimeHeader, "${monotonicNowMS() - bodyReadStartTime} ms")
         if (buffer.length() != contentLength) {
             jsonStatusCodeResponse(req, 400).end(partialContentJson.encode())
+            // We somehow under-read the buffer. This shouldn't have happened, the connection isn't
+            // going to work now.
+            req.connection().close()
             return@endHandler
         }
         handle(resp, buffer)
