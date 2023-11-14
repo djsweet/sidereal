@@ -446,7 +446,7 @@ fun handleData(
         }
         else -> {
             jsonStatusCodeResponse(req, 400).end(
-                baseUnsupportedContentTypeJson.put("content-type", withParams).encode()
+                baseUnsupportedContentTypeJson.copy().put("contentType", withParams).encode()
             )
         }
     }
@@ -541,7 +541,7 @@ class WebServerVerticle(
                 } else if (path.startsWith(metricsPrefix)) {
                     if (req.method() != HttpMethod.GET) {
                         jsonStatusCodeResponse(req, 405)
-                            .end(baseInvalidChannelJson.copy().put("method", req.method()).encode())
+                            .end(baseInvalidMethodJson.copy().put("method", req.method()).encode())
                     }
                     if (path.length == metricsPrefix.length
                             || (path.length == metricsPrefix.length + 1 && path[metricsPrefix.length] == '/')) {
