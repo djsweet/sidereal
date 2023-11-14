@@ -3,9 +3,7 @@ package name.djsweet.thorium.servers
 import io.micrometer.prometheus.PrometheusMeterRegistry
 import io.netty.handler.codec.http.QueryStringDecoder
 import io.vertx.core.*
-import io.vertx.core.Future.join
 import io.vertx.core.buffer.Buffer
-import io.vertx.core.eventbus.Message
 import io.vertx.core.http.HttpMethod
 import io.vertx.core.http.HttpServer
 import io.vertx.core.http.HttpServerOptions
@@ -161,7 +159,6 @@ val acceptedJson = jsonObjectOf("code" to "accepted")
 const val bodyReadTimeHeader = "Thorium-Body-Read-Time"
 const val jsonParseTimeHeader = "Thorium-JSON-Parse-Time"
 const val eventEncodeTimeHeader = "Thorium-Encode-Time"
-const val reportBatchSize = 256
 
 fun handleDataWithUnpackRequest(
     vertx: Vertx,
@@ -170,84 +167,23 @@ fun handleDataWithUnpackRequest(
     unpackReqs: List<UnpackDataRequest>,
     httpReq: HttpServerRequest
 ) {
-    val eventBus = vertx.eventBus()
-
-    val queryThreads = config.queryThreads
-    val translatorThreads = config.translatorThreads
-
-    val eventIncrement = (unpackReqs.size * queryThreads).toLong()
-    val newOutstandingEventCount = counters.incrementOutstandingEventCountByAndGet(eventIncrement)
-
-    val priorEventCount = newOutstandingEventCount - eventIncrement
-    val eventLimit = config.maxOutstandingEvents
-    if (priorEventCount >= eventLimit) {
-        counters.decrementOutstandingEventCount(eventIncrement)
-        jsonStatusCodeResponse(httpReq, 429).end(
-            baseExceededEventLimitJson.put("count", newOutstandingEventCount).put("limit", eventLimit).encode()
-        )
-        return
-    }
-
     val translatorSendStartTime = monotonicNowMS()
-    val requestLists = Array<MutableList<UnpackDataRequestWithIndex>>(translatorThreads) { mutableListOf() }
-    for (i in unpackReqs.indices) {
-        val unpackReq = unpackReqs[i]
-        val targetTranslatorOffset = unpackReq.idempotencyKey.hashCode().absoluteValue % translatorThreads
-        requestLists[targetTranslatorOffset].add(UnpackDataRequestWithIndex(i, unpackReq))
-    }
-    val translatorSends = requestLists.mapIndexed { index, unpackDataRequestsWithIndices ->
-        val sendAddress = addressForTranslatorServer(config, index)
-        eventBus.request<HttpProtocolErrorOrReportDataListWithIndexes>(
-            sendAddress,
-            UnpackDataRequestList(unpackDataRequestsWithIndices),
-            localRequestOptions
-        )
-    }
-    join(translatorSends).onFailure {
-        counters.decrementOutstandingEventCount(eventIncrement)
+    sendUnpackDataRequests(vertx, config, counters, unpackReqs, respectLimit = true).onFailure {
         failRequest(httpReq)
-    }.onSuccess translatorResults@ { futures ->
-        val futuresSize = futures.size()
-        val modBatchSize = unpackReqs.size % reportBatchSize
-        val modBucket = ArrayList<ReportData?>(modBatchSize)
-        val bucketsSize = unpackReqs.size / reportBatchSize
-        val indexAtIntoModBucket = bucketsSize * reportBatchSize
-        val buckets = Array<ArrayList<ReportData?>>(bucketsSize) { ArrayList(reportBatchSize) }
+    }.onSuccess { (withinLimit, eventCountWithReqs, error) ->
+        if (!withinLimit) {
+            jsonStatusCodeResponse(httpReq, 429).end(
+                baseExceededEventLimitJson.copy()
+                    .put("count", eventCountWithReqs)
+                    .put("limit", config.maxOutstandingEvents)
+                    .encode()
+            )
+            return@onSuccess
+        }
 
-        for (i in 0 until futuresSize) {
-            val responseList = futures.resultAt<Message<HttpProtocolErrorOrReportDataListWithIndexes>>(i).body()
-            var hadError = false
-            responseList.whenError { error ->
-                counters.decrementOutstandingEventCount(eventIncrement)
-                jsonStatusCodeResponse(httpReq, error.statusCode).end(error.contents.encode())
-                hadError = true
-            }.whenSuccess { reports ->
-                for (maybeResponse in reports.responses) {
-                    if (maybeResponse == null) {
-                        continue
-                    }
-                    val (index, report) = maybeResponse
-                    val bucket = if (index >= indexAtIntoModBucket) {
-                        modBucket
-                    } else {
-                        buckets[index / reportBatchSize]
-                    }
-                    val indexInBucket = index % reportBatchSize
-                    for (j in bucket.size..indexInBucket) {
-                        bucket.add(null)
-                    }
-                    bucket[indexInBucket] = report
-                }
-            }
-            if (hadError) return@translatorResults
-        }
-        for (i in 0 until bucketsSize) {
-            val reportBatch = ReportDataList(buckets[i])
-            eventBus.publish(addressForQueryServerData, reportBatch, localRequestOptions)
-        }
-        if (modBatchSize > 0) {
-            val reportBatch = ReportDataList(modBucket)
-            eventBus.publish(addressForQueryServerData, reportBatch, localRequestOptions)
+        if (error != null) {
+            jsonStatusCodeResponse(httpReq, error.statusCode).end(error.contents.encode())
+            return@onSuccess
         }
 
         jsonStatusCodeResponse(httpReq, 202)
