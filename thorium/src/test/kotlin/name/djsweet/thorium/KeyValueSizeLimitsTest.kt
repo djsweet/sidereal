@@ -18,6 +18,11 @@ import org.junit.jupiter.api.Test
 // As an example, if MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR=4, CB=30857, NCB=13620, then
 // CB/NCB = 2.266, so we set MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR=ceil(2.266 * 4) = ceil(9.064) = 10.
 
+// Note that we are testing keys that are 50% larger than the byte budget. We're encoding all data
+// according to the Radix64 encoding, which at a minimum is 1/3 larger than the data it is encoding,
+// plus some overhead for internal tagging. The extra 50% test here ensures that our encoding won't
+// cause us to go over the budget.
+
 class KeyValueSizeLimitsTest {
     private fun keyValueSizeLimitImpl(sizeLimit: Int) {
         var trie = QPTrie<Int>()
@@ -38,7 +43,7 @@ class KeyValueSizeLimitsTest {
     @Test
     fun keyValueSizeLimitPreventsStackOverflow() {
         val sizeLimit = maxSafeKeyValueSizeSync()
-        this.keyValueSizeLimitImpl(sizeLimit)
+        this.keyValueSizeLimitImpl(sizeLimit * 3 / 2)
     }
 
     @Test
@@ -50,7 +55,7 @@ class KeyValueSizeLimitsTest {
             runBlocking {
                 awaitResult { handler ->
                     vertx.executeBlocking { ->
-                        self.keyValueSizeLimitImpl(sizeLimit)
+                        self.keyValueSizeLimitImpl(sizeLimit * 3 / 2)
                     }.andThen(handler)
                 }
             }

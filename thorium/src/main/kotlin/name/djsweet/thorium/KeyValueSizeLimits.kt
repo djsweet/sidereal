@@ -10,7 +10,9 @@ private const val MAX_POSSIBLE_KEY_VALUE_SIZE = 65536
 // See KeyValueSizeLimitsTest.ts for the mechanism by which we derived this.
 // Starting with a value of 4, we had an expected safe size of 30857 and an actual safe size of 13620,
 // so we were off by 127% starting with 4.
-private const val MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR = 10
+// Additionally, we have to consider the overhead of Radix64Encoding, so we're going to add another
+// 50% margin on top of that.
+private const val MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR = 15
 private const val MAX_POSSIBLE_KEY_VALUE_SIZE_WARMUP_ITERATIONS = 10
 private const val MAX_POSSIBLE_KEY_VALUE_SIZE_ITERATIONS = 60
 
