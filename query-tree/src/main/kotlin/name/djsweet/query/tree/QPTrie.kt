@@ -105,6 +105,20 @@ internal fun evenNybbleFromByte(b: Byte): Byte {
 // as a potential prefix array in OddNybble, so it's perfectly safe to use in multiple places.
 private val emptyByteArray = byteArrayOf()
 
+// Same as above, with one caveat: we'll need to cast this to an Array<EvenNybble<V>> wherever we use it.
+// We used to avoid the cast by passing around a properly typed empty Array<EmptyNybble<V>>, but not only did this
+// incur extra unnecessary heap allocation, it also incurred unnecessary stack allocation, too. This reduced the maximum
+// key size enough that we had to pull the array out as a global.
+//
+// The cast to Array<EvenNybble<V>> would be unsafe, except for how this is an empty java.lang.Array. A java.lang.Array
+// has a static size, that cannot be changed after instantiation. This means that an empty java.lang.Array will always
+// be empty. All methods that try to mutate elements inside the array will necessarily throw. Additionally, because the
+// java.lang.Array is empty, all methods attempting to access elements inside the array will throw. The type parameter
+// of a java.lang.Array only comes into play when dealing with any elements inside the array, which,
+// in this case, is impossible, because the array is empty. Consequently, the type parameter of
+// an empty array simply does not matter.
+private val emptyEvenNybbleArray = arrayOf<EvenNybble<*>>()
+
 /**
  * Represents a key/value pair held by a [QPTrie].
  *
@@ -196,21 +210,16 @@ private class OddNybble<V>(
         return this.prefixBacking[this.prefixOffset + index]
     }
 
-    private fun updateEvenOdd(
-        key: ByteArray,
-        keyOffset: Int,
-        updater: (prev: V?) -> V?,
+    private fun updateEvenOddFromNext(
         evenNode: EvenNybble<V>,
         evenOffset: Int,
         oddNode: OddNybble<V>,
         oddOffset: Int,
-        emptyEvenNybbleArray: Array<EvenNybble<V>>,
-        copyKey: Boolean
+        nextOddNode: OddNybble<V>?,
     ): OddNybble<V>? {
         val nybbleValues = this.nybbleValues
         val nybbleDispatch = this.nybbleDispatch
 
-        val nextOddNode = oddNode.update(key, keyOffset + 1, emptyEvenNybbleArray, copyKey, updater)
         // No change, just return ourselves
         if (nextOddNode === oddNode) {
             return this
@@ -347,7 +356,6 @@ private class OddNybble<V>(
     fun update(
         key: ByteArray,
         offset: Int,
-        emptyEvenNybbleArray: Array<EvenNybble<V>>,
         copyKey: Boolean,
         updater: (prev: V?) -> V?
     ): OddNybble<V>? {
@@ -460,6 +468,9 @@ private class OddNybble<V>(
                 // We now need an intermediate node that dispatches to both new nodes.
                 val priorByte = this.prefixElementAt(topOffset)
                 val prefixOffset = startOffset + 1
+
+                // See the definition of emptyEvenNybbleArray above for a rationale behind this suppression.
+                @Suppress("UNCHECKED_CAST")
                 val newNode = OddNybble(
                     keySave,
                     prefixOffset,
@@ -467,7 +478,7 @@ private class OddNybble<V>(
                     QPTrieKeyValue(keySave, result),
                     1,
                     emptyByteArray,
-                    emptyEvenNybbleArray
+                    emptyEvenNybbleArray as Array<EvenNybble<V>>
                 )
                 val newHighNybble = evenNybbleFromByte(target)
                 val priorHighNybble = evenNybbleFromByte(priorByte)
@@ -523,16 +534,12 @@ private class OddNybble<V>(
             val oddOffset = QPTrieUtils.offsetForNybble(evenNode.nybbleValues, oddNybbleFromByte(childTarget))
             if (oddOffset > -1) {
                 val oddNode = evenNode.nybbleDispatch[oddOffset]
-                return this.updateEvenOdd(
-                    key,
-                    keyOffset,
-                    updater,
+                return this.updateEvenOddFromNext(
                     evenNode,
                     evenOffset,
                     oddNode,
                     oddOffset,
-                    emptyEvenNybbleArray,
-                    copyKey
+                    oddNode.update(key, keyOffset + 1, copyKey, updater)
                 )
             }
         }
@@ -543,6 +550,9 @@ private class OddNybble<V>(
 
         val keySave = if (copyKey) { key.copyOf() } else { key }
         val prefixOffset = keyOffset + 1
+
+        // See the definition of emptyEvenNybbleArray above for a rationale behind this suppression.
+        @Suppress("UNCHECKED_CAST")
         val bottomNode = OddNybble(
             keySave,
             prefixOffset,
@@ -550,7 +560,7 @@ private class OddNybble<V>(
             QPTrieKeyValue(keySave, result),
             1,
             emptyByteArray,
-            emptyEvenNybbleArray
+            emptyEvenNybbleArray as Array<EvenNybble<V>>
         )
         val newEvenNode: EvenNybble<V> = if (evenNode == null) {
             EvenNybble(
@@ -1363,7 +1373,6 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
     val size: Long
 
     private val noopRegisterChildIterator: RegisterChildIterator<V> = { it }
-    private val emptyEvenNybbleArray: Array<EvenNybble<V>> = arrayOf()
 
     private constructor(baseRoot: OddNybble<V>?) {
         this.root = baseRoot
@@ -1405,7 +1414,7 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
                 )
             )
         } else {
-            val newRoot = root.update(key, 0, this.emptyEvenNybbleArray, copyKey, updater)
+            val newRoot = root.update(key, 0, copyKey, updater)
             if (newRoot === root) {
                 this
             } else {
@@ -1776,7 +1785,6 @@ private class LookupPrefixOfOrEqualToIterator<V>(
 
 private fun <V> oddNybbleFromIterator(items: Iterable<Pair<ByteArray, V>>): OddNybble<V>? {
     val it = items.iterator()
-    val emptyEvenNybbleArray: Array<EvenNybble<V>> = arrayOf()
     var root: OddNybble<V>
     if (it.hasNext()) {
         val (key, value) = it.next()
@@ -1795,7 +1803,7 @@ private fun <V> oddNybbleFromIterator(items: Iterable<Pair<ByteArray, V>>): OddN
     }
     for (item in it) {
         val (key, value) = item
-        root = (root.update(key, 0, emptyEvenNybbleArray, true) { value })!!
+        root = (root.update(key, 0, true) { value })!!
     }
     return root
 }
