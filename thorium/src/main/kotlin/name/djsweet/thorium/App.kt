@@ -113,6 +113,7 @@ internal class ServeCommand: CliktCommand(
             .setMessage("Byte budget for key/value pairs is {}")
             .addArgument(initialSafeKeyValueSize)
             .addKeyValue("initialSafeKeyValueSize", initialSafeKeyValueSize)
+            .addKeyValue("maxMemoryUsage", Runtime.getRuntime().maxMemory())
             .log()
 
         val sharedData = vertx.sharedData()
