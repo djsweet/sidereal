@@ -4,7 +4,9 @@ import org.junit.jupiter.api.Test
 
 import org.junit.jupiter.api.Assertions.*
 import net.jqwik.api.*
+import net.jqwik.api.constraints.DoubleRange
 import java.util.*
+import java.util.concurrent.ThreadLocalRandom
 
 private fun <V> trieIsEmpty(trie: QPTrie<V>) {
     assertEquals(0, trie.size)
@@ -195,7 +197,7 @@ class QPTrieTest {
         assertEquals("first", trie.get(shortEntry))
         assertNull(trie.get(longEntry))
 
-        trie = trie.put(shortEntry, "second")
+        trie = trie.putUnsafeSharedKey(shortEntry, "second")
         assertEquals(2, trie.size)
         assertEquals("keep", trie.get(middleEntry))
         assertEquals("second", trie.get(shortEntry))
@@ -207,7 +209,7 @@ class QPTrieTest {
         assertEquals("third", trie.get(shortEntry))
         assertNull(trie.get(longEntry))
 
-        trie = trie.put(shortEntry, "fourth")
+        trie = trie.putUnsafeSharedKey(shortEntry, "fourth")
         assertEquals(2, trie.size)
         assertEquals("keep", trie.get(middleEntry))
         assertEquals("fourth", trie.get(shortEntry))
@@ -219,7 +221,7 @@ class QPTrieTest {
         assertEquals("fifth", trie.get(shortEntry))
         assertNull(trie.get(longEntry))
 
-        trie = trie.put(shortEntry, "sixth")
+        trie = trie.putUnsafeSharedKey(shortEntry, "sixth")
         assertEquals(2, trie.size)
         assertEquals("keep", trie.get(middleEntry))
         assertEquals("sixth", trie.get(shortEntry))
@@ -420,8 +422,10 @@ class QPTrieTest {
 
     @Property
     fun trieLifecycleWithoutPrefixes(
-        @ForAll @From("testTrieSpecsWithRemovalOffset") spec: Pair<List<Pair<PublicByteArrayButComparable, String>>, Int>
+        @ForAll @From("testTrieSpecsWithRemovalOffset") spec: Pair<List<Pair<PublicByteArrayButComparable, String>>, Int>,
+        @ForAll @DoubleRange(min = 0.0, max= 1.0) putUnsafeProbability: Double,
     ) {
+        val random = ThreadLocalRandom.current()
         val initialEntries = spec.first.toTypedArray()
 
         var distinct = IntervalTree<ByteArrayButComparable, String>()
@@ -431,7 +435,13 @@ class QPTrieTest {
         var trie = QPTrie<String>()
         var expectedSize = 0
         for ((key, value) in distinct) {
-            trie = trie.put(key.lowerBound.array, value)
+            trie = if (random.nextDouble() < putUnsafeProbability) {
+                // We will often be calling putUnsafeSharedKey, and we need to make sure
+                // it can interact well with normal `put`, as well as the rest of the lifecycle.
+                trie.putUnsafeSharedKey(key.lowerBound.array, value)
+            } else {
+                trie.put(key.lowerBound.array, value)
+            }
             expectedSize += 1
         }
         assertEquals(expectedSize.toLong(), trie.size)

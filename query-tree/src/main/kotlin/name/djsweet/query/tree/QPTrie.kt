@@ -1446,10 +1446,6 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
         return this.updateMaybeWithKeyCopy(key, updater, true)
     }
 
-    private fun updateNoCopy(key: ByteArray, updater: (prev: V?) -> V?): QPTrie<V> {
-        return this.updateMaybeWithKeyCopy(key, updater, false)
-    }
-
     /**
      * Returns a new [QPTrie], wherein the value corresponding to the given [key] is now [value]. If the current QPTrie
      * already has a corresponding value for the given key, this value is effectively replaced in the new QPTrie.
@@ -1482,7 +1478,7 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
      * otherwise be functionally equivalent.
      */
     fun putUnsafeSharedKey(key: ByteArray, value: V): QPTrie<V> {
-        return this.updateNoCopy(key) { value }
+        return this.updateMaybeWithKeyCopy(key, { value }, false)
     }
 
     /**
