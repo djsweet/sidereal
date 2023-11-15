@@ -3,15 +3,18 @@ package name.djsweet.thorium
 import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
 import net.jqwik.api.*
+import net.jqwik.api.lifecycle.BeforeContainer
 import org.junit.jupiter.api.*
 import org.junit.jupiter.api.Assertions.*
-import java.nio.charset.Charset
 
 class JsonToQueryableDataEncoderTest {
     companion object {
         private var byteBudget = 0
+
+        // Note that jqwik uses a different lifecycle than junit:
+        // https://jqwik.net/docs/current/user-guide.html#simple-property-lifecycle
         @JvmStatic
-        @BeforeAll
+        @BeforeContainer
         fun setup() {
             this.byteBudget = maxSafeKeyValueSizeSync()
         }
