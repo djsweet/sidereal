@@ -99,7 +99,7 @@ class IteratorUtilsTest {
             return if (offset >= this.chunks) {
                  null
             } else {
-                this.registerChild(OffsetIterator(this.baseOffset + this.chunkSize * offset, this.chunkSize))
+                OffsetIterator(this.baseOffset + this.chunkSize * offset, this.chunkSize)
             }
         }
     }
@@ -117,7 +117,7 @@ class IteratorUtilsTest {
                 val topOffset = offset * this.chunkSize * this.middleChunks * this.bottomChunks
                 val lowestOffsets = (0 until this.middleChunks).asSequence().map { bottomOffset ->
                     val baseOffset = topOffset + this.chunkSize * bottomOffset
-                    this.registerChild(DirectFanoutIterator(baseOffset, this.chunkSize, this.bottomChunks))
+                    DirectFanoutIterator(baseOffset, this.chunkSize, this.bottomChunks)
                 }.iterator()
                 return FlattenIterator(lowestOffsets)
             }
@@ -133,7 +133,11 @@ class IteratorUtilsTest {
                 assertTrue(noIntermediariesIt.hasNext())
                 assertEquals(i * 4 + j, noIntermediariesIt.next())
                 val curStack = noIntermediariesIt.copyChildStack()
-                assertEquals(1, curStack.size)
+                // The ConcatenatedIterator root always puts `this` in its child stack, so that it can trivially
+                // modify itself as if it's just another child on the stack. So, we expect to see a stack of
+                //    DirectFanoutIterator -> OffsetIterator -> END
+                // here.
+                assertEquals(2, curStack.size)
                 if (lastStack != null) {
                     assertTrue(curStack.last() === lastStack)
                 } else {
@@ -156,7 +160,10 @@ class IteratorUtilsTest {
                     assertTrue(intermediariesIt.hasNext())
                     val curStack = intermediariesIt.copyChildStack()
                     assertEquals(i * 16 + j * 4 + k, intermediariesIt.next())
-                    assertEquals(2, curStack.size)
+                    // Because there's a FlattenIterator, which is not a ConcatenatedIterator between
+                    // IndirectFanoutIterator and DirectFanoutIterator, DirectFanoutIterator will be its own "root".
+                    // The only item present on the stack will be IndirectFanoutIterator.
+                    assertEquals(1, curStack.size)
                     if (lastStack != null) {
                         assertTrue(curStack.last() === lastStack)
                     } else {

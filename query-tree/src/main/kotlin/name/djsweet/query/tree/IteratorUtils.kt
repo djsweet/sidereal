@@ -2,6 +2,15 @@ package name.djsweet.query.tree
 
 import kotlin.NoSuchElementException
 
+/**
+ * A composable iterator for concatenating other iterators
+ *
+ * An important feature of [ConcatenatedIterator] is that it maintains its own "call stack" on the heap.
+ * This is done to make it suitable for use in stack-constrained operations. One such important use-case is to
+ * verify that fully stack-recursive iterators yield the same items in the same order as the proper [Iterator]
+ * instances, where the equivalence is established deep in the call stack with very little available remaining
+ * stack space.
+ */
 internal abstract class ConcatenatedIterator<T>: Iterator<T> {
     private var nextValue: T? = null
     private var currentOffset: Int = 0
@@ -13,21 +22,68 @@ internal abstract class ConcatenatedIterator<T>: Iterator<T> {
 
     protected abstract fun iteratorForOffset(offset: Int): Iterator<T>?
 
-    protected fun <S : ConcatenatedIterator<T>>registerChild(child: S): S {
-        var workingStack = this.childStack
-        if (workingStack == null) {
-            workingStack = ArrayListStack()
-            this.childStack = workingStack
-            this.ownsChildStack = true
-        }
-        child.childStack = workingStack
-        workingStack.push(child)
-        return child
-    }
-
     internal fun copyChildStack(): List<ConcatenatedIterator<T>> {
         val currentStack = this.childStack ?: return listOf()
         return currentStack.toList()
+    }
+
+    private fun peekChildStackIfOwner(): ConcatenatedIterator<T>? {
+        // Note that `this` is on the child stack, but we never return `this` as part of this method.
+        return if (this.ownsChildStack) {
+            val onStack = this.childStack?.peek()
+            return if (onStack === this) { null } else { onStack }
+        } else {
+            null
+        }
+    }
+
+    private fun iteratorForCurrent(): Iterator<T>? {
+        val workingStack = this.childStack ?: ArrayListStack()
+        if (this.childStack == null) {
+            // Adding `this` to the working stack simplifies getting the next iterator for the next offset
+            // in the below loop.
+            workingStack.push(this)
+            this.childStack = workingStack
+            this.ownsChildStack = true
+        }
+
+        var current = this.currentIterator ?: this.peekChildStackIfOwner()
+
+        if (current == null) {
+            current = this.iteratorForOffset(this.currentOffset)
+            this.currentOffset++
+        }
+        if (!this.ownsChildStack || current !is ConcatenatedIterator<T>) {
+            this.currentIterator = current
+            return current
+        }
+
+        // Here's where we maintain the internal call stack replacement.
+        while (current is ConcatenatedIterator<T>) {
+            if (workingStack.peek() !== current) {
+                current.childStack = workingStack
+                workingStack.push(current)
+            }
+            current = when (val nextIterator = current.iteratorForOffset(current.currentOffset++)) {
+                is ConcatenatedIterator<T> -> {
+                    nextIterator
+                }
+
+                null -> {
+                    workingStack.pop()
+                    workingStack.peek()
+                }
+
+                else -> {
+                    current.currentIterator = nextIterator
+                    this.currentIterator = nextIterator
+                    // Note that this returns entirely from iteratorForCurrent
+                    return nextIterator
+                }
+            }
+        }
+
+        return null
     }
 
     private fun computeNextValueIfNecessary() {
@@ -38,40 +94,21 @@ internal abstract class ConcatenatedIterator<T>: Iterator<T> {
             return
         }
 
-        // Optimization for composed ConcatenatedIterators: we keep a separate call stack, one that elides
-        // multiple .next() call chains and skips directly to the top ConcatenatedIterator.
-        val workingStackBeforeDispatch = this.childStack
-        if (this.ownsChildStack && workingStackBeforeDispatch != null) {
-            val maybeTop = workingStackBeforeDispatch.peek()
-            if (maybeTop != null && maybeTop !== this && maybeTop.hasNext()) {
-                this.nextValue = maybeTop.next()
-                return
-            }
-        }
-
-        var current = this.currentIterator
-        if (current == null) {
-            current = this.iteratorForOffset(this.currentOffset)
-            this.currentIterator = current
-        }
+        // To deal with deeply composed ConcatenatedIterators while avoiding StackOverflowError, we implement
+        // something of a call stack iteratively here.
+        var current = this.iteratorForCurrent()
         while (current != null) {
             if (current.hasNext()) {
                 this.nextValue = current.next()
                 return
+            } else {
+                this.currentIterator = null
+                current = this.iteratorForCurrent()
             }
+        }
 
-            this.currentOffset += 1
-            current = this.iteratorForOffset(this.currentOffset)
-            this.currentIterator = current
-        }
+        this.childStack?.clear()
         this.ended = true
-        val workingStackAfterEnd = this.childStack
-        if (workingStackAfterEnd != null && !this.ownsChildStack) {
-            val currentTop = workingStackAfterEnd.peek()
-            if (currentTop === this) {
-                workingStackAfterEnd.pop()
-            }
-        }
     }
 
     override fun hasNext(): Boolean {

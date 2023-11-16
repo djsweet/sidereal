@@ -1108,7 +1108,7 @@ private class GetTermsByDataIterator<V : SizeComputable> private constructor(
                 GetTermsByDataIteratorState.EQUALITY -> {
                     this.state = GetTermsByDataIteratorState.LESS_THAN
                     val subNode = terms.equalityTerms?.get(value) ?: continue
-                    return this.registerChild(GetByDataIterator(subNode, fullData))
+                    return GetByDataIterator(subNode, fullData)
                 }
 
                 GetTermsByDataIteratorState.LESS_THAN -> {
@@ -1189,11 +1189,7 @@ private class GetByDataIterator<V: SizeComputable> private constructor(
                         this.keyOffset++
                         val targetTerms = node.keys.get(targetKey) ?: continue
                         val value = fullData.get(targetKey) ?: continue
-                        return this.registerChild(GetTermsByDataIterator(
-                            value,
-                            targetTerms,
-                            fullData.remove(targetKey)
-                        ))
+                        return GetTermsByDataIterator(value, targetTerms, fullData.remove(targetKey))
                     }
                 }
 
@@ -1221,7 +1217,7 @@ private class FullTermsByDataIterator<V : SizeComputable> private constructor (
                     this.state = GetTermsByDataIteratorState.LESS_THAN
                     val equalityTerms = this.terms.equalityTerms ?: continue
                     return FlattenIterator(mapSequence(equalityTerms) {
-                        this.registerChild(FullTreeIterator(it.value))
+                        FullTreeIterator(it.value)
                     })
                 }
 
@@ -1280,7 +1276,7 @@ private class FullTreeIterator<V: SizeComputable> private constructor(
                 GetByDataIteratorState.TERMS -> {
                     this.state = GetByDataIteratorState.DONE
                     return FlattenIterator(mapSequence(node.keys) {
-                        this.registerChild(FullTermsByDataIterator(it.value))
+                        FullTermsByDataIterator(it.value)
                     })
                 }
 
