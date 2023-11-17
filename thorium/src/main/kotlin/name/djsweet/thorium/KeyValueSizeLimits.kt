@@ -5,19 +5,29 @@ import io.vertx.kotlin.coroutines.awaitResult
 import kotlinx.coroutines.runBlocking
 import kotlin.math.sqrt
 
-private const val MIN_POSSIBLE_KEY_VALUE_SIZE = 1024
+// We are unfortunately sometimes extremely stack constrained, especially when running
+// tests with code coverage, so we have to allow for lower key/value sizes than 1KB.
+private const val MIN_POSSIBLE_KEY_VALUE_SIZE = 256
 private const val MAX_POSSIBLE_KEY_VALUE_SIZE = 65536
 // See KeyValueSizeLimitsTest.ts for the mechanism by which we derived this.
-// Starting with a value of 4, we had an expected safe size of 30857 and an actual safe size of 13620,
-// so we were off by 127% starting with 4.
-// Additionally, we have to consider the overhead of Radix64Encoding, so we're going to add another
-// 50% margin on top of that.
-private const val MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR = 15
+// We previously did not pass in a callback to recurseUntilZero, and the values before
+// that needed to be tuned to prevent test crashes. We started with
+// MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR=4, an expected safe size of 30857, and an actual
+// safe size when running without coverage of 13620, so we were off by 127%. That would have put
+// us at 10, and when considering the overhead of Radix64Encoding, we'd add another 50% to bring
+// us up to 15. However, this would still crash when trying to run tests with code coverage, so
+// to give us a more realistic expectation of how many stack frames we have, we started passing
+// a callback into recurseUntilZero. This decreased the base number of recursive stack calls,
+// as one would expect, so the safety factor was reduced until we started getting StackOverflowError
+// again.
+private const val MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR = 12
 private const val MAX_POSSIBLE_KEY_VALUE_SIZE_WARMUP_ITERATIONS = 10
 private const val MAX_POSSIBLE_KEY_VALUE_SIZE_ITERATIONS = 60
 
-// We return `result` to ensure that the JVM doesn't attempt dead code elimination
-private fun recurseUntilZero(cur: Int, result: Int): Int {
+// We return `result` to ensure that the JVM doesn't attempt dead code elimination.
+// We also pass through an "on max value" handler function, to better simulate the
+// normal use-case of passing through handler functions in QPTrie and QueryTree.
+private fun recurseUntilZero(cur: Int, result: Int, onResult: (result: Int) -> Int): Int {
     // This is admittedly wasted work, but we want to fill the stack with variables to create a more
     // realistic testing environment.
     val curHighest4 = cur.and(0xff.shl(24)).toLong()
@@ -32,9 +42,9 @@ private fun recurseUntilZero(cur: Int, result: Int): Int {
     val curReconstituted = curHighest4.or(curHigher4).or(curLower4).or(curLowest4)
     val resultReconstituted = resultHighest4.or(resultHigher4).or(resultLower4).or(resultLowest4)
     return if (cur <= 0) {
-        resultReconstituted.toInt()
+        onResult(resultReconstituted.toInt())
     } else {
-        recurseUntilZero(curReconstituted.toInt() - 1, result)
+        recurseUntilZero(curReconstituted.toInt() - 1, result, onResult)
     }
 }
 
@@ -43,7 +53,14 @@ private fun maxSafeKeyValueSizeSingleIteration(startingUpperBound: Int): Int {
     var lowerBound = 0
     var upperBound = startingUpperBound
     try {
-        maxBeforeCrash = recurseUntilZero(upperBound, upperBound)
+        var maxAsReportedByHandler = 0
+        maxBeforeCrash = recurseUntilZero(upperBound, upperBound) {
+            maxAsReportedByHandler = it
+            it
+        }
+        // This may seem redundant, but we need to ensure that the handler actually
+        // gets used, and can't be optimized out.
+        maxBeforeCrash = maxBeforeCrash.coerceAtMost(maxAsReportedByHandler)
         return maxBeforeCrash
     } catch (e: StackOverflowError) {
         maxBeforeCrash = 0
@@ -51,7 +68,14 @@ private fun maxSafeKeyValueSizeSingleIteration(startingUpperBound: Int): Int {
     while (lowerBound < upperBound) {
         val testEntry = (upperBound - lowerBound) / 2 + lowerBound
         try {
-            maxBeforeCrash = recurseUntilZero(testEntry, testEntry)
+            var maxAsReportedByHandler = 0
+            maxBeforeCrash = recurseUntilZero(testEntry, testEntry) {
+                maxAsReportedByHandler = it
+                it
+            }
+            // This may seem redundant, but we need to ensure that the handler actually
+            // gets used, and can't be optimized out.
+            maxBeforeCrash = maxBeforeCrash.coerceAtMost(maxAsReportedByHandler)
             // We've already tried the upper bound, and we know that it crashed, so we won't try it again.
             // We'll deal with the entry we have as the last possible one instead.
             if (testEntry == lowerBound) {
