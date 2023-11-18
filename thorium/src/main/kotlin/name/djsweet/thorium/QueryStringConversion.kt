@@ -35,8 +35,12 @@ private val jsonObjectForInvalidJsonPointer = JsonObject()
 
 internal fun stringOrJsonPointerToStringKeyPath(sp: String): HttpProtocolErrorOr<List<String>> {
     val result = mutableListOf<String>()
-    if (sp.startsWith("/")) {
-        var stringOffset = 1
+    val isMetadataBasedQuery = sp.startsWith("../")
+    if (!isMetadataBasedQuery) {
+        result.add("data")
+    }
+    if (sp.startsWith("/") || isMetadataBasedQuery) {
+        var stringOffset = if (isMetadataBasedQuery) { 3 } else { 1 }
         val builder = StringBuilder()
         while (stringOffset < sp.length) {
             val stopAt = indexOfStopCharacterWithoutNegative(sp, stringOffset)

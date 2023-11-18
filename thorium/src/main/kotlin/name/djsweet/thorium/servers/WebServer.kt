@@ -179,6 +179,7 @@ val bodyTooLargeJson = jsonObjectOf("code" to "body-too-large")
 val bodyTimeoutJson = jsonObjectOf("code" to "body-timeout")
 val baseExceededEventLimitJson = jsonObjectOf("code" to "exceeded-outstanding-event-limit")
 val invalidDataFieldJson = jsonObjectOf("code" to "invalid-data-field")
+val conflictingDataTypeHeadersJson = jsonObjectOf("code" to "conflicting-data-type-headers")
 val acceptedJson = jsonObjectOf("code" to "accepted")
 // The X- prefix was deprecated in IETF RFC 6648, dated June 2012, so it's something of a free-for-all now.
 const val bodyReadTimeHeader = "Thorium-Body-Read-Time"
@@ -355,22 +356,40 @@ fun handleData(
     val paramOffset = withParams.indexOf(";")
     when (if (paramOffset < 0) { withParams } else { withParams.substring(0, paramOffset) }) {
         "application/json" -> {
-            val eventSource = req.headers().get("ce-source")
+            val headers = req.headers()
+
+            val eventSource = headers.get("ce-source")
             if (eventSource == null) {
                 jsonStatusResponseBodyCloseIfRequestBody(req, 400, missingEventSourceJson)
                 return
             }
-            val eventID = req.headers().get("ce-id")
+
+            val eventID = headers.get("ce-id")
             if (eventID == null) {
                 jsonStatusResponseBodyCloseIfRequestBody(req, 400, missingEventIDJson)
                 return
             }
+
+            val dataContentTypeHeader = headers.get("ce-datacontenttype")
+            if (dataContentTypeHeader != null && dataContentTypeHeader != withParams) {
+                // The HTTP Protocol Binding for CloudEvents - Version 1.0.3-wip, section 3.1.1 states
+                // > Note that a ce-datacontenttype HTTP header MUST NOT be present in the message
+                // (https://github.com/cloudevents/spec/blob/a64cb14/cloudevents/bindings/http-protocol-binding.md#311-http-content-type)
+                // But we are more relaxed in our restrictions. If it is set, it just must be equal to
+                // Content-Type.
+                jsonStatusResponseBodyCloseIfRequestBody(req, 400, conflictingDataTypeHeadersJson)
+                return
+            }
+
             val idempotencyKey = encodeEventSourceIDAsIdempotencyKey(eventSource, eventID)
             readBodyTryParseJsonObject(vertx, config, req) { data ->
                 val unpackRequest = UnpackDataRequest(
                     channel,
                     idempotencyKey,
-                    data
+                    // Jackson renders JSON to strings in the order of insertion; having the "data" section
+                    // come last is pretty convenient for visual inspection, so we'll only add the full data
+                    // after all the attributes are set.
+                    fillDataWithCloudEventsHeaders(req, jsonObjectOf()).put("data", data)
                 )
                 handleDataWithUnpackRequest(
                     vertx,
@@ -397,6 +416,8 @@ fun handleData(
                     return@readBodyTryParseJsonObject
                 }
 
+                // This is, at this point, a sanity check. We indirectly refer to "data"
+                // in many queries if they aren't explicitly anchored at the metadata root.
                 val data = json.getValue("data")
                 if (data !is JsonObject) {
                     // We've already read the entire body, so there's no need to close the connection.
@@ -408,7 +429,7 @@ fun handleData(
                 val unpackRequest = UnpackDataRequest(
                     channel,
                     idempotencyKey,
-                    data
+                    json
                 )
                 handleDataWithUnpackRequest(
                     vertx,
@@ -450,6 +471,8 @@ fun handleData(
                         return@readBodyTryParseJsonArray
                     }
 
+                    // This is, at this point, a sanity check. We indirectly refer to "data"
+                    // in many queries if they aren't explicitly anchored at the metadata root.
                     val data = elem.getValue("data")
                     if (data !is JsonObject) {
                         // We've already read the entire body, so there's no need to close the connection.
@@ -463,7 +486,7 @@ fun handleData(
                     unpackRequests.add(UnpackDataRequest(
                         channel,
                         idempotencyKey,
-                        data
+                        elem
                     ))
                 }
 

@@ -19,8 +19,9 @@ class QueryStringConversionTest {
     private val notStartingJsonPath = Arbitraries
         .strings()
         .ofMaxLength(64)
-        .filter { !it.startsWith("/") }
-        .map { it to listOf(it) }
+        .filter { !it.startsWith("/") && !it.startsWith("../") }
+        // All key paths are presumed to start with "data" if they are not JSON Pointers
+        .map { it to listOf("data", it) }
     private val jsonPathEntry = Arbitraries
         .strings()
         .ofMaxLength(64)
@@ -41,16 +42,31 @@ class QueryStringConversionTest {
             }
             builder.toString() to it
         }
-    private val jsonPath = jsonPathEntry.list().ofMinSize(1).ofMaxSize(10).map {
-        val builder = StringBuilder()
-        val valueList = mutableListOf<String>()
-        for ((encoded, actual) in it) {
-            builder.append("/")
-            builder.append(encoded)
-            valueList.add(actual)
+
+    private val jsonPath = jsonPathEntry
+        .list()
+        .ofMinSize(1)
+        .ofMaxSize(10)
+        .flatMap { pathEntry ->
+            Arbitraries
+                .oneOf(listOf(Arbitraries.just(true), Arbitraries.just(false)))
+                .map { fromMetadata -> Pair(pathEntry, fromMetadata) }
         }
-        builder.toString() to valueList.toList()
-    }
+        .map { (path, fromMetadata) ->
+            val builder = StringBuilder()
+            val valueList = mutableListOf<String>()
+            if (fromMetadata) {
+                builder.append("..")
+            } else {
+                valueList.add("data")
+            }
+            for ((encoded, actual) in path) {
+                builder.append("/")
+                builder.append(encoded)
+                valueList.add(actual)
+            }
+            builder.toString() to valueList.toList()
+        }
 
     @Provide
     fun invalidJsonPathEncodingCharacters(): Arbitrary<Char> = Arbitraries.chars().filter { it != '0' && it != '1' }
@@ -115,11 +131,15 @@ class QueryStringConversionTest {
         @ForAll @From("randomInsertionValue") insertionPointBasis: Double
     ) {
         val (queryStringEncoded) = selectorSpec
-        val insertionPoint = (insertionPointBasis * (queryStringEncoded.length - 1) + 1).toInt()
+        val preserveChars = if (queryStringEncoded.startsWith("../")) { 3 } else { 1 }
+        // We want to always preserve the prefix that signals to stringOrJsonPointerToStringKeyPath that we are working
+        // with a JSON Pointer. If we aren't dealing with metadata, we start with /; if we are, we start with ../.
+        // In the first case, we always skip past 1 character, and in the second case, we always skip past 3 characters.
+        val insertionPoint = (insertionPointBasis * (queryStringEncoded.length - preserveChars) + preserveChars).toInt()
         val testString = "${queryStringEncoded.substring(0, insertionPoint)}~$badChar${queryStringEncoded.substring(insertionPoint)}"
         var succeeded = false
         stringOrJsonPointerToStringKeyPath(testString).whenSuccess {
-            fail<String>("Should not have been able to decode '$queryStringEncoded~'")
+            fail<String>("Should not have been able to decode '$queryStringEncoded~'/'$testString' as '$it'")
         }.whenError {
             assertEquals(400, it.statusCode)
             succeeded = true
