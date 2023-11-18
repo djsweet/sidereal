@@ -11,6 +11,7 @@ class GlobalConfig(private val sharedData: SharedData) {
     private val limitLocalMap: LocalMap<String, Int> get() = this.sharedData.getLocalMap("thorium.limits")
 
     private val intParamsLocalMap: LocalMap<String, Int> get() = this.sharedData.getLocalMap("thorium.intParams")
+    private val stringParamsLocalMap: LocalMap<String, String> get() = this.sharedData.getLocalMap("thorium.stringParams")
 
     companion object {
         const val defaultServerPort = 8232
@@ -22,6 +23,7 @@ class GlobalConfig(private val sharedData: SharedData) {
         const val defaultMaxJsonParsingRecursion = 64
         const val defaultMaxOutstandingEventsPerQueryThread = 128 * 1024
         const val defaultMaxBodySize = 10 * 1024 * 1024
+        const val defaultCloudEventSource = "//name.djsweet.thorium"
         val defaultQueryThreads = availableProcessors()
         val defaultTranslatorThreads = availableProcessors()
         val defaultWebServerThreads = availableProcessors()
@@ -34,6 +36,13 @@ class GlobalConfig(private val sharedData: SharedData) {
             this.intParamsLocalMap[this.serverPortKey] = newPort
                 .coerceAtLeast(1)
                 .coerceAtMost(65535)
+        }
+
+    private val sourceNameKey = "sourceName"
+    var sourceName: String
+        get() = this.stringParamsLocalMap.getOrDefault(this.sourceNameKey, defaultCloudEventSource)
+        set(newSourceName) {
+            this.stringParamsLocalMap[this.sourceNameKey] = newSourceName
         }
 
     private val bodyTimeoutKey = "bodyTimeoutMS"

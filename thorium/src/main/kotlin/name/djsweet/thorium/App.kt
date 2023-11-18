@@ -42,6 +42,11 @@ internal class ServeCommand: CliktCommand(
         envvar = "THORIUM_SERVER_PORT"
     ).int().default(GlobalConfig.defaultServerPort)
 
+    private val sourceName by option(
+        help = "Reports this string as the 'source' for all internally generated CloudEvents",
+        envvar = "THORIUM_SOURCE_NAME"
+    ).default(GlobalConfig.defaultCloudEventSource)
+
     private val queryThreads by option(
         help = "Number of threads to use for queries. Expected to be between 1 and the number of logical processors available",
         envvar = "THORIUM_QUERY_THREADS"
@@ -121,6 +126,7 @@ internal class ServeCommand: CliktCommand(
         config.establishByteBudget(initialSafeKeyValueSize)
 
         config.serverPort = this.serverPort
+        config.sourceName = this.sourceName
         config.idempotencyExpirationMS = this.idempotencyExpirationMS
         config.bodyTimeoutMS = this.bodyTimeoutMS
         config.tcpIdleTimeoutMS = this.tcpIdleTimeoutMS

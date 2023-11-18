@@ -29,14 +29,14 @@ fun writeCommonHeaders(resp: HttpServerResponse): HttpServerResponse {
 }
 
 const val jsonMimeType = "application/json; charset=utf-8"
-fun jsonStatusCodeResponse(req: HttpServerRequest, code: Int): HttpServerResponse {
+fun jsonStatusCodeResponse(config: GlobalConfig, req: HttpServerRequest, code: Int): HttpServerResponse {
     return writeCommonHeaders(req.response())
         .putHeader("Content-Type", jsonMimeType)
         .putHeader("ce-specversion", "1.0")
         .putHeader("ce-datacontenttype", jsonMimeType)
         .putHeader("ce-time", wallNowAsString())
         .putHeader("ce-type", "name.djsweet.thorium.channel.send.response")
-        .putHeader("ce-source", "//thorium") // FIXME: Is this the right kind of source?
+        .putHeader("ce-source", config.sourceName)
         // We don't need a cryptographically random source for event IDs, we just need to make sure
         // we effectively never have an ID collision, while at the same time avoiding blocking as much
         // as we possibly can.
@@ -57,11 +57,12 @@ fun requestHasBody(req: HttpServerRequest): Boolean {
 }
 
 fun jsonStatusResponseBodyCloseIfRequestBody(
+    config: GlobalConfig,
     req: HttpServerRequest,
     code: Int,
     body: JsonObject
 ): Future<Void> {
-    return jsonStatusCodeResponse(req, code).end(body.encode()).onComplete {
+    return jsonStatusCodeResponse(config, req, code).end(body.encode()).onComplete {
         if (requestHasBody(req)) {
             req.connection().close()
         }
@@ -83,8 +84,8 @@ val baseInvalidChannelJson = jsonObjectOf("code" to "invalid-channel")
 val internalFailureJson = jsonObjectOf("code" to "internal-failure")
 val unexpectedBodyJson = jsonObjectOf("code" to "unexpected-body")
 
-fun failRequest(req: HttpServerRequest): Future<Void> {
-    return jsonStatusResponseBodyCloseIfRequestBody(req, 500, internalFailureJson)
+fun failRequest(config: GlobalConfig, req: HttpServerRequest): Future<Void> {
+    return jsonStatusResponseBodyCloseIfRequestBody(config, req, 500, internalFailureJson)
 }
 
 fun handleQuery(
@@ -95,7 +96,7 @@ fun handleQuery(
     req: HttpServerRequest
 ) {
     if (requestHasBody(req)) {
-        jsonStatusResponseBodyCloseIfRequestBody(req, 400, unexpectedBodyJson)
+        jsonStatusResponseBodyCloseIfRequestBody(config, req, 400, unexpectedBodyJson)
         return
     }
 
@@ -131,7 +132,7 @@ fun handleQuery(
     val eventBus = vertx.eventBus()
     vertx.deployVerticle(sseClient).onComplete { deploymentIDResult ->
         if (deploymentIDResult.failed()) {
-            failRequest(req)
+            failRequest(config, req)
             return@onComplete
         }
         val deploymentID = deploymentIDResult.result()
@@ -152,10 +153,10 @@ fun handleQuery(
             localRequestOptions
         ) {
             if (it.failed()) {
-                failRequest(req)
+                failRequest(config, req)
             } else {
                 it.result().body().whenError { err ->
-                    jsonStatusResponseBodyCloseIfRequestBody(req, err.statusCode, err.contents)
+                    jsonStatusResponseBodyCloseIfRequestBody(config, req, err.statusCode, err.contents)
                 }.whenSuccess {
                     // At this point, the entire request lifecycle is governed by the verticle we just registered.
                     // But we still need to make sure the headers get written, so we'll send an arbitrary string
@@ -195,11 +196,11 @@ fun handleDataWithUnpackRequest(
 ) {
     val translatorSendStartTime = monotonicNowMS()
     sendUnpackDataRequests(vertx, config, counters, unpackReqs, respectLimit = true).onFailure {
-        failRequest(httpReq)
+        failRequest(config, httpReq)
     }.onSuccess { (withinLimit, eventCountWithReqs, error) ->
         if (!withinLimit) {
             // We have already read the entire body here; there's no need to close the underlying connection
-            jsonStatusCodeResponse(httpReq, 429).end(
+            jsonStatusCodeResponse(config, httpReq, 429).end(
                 baseExceededEventLimitJson.copy()
                     .put("count", eventCountWithReqs)
                     .put("limit", config.maxOutstandingEvents)
@@ -210,12 +211,12 @@ fun handleDataWithUnpackRequest(
 
         if (error != null) {
             // We have already read the entire body here; there's no need to close the underlying connection
-            jsonStatusCodeResponse(httpReq, error.statusCode).end(error.contents.encode())
+            jsonStatusCodeResponse(config, httpReq, error.statusCode).end(error.contents.encode())
             return@onSuccess
         }
 
         // This is a success condition so there's no need to close any connections.
-        jsonStatusCodeResponse(httpReq, 202)
+        jsonStatusCodeResponse(config, httpReq, 202)
             .putHeader(eventEncodeTimeHeader, "${monotonicNowMS() - translatorSendStartTime} ms")
             .end(acceptedJson.encode())
     }
@@ -233,7 +234,7 @@ fun readFullBodyBytes(
     // In an HTTP/1.1 pipelined request model, we'll be waiting around to read the whole body before recovering,
     // and incurring ingress bandwidth as a result, _unless_ we close the underlying connection.
     if (contentLengthString == null) {
-        jsonStatusResponseBodyCloseIfRequestBody(req, 400, missingContentLengthJson)
+        jsonStatusResponseBodyCloseIfRequestBody(config, req, 400, missingContentLengthJson)
         return
     }
     var contentLength = 0
@@ -243,11 +244,12 @@ fun readFullBodyBytes(
         // Do nothing, we're going to handle this in the check below
     }
     if (contentLength <= 0) {
-        jsonStatusResponseBodyCloseIfRequestBody(req, 400, invalidContentLengthJson)
+        jsonStatusResponseBodyCloseIfRequestBody(config, req, 400, invalidContentLengthJson)
         return
     }
     if (contentLength > config.maxBodySizeBytes) {
         jsonStatusResponseBodyCloseIfRequestBody(
+            config,
             req,
             413,
             bodyTooLargeJson.copy().put("maxBytes", config.maxBodySizeBytes)
@@ -259,7 +261,7 @@ fun readFullBodyBytes(
     val bodyReadStartTime = monotonicNowMS()
     val timeoutHandle = vertx.setTimer(config.bodyTimeoutMS.toLong()) {
         if (bytesToGo > 0) {
-            jsonStatusResponseBodyCloseIfRequestBody(req, 408, bodyTimeoutJson)
+            jsonStatusResponseBodyCloseIfRequestBody(config, req, 408, bodyTimeoutJson)
         }
     }
     req.handler { chunk ->
@@ -278,7 +280,7 @@ fun readFullBodyBytes(
         if (buffer.length() != contentLength) {
             // We somehow under-read the buffer. This shouldn't have happened, the connection isn't
             // going to work now.
-            jsonStatusResponseBodyCloseIfRequestBody(req, 400, partialContentJson)
+            jsonStatusResponseBodyCloseIfRequestBody(config, req, 400, partialContentJson)
             return@endHandler
         }
         handle(resp, buffer)
@@ -301,7 +303,7 @@ fun readBodyTryParseJsonObject(
             JsonObject(bodyBytes)
         }.onFailure {
             // We've read the full body here, so there's no need to close the underlying connection.
-            jsonStatusCodeResponse(req, 400)
+            jsonStatusCodeResponse(config, req, 400)
                 .putHeader(jsonParseTimeHeader, "${monotonicNowMS() - jsonParseStartTime} ms")
                 .end(invalidJsonBodyJson.encode())
         }.onSuccess {
@@ -327,7 +329,7 @@ fun readBodyTryParseJsonArray(
             JsonArray(bodyBytes)
         }.onFailure {
             // We've read the full body here, so there's no need to close the underlying connection.
-            jsonStatusCodeResponse(req,400)
+            jsonStatusCodeResponse(config, req,400)
                 .putHeader(jsonParseTimeHeader, "${monotonicNowMS() - jsonParseStartTime} ms")
                 .end(invalidJsonBodyJson.encode())
         }.onSuccess {
@@ -350,7 +352,7 @@ fun handleData(
 ) {
     val withParams = req.headers().get("Content-Type")
     if (withParams == null) {
-        jsonStatusResponseBodyCloseIfRequestBody(req, 400, missingContentTypeJson)
+        jsonStatusResponseBodyCloseIfRequestBody(config, req, 400, missingContentTypeJson)
         return
     }
     val paramOffset = withParams.indexOf(";")
@@ -360,13 +362,13 @@ fun handleData(
 
             val eventSource = headers.get("ce-source")
             if (eventSource == null) {
-                jsonStatusResponseBodyCloseIfRequestBody(req, 400, missingEventSourceJson)
+                jsonStatusResponseBodyCloseIfRequestBody(config, req, 400, missingEventSourceJson)
                 return
             }
 
             val eventID = headers.get("ce-id")
             if (eventID == null) {
-                jsonStatusResponseBodyCloseIfRequestBody(req, 400, missingEventIDJson)
+                jsonStatusResponseBodyCloseIfRequestBody(config, req, 400, missingEventIDJson)
                 return
             }
 
@@ -377,7 +379,7 @@ fun handleData(
                 // (https://github.com/cloudevents/spec/blob/a64cb14/cloudevents/bindings/http-protocol-binding.md#311-http-content-type)
                 // But we are more relaxed in our restrictions. If it is set, it just must be equal to
                 // Content-Type.
-                jsonStatusResponseBodyCloseIfRequestBody(req, 400, conflictingDataTypeHeadersJson)
+                jsonStatusResponseBodyCloseIfRequestBody(config, req, 400, conflictingDataTypeHeadersJson)
                 return
             }
 
@@ -405,14 +407,14 @@ fun handleData(
                 val eventSource = json.getValue("source")
                 if (eventSource !is String) {
                     // We've already read the entire body, so there's no need to close the connection.
-                    jsonStatusCodeResponse(req, 400).end(missingEventSourceJson.encode())
+                    jsonStatusCodeResponse(config, req, 400).end(missingEventSourceJson.encode())
                     return@readBodyTryParseJsonObject
                 }
 
                 val eventID = json.getValue("id")
                 if (eventID !is String) {
                     // We've already read the entire body, so there's no need to close the connection.
-                    jsonStatusCodeResponse(req, 400).end(missingEventIDJson.encode())
+                    jsonStatusCodeResponse(config, req, 400).end(missingEventIDJson.encode())
                     return@readBodyTryParseJsonObject
                 }
 
@@ -421,7 +423,7 @@ fun handleData(
                 val data = json.getValue("data")
                 if (data !is JsonObject) {
                     // We've already read the entire body, so there's no need to close the connection.
-                    jsonStatusCodeResponse(req, 400).end(invalidDataFieldJson.encode())
+                    jsonStatusCodeResponse(config, req, 400).end(invalidDataFieldJson.encode())
                     return@readBodyTryParseJsonObject
                 }
 
@@ -447,7 +449,7 @@ fun handleData(
                     val elem = json.getValue(i)
                     if (elem !is JsonObject) {
                         // We've already read the entire body, so there's no need to close the connection.
-                        jsonStatusCodeResponse(req,400).end(
+                        jsonStatusCodeResponse(config, req,400).end(
                             invalidJsonBodyJson.copy().put("offset", i).encode()
                         )
                         return@readBodyTryParseJsonArray
@@ -456,7 +458,7 @@ fun handleData(
                     val eventSource = elem.getValue("source")
                     if (eventSource !is String) {
                         // We've already read the entire body, so there's no need to close the connection.
-                        jsonStatusCodeResponse(req, 400).end(
+                        jsonStatusCodeResponse(config, req, 400).end(
                             missingEventSourceJson.copy().put("offset", i).encode()
                         )
                         return@readBodyTryParseJsonArray
@@ -465,7 +467,7 @@ fun handleData(
                     val eventID = elem.getValue("id")
                     if (eventID !is String) {
                         // We've already read the entire body, so there's no need to close the connection.
-                        jsonStatusCodeResponse(req, 400).end(
+                        jsonStatusCodeResponse(config, req, 400).end(
                             missingEventIDJson.copy().put("offset", i).encode()
                         )
                         return@readBodyTryParseJsonArray
@@ -476,7 +478,7 @@ fun handleData(
                     val data = elem.getValue("data")
                     if (data !is JsonObject) {
                         // We've already read the entire body, so there's no need to close the connection.
-                        jsonStatusCodeResponse(req, 400).end(
+                        jsonStatusCodeResponse(config, req, 400).end(
                             invalidDataFieldJson.copy().put("offset", i).encode()
                         )
                         return@readBodyTryParseJsonArray
@@ -498,11 +500,11 @@ fun handleData(
                     unpackRequests,
                     req
                 )
-
             }
         }
         else -> {
             jsonStatusResponseBodyCloseIfRequestBody(
+                config,
                 req,
                 400,
                 baseUnsupportedContentTypeJson.copy().put("contentType", withParams)
@@ -528,9 +530,9 @@ fun extractReferenceCountsToJSON(counts: PersistentMap<String, KeyPathReferenceC
     return baseResult
 }
 
-fun handleKeyReferenceCounts(counts: KeyPathReferenceCount, req: HttpServerRequest) {
+fun handleKeyReferenceCounts(config: GlobalConfig, counts: KeyPathReferenceCount, req: HttpServerRequest) {
     val result = extractReferenceCountsToJSON(counts.subKeys)
-    jsonStatusResponseBodyCloseIfRequestBody(req, 200, result)
+    jsonStatusResponseBodyCloseIfRequestBody(config, req, 200, result)
 }
 
 fun extractChannelFromRemainingPath(remainingPath: String): String? {
@@ -572,7 +574,7 @@ class WebServerVerticle(
                 val resp = req.response()
                 if (resp.ended()) return@exceptionHandler
                 if (!resp.headWritten()) {
-                    failRequest(req)
+                    failRequest(config, req)
                 } else {
                     resp.end()
                 }
@@ -584,6 +586,7 @@ class WebServerVerticle(
                     val channel = extractChannelFromRemainingPath(possiblyChannel)
                     if (channel == null) {
                         jsonStatusResponseBodyCloseIfRequestBody(
+                            config,
                             req,
                             400,
                             baseInvalidChannelJson.copy().put("channel", possiblyChannel)
@@ -597,6 +600,7 @@ class WebServerVerticle(
                         handleQuery(vertx, this.config, this.counters, channel, req)
                     } else {
                         jsonStatusResponseBodyCloseIfRequestBody(
+                            config,
                             req,
                             405,
                             baseInvalidMethodJson.copy().put("method", req.method())
@@ -605,6 +609,7 @@ class WebServerVerticle(
                 } else if (path.startsWith(metricsPrefix)) {
                     if (req.method() != HttpMethod.GET) {
                         jsonStatusResponseBodyCloseIfRequestBody(
+                            config,
                             req,
                             405,
                             baseInvalidMethodJson.copy().put("method", req.method())
@@ -612,7 +617,7 @@ class WebServerVerticle(
                         return@requestHandler
                     }
                     if (requestHasBody(req)) {
-                        jsonStatusResponseBodyCloseIfRequestBody(req, 400, unexpectedBodyJson)
+                        jsonStatusResponseBodyCloseIfRequestBody(config, req, 400, unexpectedBodyJson)
                         return@requestHandler
                     }
                     if (path.length == metricsPrefix.length
@@ -625,6 +630,7 @@ class WebServerVerticle(
                         val channel = extractChannelFromRemainingPath(possiblyChannel)
                         if (channel == null) {
                             jsonStatusResponseBodyCloseIfRequestBody(
+                                config,
                                 req,
                                 400,
                                 baseInvalidChannelJson.copy().put("channel", possiblyChannel)
@@ -634,22 +640,22 @@ class WebServerVerticle(
 
                         val forChannel = counters.getKeyPathReferenceCountsForChannel(channel)
                         if (forChannel == null) {
-                            jsonStatusResponseBodyCloseIfRequestBody(req, 404, notFoundJson)
+                            jsonStatusResponseBodyCloseIfRequestBody(config, req, 404, notFoundJson)
                             return@requestHandler
                         }
 
-                        handleKeyReferenceCounts(forChannel, req)
+                        handleKeyReferenceCounts(config, forChannel, req)
                     } else {
-                        jsonStatusResponseBodyCloseIfRequestBody(req, 404, notFoundJson)
+                        jsonStatusResponseBodyCloseIfRequestBody(config, req, 404, notFoundJson)
                     }
                 } else {
-                    jsonStatusResponseBodyCloseIfRequestBody(req, 404, notFoundJson)
+                    jsonStatusResponseBodyCloseIfRequestBody(config, req, 404, notFoundJson)
                 }
             } catch (e: Exception) {
                 val resp = req.response()
                 if (resp.ended()) return@requestHandler
                 if (!resp.headWritten()) {
-                    failRequest(req)
+                    failRequest(config, req)
                 } else {
                     resp.end()
                 }
