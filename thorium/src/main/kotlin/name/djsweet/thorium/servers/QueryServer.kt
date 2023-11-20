@@ -21,12 +21,17 @@ import name.djsweet.query.tree.QueryPath
 import name.djsweet.query.tree.QuerySetTree
 import name.djsweet.thorium.*
 import name.djsweet.thorium.convertStringToByteArray
+import org.slf4j.LoggerFactory
 import java.util.*
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.collections.ArrayList
+import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
 import kotlin.math.ceil
+
+internal const val thoriumMetaQueryRegistrationType = "name.djsweet.thorium.meta.query.registration"
+internal const val thoriumMetaQueryRemovalType = "name.djsweet.thorium.meta.query.removal"
 
 data class QueryResponderSpec(
     val query: FullQuery,
@@ -176,6 +181,8 @@ class QueryRouterVerticle(
     verticleOffset: Int,
     private val idempotencyKeyCacheSize: Int
 ): ServerVerticle(config, verticleOffset) {
+    private val log = LoggerFactory.getLogger(QueryRouterVerticle::class.java)
+
     private val respondToDataCount = AtomicLong()
     private val respondToDataTotalTime = AtomicLong()
 
@@ -263,6 +270,29 @@ class QueryRouterVerticle(
         }
     }
 
+    private fun unpackDataRequestForMetaChannel(
+        clientID: String,
+        eventType: String,
+        idPrefix: String,
+        data: JsonObject
+    ): UnpackDataRequest {
+        val config = this.config
+        val globalID = "${config.instanceID} $idPrefix$clientID"
+        val sourceName = config.sourceName
+        return UnpackDataRequest(
+            channel = metaChannelName,
+            data = jsonObjectOf(
+                "source" to sourceName,
+                "id" to globalID,
+                "specversion" to "1.0",
+                "type" to eventType,
+                "time" to wallNowAsString(),
+                "data" to data
+            ),
+            idempotencyKey = "$sourceName $globalID"
+        )
+    }
+
     private suspend fun registerQuery(req: RegisterQueryRequest): HttpProtocolErrorOrJson {
         // This is a suspend function because of the weird whenError/whenSuccess callback mechanisms.
         // We're luckily suspending anyway, but... whoops.
@@ -288,6 +318,7 @@ class QueryRouterVerticle(
                     .whenSuccess { (query, increments) ->
                         val (channel) = req
                         val channels = this.channels
+                        val config = this.config
                         val counters = this.counters
                         val channelInfo = channels[channel] ?: ChannelInfo()
                         val basisQueryTreeSize = channelInfo.queryTree.size
@@ -298,16 +329,42 @@ class QueryRouterVerticle(
                             channelInfo.queryTree.size - basisQueryTreeSize
                         )
                         counters.updateKeyPathReferenceCountsForChannel(channel, increments)
-                        cont.resumeWith(
-                            Result.success(
-                                HttpProtocolErrorOrJson.ofSuccess(
-                                    jsonObjectOf(
+                        sendUnpackDataRequests(
+                            this.vertx,
+                            config,
+                            counters,
+                            listOf(this.unpackDataRequestForMetaChannel(
+                                clientID = req.clientID,
+                                eventType = thoriumMetaQueryRegistrationType,
+                                idPrefix = "+",
+                                data = jsonObjectOf(
+                                    "instanceID" to config.instanceID,
+                                    "channel" to req.channel,
+                                    "clientID" to req.clientID,
+                                    "query" to req.queryString
+                                )
+                            )),
+                            respectLimit = false
+                        ).onComplete {
+                            // We'll have to wait for the meta channel send before we report to the registering
+                            // client that we've connected. Query registrants may depend on the meta channel send
+                            // strictly happening before the query was registered, possibly as a registration
+                            // verification measure.
+                            if (it.failed()) {
+                                // Note that this will also attempt to send over the meta channel, too, but will
+                                // report a channel/clientID pair that possibly nobody saw. Consumers should be aware
+                                // of this possible failure mode.
+                                this.unregisterQuery(UnregisterQueryRequest(req.channel, req.clientID))
+                                cont.resumeWithException(it.cause())
+                            } else {
+                                cont.resumeWith(Result.success(
+                                    HttpProtocolErrorOrJson.ofSuccess(jsonObjectOf(
                                         "channel" to req.channel,
                                         "clientID" to req.clientID
-                                    )
-                                )
-                            )
-                        )
+                                    ))
+                                ))
+                            }
+                        }
                     }
                 break
             }
@@ -342,13 +399,48 @@ class QueryRouterVerticle(
             )
         } else {
             withRemovedPath(involvedPath)
-            this.counters.alterQueryCountForThread(
+            val counters = this.counters
+            val config = this.config
+            counters.alterQueryCountForThread(
                 this.verticleOffset,
                 channelInfo.queryTree.size - basisQueryTreeSize
             )
             if (channelInfo.isEmpty()) {
                 this.channels.remove(channel)
             }
+            sendUnpackDataRequests(
+                this.vertx,
+                config,
+                counters,
+                listOf(this.unpackDataRequestForMetaChannel(
+                    clientID = clientID,
+                    eventType = thoriumMetaQueryRemovalType,
+                    idPrefix = "-",
+                    data = jsonObjectOf(
+                        "instanceID" to config.instanceID,
+                        "channel" to channel,
+                        "clientID" to clientID
+                    )
+                )),
+                respectLimit = false
+            ).onComplete {
+                if (it.failed()) {
+                    this.log.atWarn()
+                        .setMessage("Could not report query removal")
+                        .addKeyValue("channel", channel)
+                        .addKeyValue("clientID", clientID)
+                        .log()
+                } else {
+                    this.log.atDebug()
+                        .setMessage("Removed query")
+                        .addKeyValue("channel", channel)
+                        .addKeyValue("clientID", clientID)
+                        .log()
+                }
+            }
+            // We thankfully don't have to wait for the meta channel send to report that we've removed this
+            // query. We've already removed it, and we won't be reporting anything else to it, so a delay in reporting
+            // is fully acceptable.
             HttpProtocolErrorOrJson.ofSuccess(
                 jsonObjectOf(
                     "channel" to channel,

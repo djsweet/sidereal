@@ -5,6 +5,8 @@ import io.vertx.core.shareddata.SharedData
 
 internal fun availableProcessors(): Int = Runtime.getRuntime().availableProcessors()
 
+internal const val metaChannelName = "meta"
+
 class GlobalConfig(private val sharedData: SharedData) {
     private val timingLocalMap: LocalMap<String, Int> get() = this.sharedData.getLocalMap("thorium.timings")
 
@@ -28,6 +30,11 @@ class GlobalConfig(private val sharedData: SharedData) {
         val defaultTranslatorThreads = availableProcessors()
         val defaultWebServerThreads = availableProcessors()
     }
+
+    /**
+     * Used to disambiguate between Thorium instances with the same source name
+     */
+    val instanceID = generateInstanceID()
 
     private val serverPortKey = "serverPort"
     var serverPort: Int

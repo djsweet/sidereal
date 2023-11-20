@@ -81,6 +81,7 @@ const val metricsPrefix = "/metrics"
 const val keyReferenceCountPrefix = "/metrics/keycounts/"
 val baseInvalidMethodJson = jsonObjectOf("code" to "invalid-method")
 val baseInvalidChannelJson = jsonObjectOf("code" to "invalid-channel")
+val disallowedMetaChannelSendJson = jsonObjectOf("code" to "disallowed-meta-channel-send")
 val internalFailureJson = jsonObjectOf("code" to "internal-failure")
 val unexpectedBodyJson = jsonObjectOf("code" to "unexpected-body")
 
@@ -101,7 +102,8 @@ fun handleQuery(
     }
 
     counters.incrementGlobalQueryCountByAndGet(1)
-    val queryMap = QueryStringDecoder(req.query() ?: "", false).parameters()
+    val queryString = req.query() ?: ""
+    val queryMap = QueryStringDecoder(queryString, false).parameters()
     val clientID = getClientIDFromSerial()
     val returnAddress = addressForQueryClientAtOffset(clientID)
 
@@ -126,6 +128,7 @@ fun handleQuery(
     val registerRequest = RegisterQueryRequest(
         channel,
         clientID,
+        queryString,
         queryMap,
         returnAddress
     )
@@ -595,9 +598,18 @@ class WebServerVerticle(
                     }
 
                     if (req.method() == HttpMethod.POST || req.method() == HttpMethod.PUT) {
-                        handleData(vertx, this.config, this.counters, channel, req)
+                        if (channel == metaChannelName) {
+                            jsonStatusResponseBodyCloseIfRequestBody(
+                                config,
+                                req,
+                                403,
+                                disallowedMetaChannelSendJson
+                            )
+                        } else {
+                            handleData(this.vertx, config, this.counters, channel, req)
+                        }
                     } else if (req.method() == HttpMethod.GET) {
-                        handleQuery(vertx, this.config, this.counters, channel, req)
+                        handleQuery(this.vertx, config, this.counters, channel, req)
                     } else {
                         jsonStatusResponseBodyCloseIfRequestBody(
                             config,

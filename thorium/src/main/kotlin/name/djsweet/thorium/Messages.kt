@@ -4,7 +4,6 @@ import io.vertx.core.Vertx
 import io.vertx.core.buffer.Buffer
 import io.vertx.core.eventbus.MessageCodec
 import io.vertx.core.json.JsonObject
-import io.vertx.core.shareddata.SharedData
 import io.vertx.kotlin.core.json.jsonObjectOf
 
 fun appendStringAsUnicode(s: String, b: Buffer): Buffer {
@@ -99,10 +98,11 @@ abstract class ListIndexToMessageCodec<T, U: ListIndexToMessage<T>>(
 data class RegisterQueryRequest(
     val channel: String,
     val clientID: String,
+    val queryString: String,
     val queryParams: Map<String, List<String>>,
     val returnAddress: String,
 ) {
-    constructor(): this("", "", mapOf(), "")
+    constructor(): this("", "", "", mapOf(), "")
 }
 
 class RegisterQueryRequestCodec: LocalPrimaryMessageCodec<RegisterQueryRequest>("RegisterQueryRequest") {
@@ -114,6 +114,7 @@ class RegisterQueryRequestCodec: LocalPrimaryMessageCodec<RegisterQueryRequest>(
         appendStringAsUnicode(s.channel, buffer)
         appendStringAsUnicode(s.clientID, buffer)
         appendStringAsUnicode(s.returnAddress, buffer)
+        appendStringAsUnicode(s.queryString, buffer)
         buffer.appendInt(s.queryParams.size)
         for ((queryParamKey, queryParamValues) in s.queryParams) {
             appendStringAsUnicode(queryParamKey, buffer)
@@ -137,8 +138,13 @@ class RegisterQueryRequestCodec: LocalPrimaryMessageCodec<RegisterQueryRequest>(
 
         val returnAddressPos = returnAddressLengthPos + 4
         val returnAddressLength = buffer.getInt(returnAddressLengthPos)
-        val queryParamsSizePos = returnAddressPos + returnAddressLength
-        val returnAddress = buffer.getString(returnAddressPos, queryParamsSizePos, "utf-8")
+        val queryStringSizePos = returnAddressPos + returnAddressLength
+        val returnAddress = buffer.getString(returnAddressPos, queryStringSizePos, "utf-8")
+
+        val queryStringPos = queryStringSizePos + 4
+        val queryStringLength = buffer.getInt(queryStringSizePos)
+        val queryParamsSizePos = queryStringPos + queryStringLength
+        val queryString = buffer.getString(queryStringPos, queryParamsSizePos, "utf-8")
 
         val queryParamsSize = buffer.getInt(queryParamsSizePos)
         val queryParams = mutableMapOf<String, List<String>>()
@@ -165,6 +171,7 @@ class RegisterQueryRequestCodec: LocalPrimaryMessageCodec<RegisterQueryRequest>(
         return RegisterQueryRequest(
             channel,
             clientID,
+            queryString,
             queryParams,
             returnAddress
         )
