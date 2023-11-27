@@ -17,8 +17,8 @@ import java.util.*
  * key=[value -> key is an array containing value
  * key=!value -> key != value
  *
- * You can have as many =, =~, =[, =! operators as you'd like.
- * You can only have up to two <, <=, >=, > operators, and if there are two,
+ * You can have as many =, =[, =! operators as you'd like.
+ * You can only have up to one =~, or up to two <, <=, >=, > operators, and if there are two,
  * they must share the same key and be some pair of (<, >); (<=, >); (<, >=); (<=, >=)
  */
 
