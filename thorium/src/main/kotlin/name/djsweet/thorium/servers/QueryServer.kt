@@ -13,8 +13,10 @@ import io.vertx.core.eventbus.MessageConsumer
 import io.vertx.core.json.JsonObject
 import io.vertx.kotlin.core.json.jsonObjectOf
 import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.coroutines.awaitEvent
 import io.vertx.kotlin.coroutines.vertxFuture
 import kotlinx.collections.immutable.PersistentMap
+import kotlinx.coroutines.delay
 import name.djsweet.query.tree.IdentitySet
 import name.djsweet.query.tree.QPTrie
 import name.djsweet.query.tree.QueryPath
@@ -22,6 +24,7 @@ import name.djsweet.query.tree.QuerySetTree
 import name.djsweet.thorium.*
 import name.djsweet.thorium.convertStringToByteArray
 import org.slf4j.LoggerFactory
+import java.time.Duration
 import java.util.*
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
@@ -29,9 +32,11 @@ import kotlin.collections.ArrayList
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
 import kotlin.math.ceil
+import kotlin.time.toKotlinDuration
 
 internal const val thoriumMetaQueryRegistrationType = "name.djsweet.thorium.meta.query.registration"
 internal const val thoriumMetaQueryRemovalType = "name.djsweet.thorium.meta.query.removal"
+private const val backoffBaseWaitTimeMS = 0.5
 
 data class QueryResponderSpec(
     val query: FullQuery,
@@ -354,8 +359,11 @@ class QueryRouterVerticle(
                                 // Note that this will also attempt to send over the meta channel, too, but will
                                 // report a channel/clientID pair that possibly nobody saw. Consumers should be aware
                                 // of this possible failure mode.
-                                this.unregisterQuery(UnregisterQueryRequest(req.channel, req.clientID))
-                                cont.resumeWithException(it.cause())
+                                val self = this
+                                vertxFuture {
+                                    self.unregisterQuery(UnregisterQueryRequest(req.channel, req.clientID))
+                                    cont.resumeWithException(it.cause())
+                                }
                             } else {
                                 cont.resumeWith(Result.success(
                                     HttpProtocolErrorOrJson.ofSuccess(jsonObjectOf(
@@ -371,7 +379,7 @@ class QueryRouterVerticle(
         }
     }
 
-    private fun unregisterQuery(
+    private suspend fun unregisterQuery(
         channel: String,
         clientID: String,
         withRemovedPath: (QueryPath) -> Unit
@@ -401,46 +409,44 @@ class QueryRouterVerticle(
             withRemovedPath(involvedPath)
             val counters = this.counters
             val config = this.config
-            counters.alterQueryCountForThread(
-                this.verticleOffset,
-                channelInfo.queryTree.size - basisQueryTreeSize
-            )
+            val vertx = this.vertx
             if (channelInfo.isEmpty()) {
                 this.channels.remove(channel)
             }
-            sendUnpackDataRequests(
-                this.vertx,
-                config,
-                counters,
-                listOf(this.unpackDataRequestForMetaChannel(
-                    clientID = clientID,
-                    eventType = thoriumMetaQueryRemovalType,
-                    idPrefix = "-",
-                    data = jsonObjectOf(
-                        "instanceID" to config.instanceID,
-                        "channel" to channel,
-                        "clientID" to clientID
-                    )
-                )),
-                respectLimit = false
-            ).onComplete {
-                if (it.failed()) {
+            val unpackRequest = listOf(this.unpackDataRequestForMetaChannel(
+                clientID = clientID,
+                eventType = thoriumMetaQueryRemovalType,
+                idPrefix = "-",
+                data = jsonObjectOf(
+                    "instanceID" to config.instanceID,
+                    "channel" to channel,
+                    "clientID" to clientID
+                )
+            ))
+            val backoffSession = BackoffSession(backoffBaseWaitTimeMS)
+            while (true) {
+                val sendResult = awaitEvent {
+                    sendUnpackDataRequests(vertx, config, counters, unpackRequest, respectLimit = true).onComplete(it)
+                }
+                if (sendResult.succeeded()) {
+                    val status = sendResult.result()
+                    if (status.withinLimit && status.error == null) {
+                        break
+                    }
+                } else {
                     this.log.atWarn()
                         .setMessage("Could not report query removal")
                         .addKeyValue("channel", channel)
                         .addKeyValue("clientID", clientID)
                         .log()
-                } else {
-                    this.log.atDebug()
-                        .setMessage("Removed query")
-                        .addKeyValue("channel", channel)
-                        .addKeyValue("clientID", clientID)
-                        .log()
                 }
+                val sleepTimeMS = backoffSession.sleepTimeMS()
+                delay(Duration.ofNanos((sleepTimeMS * 1_000_000).toLong()).toKotlinDuration())
             }
-            // We thankfully don't have to wait for the meta channel send to report that we've removed this
-            // query. We've already removed it, and we won't be reporting anything else to it, so a delay in reporting
-            // is fully acceptable.
+            counters.alterQueryCountForThread(
+                this.verticleOffset,
+                channelInfo.queryTree.size - basisQueryTreeSize
+            )
             HttpProtocolErrorOrJson.ofSuccess(
                 jsonObjectOf(
                     "channel" to channel,
@@ -450,7 +456,7 @@ class QueryRouterVerticle(
         }
     }
 
-    private fun unregisterQuery(req: UnregisterQueryRequest): HttpProtocolErrorOrJson {
+    private suspend fun unregisterQuery(req: UnregisterQueryRequest): HttpProtocolErrorOrJson {
         return this.unregisterQuery(req.channel, req.clientID) { queryPath ->
             val decrements = mutableListOf<Pair<List<String>, Int>>()
             extractKeyPathsFromQueryPath(queryPath, -1) {
@@ -469,12 +475,15 @@ class QueryRouterVerticle(
     ): Future<Message<Any>> {
         val (_, respondTo, clientID) = responder
         val current = eventBus.request<Any>(respondTo, data, localRequestOptions).onFailure {
-            this.unregisterQuery(data.channel, responder.clientID) { queryPath ->
-                extractKeyPathsFromQueryPath(queryPath, -1) {
-                    removedPathIncrements.add(it)
+            val self = this
+            vertxFuture {
+                self.unregisterQuery(data.channel, responder.clientID) { queryPath ->
+                    extractKeyPathsFromQueryPath(queryPath, -1) {
+                        removedPathIncrements.add(it)
+                    }
                 }
+                eventBus.publish(respondTo, UnregisterQueryRequest(data.channel, clientID))
             }
-            eventBus.publish(respondTo, UnregisterQueryRequest(data.channel, clientID))
         }
         return prior.eventually { current }
     }
@@ -689,7 +698,7 @@ class QueryRouterVerticle(
         this.queryHandler = eventBus.localConsumer(queryAddress) { message ->
             when (val body = message.body()) {
                 is RegisterQueryRequest -> this.runCoroutineAndReply(message) { this.registerQuery(body) }
-                is UnregisterQueryRequest -> this.runBlockingAndReply(message) { this.unregisterQuery(body) }
+                is UnregisterQueryRequest -> this.runCoroutineAndReply(message) { this.unregisterQuery(body) }
                 else -> HttpProtocolErrorOrJson.ofError(
                     HttpProtocolError(
                         500, jsonObjectOf(
