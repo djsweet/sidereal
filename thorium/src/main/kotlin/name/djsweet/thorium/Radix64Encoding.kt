@@ -427,11 +427,23 @@ internal class Radix64JsonEncoder : Radix64Encoder() {
             return ofBudgetFitString(fullByteLength, result)
         }
 
+        fun isString(ba: ByteArray): Boolean {
+            val stringPrefixLength = STRING_PREFIX.size
+            return Arrays.equals(
+                ba,
+                0,
+                stringPrefixLength.coerceAtMost(ba.size),
+                STRING_PREFIX,
+                0,
+                stringPrefixLength
+            )
+        }
+
         fun isStringWithinBudget(ba: ByteArray): Boolean {
             if (ba.size < MIN_IN_BUDGET_STRING_SIZE) {
                 return false
             }
-            if (!Arrays.equals(ba, 0, STRING_PREFIX.size, STRING_PREFIX, 0, STRING_PREFIX.size)) {
+            if (!isString(ba)) {
                 return false
             }
             return Arrays.equals(
@@ -450,6 +462,14 @@ internal class Radix64JsonEncoder : Radix64Encoder() {
             } else {
                 ba.copyOfRange(0, ba.size - IN_BUDGET_SUFFIX.size)
             }
+        }
+
+        fun contentByteLengthAssumeNoEndElement(ba: ByteArray): Int {
+            // All the prefixes have the exact same length, so we'll use
+            // STRING_PREFIX here as the size basis. The -1 is due to the
+            // ARRAY_START element, but we're assuming (as part of the definition)
+            // that there is no ARRAY_END element.
+            return (ba.size - STRING_PREFIX.size - 1).coerceAtLeast(0)
         }
     }
 

@@ -1,6 +1,7 @@
 package name.djsweet.thorium
 
 import io.vertx.core.json.JsonObject
+import io.vertx.kotlin.core.json.jsonObjectOf
 import name.djsweet.query.tree.QPTrie
 import name.djsweet.query.tree.QuerySpec
 import java.lang.Exception
@@ -126,15 +127,22 @@ internal fun queryStringValueToEncoded(k: String, s: String, from: Int, byteBudg
     return encodedErrorIfOverBudget(k, working, byteBudget)
 }
 
-private val jsonObjectForTooMuchInequality = JsonObject()
-    .put("code", "inequality-operator-already-used")
-    .put("message", "Inequality operator has already been set for this query.")
-private val jsonObjectForExistingKey = JsonObject()
-    .put("code", "equality-operator-already-used")
-    .put("message", "An equality comparison has already been set for this key.")
-private val jsonObjectForTooManyTerms = JsonObject()
-    .put("code", "too-many-terms")
-    .put("message", "This query has too many terms.")
+private val jsonObjectForTooMuchInequality = jsonObjectOf(
+    "code" to "inequality-operator-already-used",
+    "message" to "Inequality operator has already been set for this query."
+)
+private val jsonObjectForExistingKey = jsonObjectOf(
+    "code" to "equality-operator-already-used",
+    "message" to "An equality comparison has already been set for this key."
+)
+private val jsonObjectForTooManyTerms = jsonObjectOf(
+    "code" to "too-many-terms",
+    "message" to "This query has too many terms."
+)
+private val jsonObjectForNonStringStartsWith = jsonObjectOf(
+    "code" to "non-string-for-starts-with",
+    "message" to "Starts-with queries must match a string value"
+)
 
 data class FullQueryAndAffectedKeyIncrements(
     val fullQuery: FullQuery,
@@ -153,6 +161,7 @@ fun convertQueryStringToFullQuery(
     var inequalityOperator: String? = null
     var inequalityKey: ByteArray? = null
     var inequalityValue: ByteArray? = null
+    var startsWithVerification: StartsWithVerification? = null
     var termCount = 0
     val affectedKeyIncrements = mutableListOf<Pair<List<String>, Int>>()
     for ((key, values) in qs) {
@@ -252,18 +261,62 @@ fun convertQueryStringToFullQuery(
                                     400,
                                     jsonObjectForTooMuchInequality.copy().put("operator", inequalityOperator)
                                 )
+                            } else if (!Radix64JsonEncoder.isString(encodedValue)) {
+                                // FIXME: Test this explicitly
+                                error = HttpProtocolError(
+                                    400,
+                                    jsonObjectForNonStringStartsWith.copy().put("value", value.substring(1))
+                                )
                             } else {
                                 inequalityOperator = "~"
+                                // We intentionally skip the "in budget suffix" when working with starts-with, because
+                                // a valid substring will never start with a byte array containing the "in budget suffix".
+                                var queryValue = Radix64JsonEncoder.removeInBudgetSuffixFromString(encodedValue)
+                                // starts-with is somewhat incompatible with any Radix64 encoding, because
+                                // we're going to end up with situations where the lowest 4 or 2 bits need
+                                // to be ignored, due to the 4:3 ratio of encoded-decoded bytes, and
+                                // the modulus of the byte length by 3 sometimes being 1 or 2.
+                                //
+                                // When the byte length modulo 3 is 1, we end up representing 1 byte as 2
+                                // with 4 extra bits. When the byte length modulo 3 is 2, we end up representing
+                                // 2 bytes as 3 with 2 extra bits. In both cases, we can only use the existing
+                                // starts-with functionality for all but the last byte, which will have to be
+                                // checked separately as part of the "starts with verification".
+                                when (Radix64JsonEncoder.contentByteLengthAssumeNoEndElement(queryValue) % 4) {
+                                    2 -> {
+                                        // As in 1110 0000
+                                        val mask = 0xE0
+                                        val byteOffset = queryValue.size - 1
+                                        val expected = queryValue[byteOffset].toInt().and(mask).toByte()
+                                        startsWithVerification = StartsWithVerification(
+                                            encodedKey,
+                                            byteOffset,
+                                            mask.toByte(),
+                                            expected
+                                        )
+                                        queryValue = queryValue.copyOfRange(0, byteOffset)
+                                    }
+                                    3 -> {
+                                        // As in 1111 1000
+                                        val mask = 0xF8
+                                        val byteOffset = queryValue.size - 1
+                                        val expected = queryValue[byteOffset].toInt().and(mask).toByte()
+                                        startsWithVerification = StartsWithVerification(
+                                            encodedKey,
+                                            byteOffset,
+                                            mask.toByte(),
+                                            expected
+                                        )
+                                        queryValue = queryValue.copyOfRange(0, byteOffset)
+                                    }
+                                }
                                 treeSpec = treeSpec.withStartsWithTerm(
                                     encodedKey,
-                                    // We intentionally skip the "in budget suffix" when working with starts-with, because
-                                    // a valid substring will never start with a byte array containing the "in budget suffix".
-                                    Radix64JsonEncoder.removeInBudgetSuffixFromString(encodedValue)
+                                    queryValue
                                 )
+                                inequalityKey = encodedKey
+                                inequalityValue = encodedValue
                             }
-
-                            inequalityKey = encodedKey
-                            inequalityValue = encodedValue
                         } else if (value.startsWith("[")) {
                             arrayContains = arrayContains.update(encodedKey) { (it ?: QPTrie()).put(encodedValue, true) }
                         } else if (value.startsWith("!")) {
@@ -283,7 +336,7 @@ fun convertQueryStringToFullQuery(
         }
     }
     return HttpProtocolErrorOr.ofSuccess(FullQueryAndAffectedKeyIncrements(
-        fullQuery = FullQuery(treeSpec, arrayContains, notEquals),
+        fullQuery = FullQuery(treeSpec, arrayContains, notEquals, startsWithVerification),
         affectedKeyIncrements = affectedKeyIncrements
     ))
 }

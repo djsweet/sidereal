@@ -556,7 +556,11 @@ class QueryRouterVerticle(
             var arrayResponderQueries = QPTrie<QPTrie<IdentitySet<QueryResponderSpec>>>()
             for (responder in responders) {
                 val (query, _, _, _, arrayContainsCount) = responder
-                if (!query.notEqualsMatchesData(queryableScalarData.trie)) {
+                val dataTrie = queryableScalarData.trie
+                if (!query.startsWithMatchesAtOffsets(dataTrie)) {
+                    continue
+                }
+                if (!query.notEqualsMatchesData(dataTrie)) {
                     continue
                 }
                 // If we have any arrayContains we have to inspect, save this for another phase

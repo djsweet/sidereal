@@ -1,10 +1,14 @@
 package name.djsweet.thorium
 
 import io.vertx.core.json.JsonObject
+import io.vertx.kotlin.core.json.jsonObjectOf
 import name.djsweet.query.tree.QPTrie
+import name.djsweet.query.tree.QuerySetTree
 import name.djsweet.query.tree.QuerySpec
+import name.djsweet.thorium.servers.QueryResponderSpec
 import net.jqwik.api.*
 import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.Test
 import java.util.*
 
 private typealias UnaryTarget = Triple<Pair<String, List<String>>, String, Pair<String, ByteArray>>
@@ -227,7 +231,13 @@ class QueryStringConversionTest {
         }.list().ofMaxSize(maxQueryStringTerms - 2)
         val unaryOpTerm = this.jsonPath.flatMap { pathPair ->
             nonEqualityUnaryOpChoices.flatMap { opString ->
-                this.jsonValueWithinBudget().map{ Triple(pathPair, opString, it) }
+                val valuesWithinBudget = if (opString == "~") {
+                    // ~ only works correctly with Strings, and will fail with an HTTP 400 otherwise.
+                    this.jsonValueWithinBudget().filter{ Radix64JsonEncoder.isString(it.second) }
+                } else {
+                    this.jsonValueWithinBudget()
+                }
+                valuesWithinBudget.map{ Triple(pathPair, opString, it) }
             }
         }.list().ofMaxSize(1)
         return equalityContainsNotTerms.flatMap { et ->
@@ -334,9 +344,23 @@ class QueryStringConversionTest {
                 "~" -> {
                     // We intentionally skip the "in budget suffix" when working with starts-with, because
                     // a valid substring will never start with a byte array containing the "in budget suffix".
+                    var queryValue = Radix64JsonEncoder.removeInBudgetSuffixFromString(valuePair.second)
+                    // starts-with is somewhat incompatible with any Radix64 encoding, because
+                    // we're going to end up with situations where the lowest 4 or 2 bits need
+                    // to be ignored, due to the 4:3 ratio of encoded-decoded bytes, and
+                    // the modulus of the byte length by 3 sometimes being 1 or 2.
+                    //
+                    // When the byte length modulo 3 is 1, we end up representing 1 byte as 2
+                    // with 4 extra bits. When the byte length modulo 3 is 2, we end up representing
+                    // 2 bytes as 3 with 2 extra bits. In both cases, we can only use the existing
+                    // starts-with functionality for all but the last byte, which will have to be
+                    // checked separately as part of the "starts with verification".
+                    if (Radix64JsonEncoder.contentByteLengthAssumeNoEndElement(queryValue) % 4 > 0) {
+                        queryValue = queryValue.copyOfRange(0, queryValue.size - 1)
+                    }
                     querySpec = querySpec.withStartsWithTerm(
                         keyPath,
-                        Radix64JsonEncoder.removeInBudgetSuffixFromString(valuePair.second)
+                        queryValue
                     )
                 }
             }
@@ -380,5 +404,96 @@ class QueryStringConversionTest {
                 assertEquals(convertBooleanQPTrieToList(notEquals), convertBooleanQPTrieToList(fullQuery.notEquals))
             }
         assertTrue(succeeded)
+    }
+
+    @Test
+    fun startsWithStringCorrectlyHandlesByteBoundaryMismatch() {
+        // Consider the following query:
+        //    key=~some.value
+        // The value "some.value" has 10 characters. Because our Radix64 encoding
+        // maps 3 bytes to 4 bytes, 2 bytes to 3 bytes, and 1 byte to 2 bytes, with
+        // some trailing bits, this won't work naively, because of the trailing 4
+        // bits on the last 2 bytes of the string.
+        // But we need this to work in general, not just over strings that happen
+        // to have lengths divisible by 3. So, we'll use the QueryTree directly for
+        // the substring
+        //    some.valu (9 characters)
+        // which will match, and then perform an after-the-fact filtering over the
+        // original string, to ensure that the full data does start with the entire
+        //    some.value
+
+        val fullStartsWith = "thorium.query.meta.remove"
+        val dataKey = "key"
+        val matchedData = jsonObjectOf(dataKey to fullStartsWith)
+        val byteBudget = (dataKey.length + fullStartsWith.length) * 2
+        val (matchedDataScalars, matchedDataArrays) = encodeJsonToQueryableData(
+            matchedData,
+            AcceptAllKeyValueFilterContext(),
+            byteBudget,
+            1
+        )
+        assertEquals(0L, matchedDataArrays.trie.size)
+        assertEquals(1L, matchedDataScalars.trie.size)
+
+        for (endIndex in 1..fullStartsWith.length) {
+            val startsWithValue = fullStartsWith.substring(0, endIndex)
+
+            // Just as important as matching the correct value is not matching
+            // incorrect values. Making sure we match strings that don't fit neatly
+            // into the 4 bytes per 3 bytes encoding could create false positives,
+            // if we're not careful.
+            val notQuiteValue = fullStartsWith.substring(0, endIndex - 1)
+            val notQuiteMatchedData = jsonObjectOf(dataKey to notQuiteValue)
+            val (notQuiteMatchedDataScalars, notQuiteMatchedDataArrays) = encodeJsonToQueryableData(
+                notQuiteMatchedData,
+                AcceptAllKeyValueFilterContext(),
+                byteBudget,
+                1
+            )
+            assertEquals(0L, notQuiteMatchedDataArrays.trie.size)
+            assertEquals(1L, notQuiteMatchedDataScalars.trie.size)
+
+            convertQueryStringToFullQuery(
+                mapOf("../$dataKey" to listOf("~$startsWithValue")),
+                1,
+                byteBudget
+            ).whenError {
+                fail("Unexpected query decode failure: ${it.contents.encode()}")
+            }.whenSuccess { (fullQuery) ->
+                if (endIndex % 3 != 0) {
+                    assertNotNull(fullQuery.startsWithVerification)
+                } else {
+                    assertNull(fullQuery.startsWithVerification)
+                }
+                // First, we're ensuring a true positive for all substrings
+                val responder = QueryResponderSpec(
+                    query = fullQuery,
+                    respondTo = "someone",
+                    clientID = "me",
+                    addedAt = monotonicNowMS(),
+                    arrayContainsCounter = 0
+                )
+                val (_, queryTree) = QuerySetTree<QueryResponderSpec>()
+                    .addElementByQuery(fullQuery.treeSpec, responder)
+
+                val foundResponders = mutableListOf<QueryResponderSpec>()
+                queryTree.visitByData(matchedDataScalars.trie) { _, spec ->
+                    foundResponders.add(spec)
+                }
+
+                assertEquals(1, foundResponders.size)
+                assertEquals(responder, foundResponders[0])
+                assertTrue(fullQuery.startsWithMatchesAtOffsets(matchedDataScalars.trie))
+
+                // Next, we're ensuring no false positives for a substring that
+                // should not match
+                foundResponders.clear()
+                queryTree.visitByData(notQuiteMatchedDataScalars.trie) { _, spec ->
+                    foundResponders.add(spec)
+                }
+
+                assertEquals(0, foundResponders.size)
+            }
+        }
     }
 }
