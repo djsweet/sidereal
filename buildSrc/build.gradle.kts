@@ -4,7 +4,7 @@
 
 plugins {
     // Support convention plugins written in Kotlin. Convention plugins are build scripts in 'src/main' that automatically become available as plugins in the main build.
-    `kotlin-dsl`
+    id("org.gradle.kotlin.kotlin-dsl") version "4.2.1"
 }
 
 repositories {
@@ -14,7 +14,7 @@ repositories {
 }
 
 dependencies {
-    implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:1.8.21")
+    implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.21")
     implementation("org.jetbrains.kotlinx:kotlinx-benchmark-runtime:0.4.7")
 }
 
