@@ -20,7 +20,7 @@ private const val MAX_POSSIBLE_KEY_VALUE_SIZE = 65536
 // a callback into recurseUntilZero. This decreased the base number of recursive stack calls,
 // as one would expect, so the safety factor was reduced until we started getting StackOverflowError
 // again.
-private const val MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR = 12
+private const val MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR = 13
 private const val MAX_POSSIBLE_KEY_VALUE_SIZE_WARMUP_ITERATIONS = 10
 private const val MAX_POSSIBLE_KEY_VALUE_SIZE_ITERATIONS = 60
 
