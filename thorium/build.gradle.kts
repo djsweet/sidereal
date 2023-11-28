@@ -94,6 +94,17 @@ tasks.test {
     maxHeapSize = "2048m"
 }
 
+tasks.jar {
+    dependsOn(":query-tree:jar")
+    manifest.attributes["Main-Class"] = "name.djsweet.thorium.AppKt"
+    val dependencies = configurations
+        .runtimeClasspath
+        .get()
+        .map(::zipTree)
+    from(dependencies)
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
 benchmark {
     configurations {
         create("jsonDecoding") {
