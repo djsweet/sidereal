@@ -42,6 +42,22 @@ argument to Gradle's `--args` argument. Run
 for a list of these flags, or see the
 [Server Configuration](#server-configuration) section for more details.
 
+## Building a runnable JAR
+
+Gradle can build directly-runnable [JAR Files](https://docs.oracle.com/javase/tutorial/deployment/jar/basicsindex.html)
+by running
+
+```shell
+./gradlew jar
+```
+
+The resulting JAR will be saved to `./thorium/build/libs/thorium.jar`,
+and run directly using
+
+```shell
+java -jar ./thorium/build/libs/thorium.jar serve
+```
+
 ## Sending events
 
 Events are sent to named "channels" by requesting an HTTP POST containing
