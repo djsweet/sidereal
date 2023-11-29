@@ -6,7 +6,7 @@ Change Data Capture, it can turn any database into a real-time database.
 
 A query in Thorium is a logical conjunction (`x AND y AND z` ...) of key/value
 terms (`key1=value1 AND key2=value2 AND key3=value3` ...). Queries are
-internally indexed by their terms (e.g. key2 = value2 is an index entry), as
+internally indexed by their terms (e.g. `key2=value2` is an index entry), as
 an inversion to the usual practice of data being indexed by their fields. This
 query indexing allows Thorium to scale efficiently to thousands of concurrent
 queries while still ingesting tens of thousands of events per second.
@@ -23,7 +23,7 @@ Thorium builds and runs correctly using any of
 Thorium is compiled using [Gradle](https://gradle.org), and this repository
 includes the
 [Gradle Wrapper](https://docs.gradle.org/current/userguide/gradle_wrapper.html),
-so only a suitable JDK needs to be installed to build .
+so only a suitable JDK needs to be explicitly installed to build this project.
 
 Run the server with the command
 
@@ -32,7 +32,15 @@ Run the server with the command
 ```
 
 This will start the Thorium Server listening for HTTP connections over TCP
-port 8232.
+port 8232. Additional command-line flags can be passed in the string
+argument to Gradle's `--args` argument. Run
+
+```shell
+./gradlew run --args="serve --help"
+```
+
+for a list of these flags, or see the
+[Server Configuration](#server-configuration) section for more details.
 
 ## Sending events
 
@@ -45,7 +53,7 @@ Events are sent to named "channels" by requesting an HTTP POST containing
 
 where `CHANNEL-NAME` is a
 [percent-encoded](https://datatracker.ietf.org/doc/html/rfc3986#section-2.1)
-string with at least 1 character. For example, a `CHANNEL-NAME` of
+string containing at least 1 character. For example, a `CHANNEL-NAME` of
 "with/slash" would be encoded as
 
 ```
@@ -54,7 +62,7 @@ string with at least 1 character. For example, a `CHANNEL-NAME` of
 
 The name `meta` is used internally to report query registration, and does not
 receive events from external sources. Attempts to send an event to the `meta`
-channel will result in an HTTP 403.
+channel will result in an HTTP 403 response.
 
 The `Content-Type` of the data sent to this endpoint can be one of
 - `application/json`
@@ -72,8 +80,8 @@ Thorium internally keeps track of these "source" and "id" combinations it has
 received, over a configurable time horizon with a configurable number of
 remembered events. If a producer tries to send a "source", "id" combination to
 a channel that has already received this combination, Thorium will report the
-publication as having been successful, but will not deliver the data to
-clients. Within the constraints of the time horizon and maximum remembered
+publication as having been successful, but will not deliver the event to
+consumers. Within the constraints of the time horizon and maximum remembered
 "source", "id" combinations, this makes event publishing an idempotent
 operation.
 
@@ -258,11 +266,11 @@ data: {"one":"one","two":"two","three":3,"four":"five"}}
 
 for the following reasons:
 - 1 would match because `data["one"] == "one"`, `data["two"] == "two"`,
-  `data["three"] == 3`. The contents, or even presence, of `data["four"]`,
+  `data["three"] == 3`. The contents, or even presence, of `data["four"]`
   has no effect on the given filter.
 - 2 would match because `data["one"] == "one"`, `data["two"] == "two"`,
   `data["three"] == 3`. Similar to 1, the contents, or even presence, of
-  `data["four"]`, has no effect.
+  `data["four"]` has no effect.
 - 3 would not match because `data["one"]` is not present.
 - 4 would not match because `data["one"] == "two"` when we expected
   `data["one"] == "one"`.
@@ -275,7 +283,7 @@ for the following reasons:
 - 8 would not match because `data["three"] == "three"` when we expected
   `data["three"] == 3`.
 
-By default, if a key does not start with "/" or "../", it is assumed to be a
+By default, if a key does not start with `/` or `../`, it is assumed to be a
 literal key within the "data" object of the event. For example, a query string
 of the form
 
@@ -297,8 +305,8 @@ is interpreted to match
 ```
 
 Access to keys within JSON documents is made possible by using
-[JSON Pointers](https://www.rfc-editor.org/rfc/rfc6901). As an example, to
-match "some", then "key" in
+[JSON Pointers](https://datatracker.ietf.org/doc/html/rfc6901).
+As an example, to match "some", then "key" in
 
 ```
 {
@@ -320,10 +328,25 @@ you would use a query string
 ?/some/key="value"
 ```
 
+Note that `~` in a valid key path component must be replaced with `~0`, and
+`/` in a valid key path must be replaced with `~1`. The replacement of `~`
+with `~0` should occur before replacing `/` with `~1` so that the encoding
+`~1` is not accidentally rewritten as `~~1`. For a key path of
+
+```javascript
+data["with/slash"]["with~tilde"]
+```
+
+the JSON Pointer encoding would be
+
+```
+?/with~1slash/with~0tilde
+```
+
 Keys are matched starting from the "data" key in the resulting CloudEvent by
 default. As an extension to JSON Pointers, if the query string starts with
-`..` and is also a JSON Pointer, the key is matched starting from the object
-root. As an example, to match the CloudEvent type in
+`..` and the remainder is a JSON Pointer, the key is matched starting from
+the object root. As an example, to match the CloudEvent type in
 
 ```
 {
@@ -356,42 +379,44 @@ Thorium supports more filters than just field equality. The following
 additional operators are available, but many with caveats on the number of
 operators per query.
 
-- Logical Not, with a value prefix of "!". This can be used multiple times in
-  a single query. As an example, `?../type=!"com.example.thorium"`, or
+- ***Logical Not***, with a value prefix of `!`. This can be used multiple
+  times in a single query. As an example, `?../type=!"com.example.thorium"`, or
   `..%2Ftype=%21%22com.example.thorium%22` if using strict percent-encoding.
-- Array Contains, with a value prefix of "[". This can be used multiple times
-  in a single query. As an example, `?../type=["com.example.thorium"`, or
+- ***Array Contains***, with a value prefix of `[`. This can be used multiple
+  times in a single query. As an example, `?../type=["com.example.thorium"`, or
   `?..%2Ftype=%5B%22com.example.thorium%22` if using strict percent-encoding.
-- Less Than, with a value prefix of "<". This can only be used once in a
-  single query, and precludes the use of Less Than or Equal and Starts With
-  operators. It may be used in conjunction with Greater Than or Equal and
-  Greater Than only if these operators are used with the same key. As an
-  example, `?../type=<"com.example.thorium"`, or
+- ***Less Than***, with a value prefix of `<`. This can only be used once in a
+  single query, and precludes the use of ***Less Than or Equal*** and ***Starts
+  With*** operators. It may be used in conjunction with ***Greater Than or
+  Equal*** and ***Greater Than*** only if these operators are used with the
+  same key. As an example, `?../type=<"com.example.thorium"`, or
   `?..%2Ftype=%3C%22com.example.thorium%22` if using strict percent-encoding.
-- Less Than or Equal, with a value prefix of "<=". This can only be used once
-  in a single query, and precludes the use of the Less Than and Starts With
-  operators. It may be used in conjunction with Greater Than or Equal and
-  Greater Than only if these operators are used with the same key. As an
-  example, `?../type=<="com.example.thorium"`, or
+- ***Less Than or Equal***, with a value prefix of `<=`. This can only be used
+  once in a single query, and precludes the use of the ***Less Than*** and
+  ***Starts With*** operators. It may be used in conjunction with ***Greater
+  Than or Equal*** and ***Greater Than*** only if these operators are used with
+  the same key. As an example, `?../type=<="com.example.thorium"`, or
   `?..%2Ftype=%3C%3D%22com.example.thorium%22` if using strict
   percent-encoding.
-- Greater Than or Equal, with a value prefix of ">=". This can only be used
-  once in a single query, and precludes the use of the Greater Than and Starts
-  With operators. It may be used in conjunction with Less Than and Less Than
-  or Equal only if these operators are used with the same key. As an example,
-  `?../type=>="com.example.thorium"`, or
+- ***Greater Than or Equal***, with a value prefix of `>=`. This can only be
+  used once in a single query, and precludes the use of the ***Greater Than***
+  and ***Starts With*** operators. It may be used in conjunction with ***Less
+  Than*** and ***Less Than or Equal*** only if these operators are used with
+  the same key. As an example, `?../type=>="com.example.thorium"`, or
   `?..%2Ftype=%3E%3D%22com.example.thorium%22` if using strict
   percent-encoding.
-- Greater Than, with a value prefix of ">". This can only be used once in a
-  single query, and precludes the use of the Greater Than or Equal and Starts
-  With operators. It may be used in conjunction with the Less Than and Less
-  Than or Equal operators only if these operators are used with the same key.
-  As an example, `?../type=>"com.example.thorium"`, or
+- ***Greater Than***, with a value prefix of `>`. This can only be used once
+  in a single query, and precludes the use of the ***Greater Than or Equal***
+  and ***Starts With*** operators. It may be used in conjunction with the
+  ***Less Than*** and ***Less Than or Equal*** operators only if these
+  operators are used with the same key. As an example,
+  `?../type=>"com.example.thorium"`, or
   `?..%2Ftype=%3E%22com.example.thorium%22` if using strict percent-encoding.
-- Starts With, with a value prefix of "~". This can only be used once in a
-  single query, can only be used with string values, and precludes the use of
-  the Less Than, Less Than or Equal, Greater Than or Equal, and Greater Than
-  operators. As an example, `?../type=~"com.example.thorium"`, or
+- ***Starts With***, with a value prefix of `~`. This can only be used once in
+  a single query, can only be used with string values, and precludes the use
+  of the ***Less Than***, ***Less Than or Equal***, ***Greater Than or
+  Equal***, and ***Greater Than*** operators. As an example,
+  `?../type=~"com.example.thorium"`, or
   `?..%2Ftype=%7E%22com.example.thorium%22` if using strict percent-encoding.
 
 ## Server Configuration
