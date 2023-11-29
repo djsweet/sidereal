@@ -4,8 +4,8 @@ Thorium is a standalone HTTP server providing reactive queries over
 streaming [CloudEvents](https://cloudevents.io). When used in conjunction with
 Change Data Capture, it can turn any database into a real-time database.
 
-A query in Thorium is a logical conjunction (x AND y AND z ...) of key/value
-terms (key1 = value1 AND key2 = value2 AND key3 = value3 ...). Queries are
+A query in Thorium is a logical conjunction (`x AND y AND z` ...) of key/value
+terms (`key1=value1 AND key2=value2 AND key3=value3` ...). Queries are
 internally indexed by their terms (e.g. key2 = value2 is an index entry), as
 an inversion to the usual practice of data being indexed by their fields. This
 query indexing allows Thorium to scale efficiently to thousands of concurrent
@@ -400,32 +400,32 @@ Thorium accepts configuration through command-line flags and environment
 variables.
 
 - **Flag:** `--server-port`
-
+  <br/>
   **Environment Variable:** `THORIUM_SERVER_PORT`
-
+  <br/>
   **Type:** Integer
-
+  <br/>
   **Default Value:** 8232
 
   Thorium will listen for HTTP connections over this TCP port.
 
 - **Flag:** `--source-name`
-
+  <br/>
   **Environment Variable:** `THORIUM_SOURCE_NAME`
-
+  <br/>
   **Type:** String
-
+  <br/>
   **Default Value:** //name.djsweet.thorium
 
   CloudEvents emitted by Thorium will use this string as the "source"
   metadata.
 
 - **Flag:** `--query-threads`
-
+  <br/>
   **Environment Variable:** `THORIUM_QUERY_THREADS`
-
+  <br/>
   **Type:** Integer
-
+  <br/>
   **Default Value:** Number of logical CPU threads reported by the operating
   system.
 
@@ -433,11 +433,11 @@ variables.
   connections.
 
 - **Flag:** `--translator-threads`
-
+  <br/>
   **Environment Variable:** `THORIUM_TRANSLATOR_THREADS`
-
+  <br/>
   **Type:** Integer
-
+  <br/>
   **Default Value:** Number of logical CPU threads reported by the operating
   system.
 
@@ -445,11 +445,11 @@ variables.
   into its internal indexing representation.
 
 - **Flag:** `--web-server-threads`
-
+  <br/>
   **Environment Variable:** `THORIUM_WEB_SERVER_THREADS`
-
+  <br/>
   **Type:** Integer
-
+  <br/>
   **Default Value:** Twice the number of logical CPU threads reported by the
   operating system.
 
@@ -457,11 +457,11 @@ variables.
   requests.
 
 - **Flag:** `--max-body-size-bytes`
-
+  <br/>
   **Environment Variable:** `THORIUM_MAX_BODY_SIZE_BYTES`
-
+  <br/>
   **Type:** Integer
-
+  <br/>
   **Default Value:** 10,485,760 (10MB)
 
   Thorium will reject HTTP bodies with a content length greater than this
@@ -469,11 +469,11 @@ variables.
   this value.
 
 - **Flag:** `--max-idempotency-keys`
-
+  <br/>
   **Environment Variable:** `THORIUM_MAX_IDEMPOTENCY_KEYS`
-
+  <br/>
   **Type:** Integer
-
+  <br/>
   **Default Value:** 1,048,576
   
   Thorium will retain this many "source", "id" combinations in a set before
@@ -482,11 +482,11 @@ variables.
   high will result in excess memory usage.
 
 - **Flag:** `--max-json-parsing-recursion`
-
+  <br/>
   **Environment Variable:** `THORIUM_MAX_JSON_PARSING_RECURSION`
-
+  <br/>
   **Type:** Integer
-
+  <br/>
   **Default Value:** 64
 
   Thorium will recurse this deep when translating JSON into its internal
@@ -499,11 +499,11 @@ variables.
   configurable value.
 
 - **Flag:** `--max-outstanding-events-per-query-thread`
-
+  <br/>
   **Environment Variable:** `THORIUM_MAX_OUTSTANDING_EVENTS_PER_QUERY_THREAD`
-
+  <br/>
   **Type:** Integer
-
+  <br/>
   **Default Value:** 131,072
 
   Thorium keeps track of the number of events present "within" the system. An
@@ -515,11 +515,11 @@ variables.
   of waiting when encountering this HTTP 429.
 
 - **Flag:** `--max-query-terms`
-
+  <br/>
   **Environment Variable:** `THORIUM_MAX_QUERY_TERMS`
-
+  <br/>
   **Type:** Integer
-
+  <br/>
   **Default Value:** 32
 
   Thorium limits the number of filter terms available to consumers to prevent
@@ -527,11 +527,11 @@ variables.
   than this configured value, Thorium will reply with an HTTP 400.
 
 - **Flag:** `--body-timeout-ms`
-
+  <br/>
   **Environment Variable:** `THORIUM_BODY_TIMEOUT_MS`
-
+  <br/>
   **Type:** Integer
-
+  <br/>
   **Default Value:** 60,000
 
   After all HTTP headers are received, Thorium will wait up to this many
@@ -539,11 +539,11 @@ variables.
   fully received within this time, Thorium will respond with an HTTP 408.
 
 - **Flag:** `--idempotency-expiration-ms`
-
+  <br/>
   **Environment Variable:** `THORIUM_IDEMPOTENCY_EXPIRATION_MS`
-
+  <br/>
   **Type:** Integer
-
+  <br/>
   **Default Value:** 180,000
 
   Thorium will remove its record of a "source", "id" combination from its
@@ -552,11 +552,11 @@ variables.
   tracking set will result in the data being sent to consumers.
 
 - **Flag:** `--tcp-idle-timeout-ms`
-
+  <br/>
   **Environment Variable:** `THORIUM_TCP_IDLE_TIMEOUT_MS`
-
+  <br/>
   **Type:** Integer
-
+  <br/>
   **Default Value:** 180,000
 
   Thorium will close a TCP connection after this many milliseconds of no
