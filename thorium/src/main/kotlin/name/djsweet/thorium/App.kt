@@ -48,10 +48,10 @@ internal class ServeCommand: CliktCommand(
         envvar = "${envVarPrefix}SOURCE_NAME"
     ).default(GlobalConfig.defaultCloudEventSource)
 
-    private val queryThreads by option(
-        help = "Number of threads to use for queries. Expected to be between 1 and the number of logical processors available",
-        envvar = "${envVarPrefix}QUERY_THREADS"
-    ).int().default(GlobalConfig.defaultQueryThreads)
+    private val routerThreads by option(
+        help = "Number of threads to use for routing events to queries. Expected to be between 1 and the number of logical processors available",
+        envvar = "${envVarPrefix}ROUTER_THREADS"
+    ).int().default(GlobalConfig.defaultRouterThreads)
 
     private val translatorThreads by option(
         help = "Number of threads to use for translating ingested data into its index representation. Expected to be between 1 and the number of logical processors available",
@@ -78,10 +78,10 @@ internal class ServeCommand: CliktCommand(
         envvar = "${envVarPrefix}MAX_JSON_PARSING_RECURSION"
     ).int().default(GlobalConfig.defaultMaxJsonParsingRecursion)
 
-    private val maxOutstandingEventsPerQueryThread by option(
+    private val maxOutstandingEventsPerRouterThread by option(
         help = "Number of outstanding events per query thread. The global maximum is calculated by multiplying this by the number of query threads",
-        envvar = "${envVarPrefix}MAX_OUTSTANDING_EVENTS_PER_QUERY_THREAD"
-    ).int().default(GlobalConfig.defaultMaxOutstandingEventsPerQueryThread)
+        envvar = "${envVarPrefix}MAX_OUTSTANDING_EVENTS_PER_ROUTER_THREAD"
+    ).int().default(GlobalConfig.defaultMaxOutstandingEventsPerRouterThread)
 
     private val maxQueryTerms by option(
         help = "Maximum number of terms in a query",
@@ -106,7 +106,7 @@ internal class ServeCommand: CliktCommand(
     override fun run() {
         val meterRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
 
-        val workerPoolSize = (this.queryThreads + this.webServerThreads)
+        val workerPoolSize = (this.routerThreads + this.webServerThreads)
             .coerceAtMost(availableProcessors())
         val nonblockingPoolSize = webServerThreads.coerceAtMost(2 * availableProcessors())
         val opts = VertxOptions().setWorkerPoolSize(workerPoolSize).setEventLoopPoolSize(nonblockingPoolSize)
@@ -136,15 +136,15 @@ internal class ServeCommand: CliktCommand(
         config.maxQueryTerms = this.maxQueryTerms
         config.maxJsonParsingRecursion = this.maxJsonParsingRecursion
         config.maxBodySizeBytes = this.maxBodySizeBytes
-        config.maxOutstandingEventsPerQueryThread = this.maxOutstandingEventsPerQueryThread
+        config.maxOutstandingEventsPerRouterThread = this.maxOutstandingEventsPerRouterThread
 
-        config.queryThreads = this.queryThreads
+        config.routerThreads = this.routerThreads
         config.translatorThreads = this.translatorThreads
         config.webServerThreads = this.webServerThreads
 
         registerMessageCodecs(vertx)
 
-        val queryThreads = config.queryThreads
+        val queryThreads = config.routerThreads
         val counters = GlobalCounterContext(queryThreads)
 
         Gauge.builder(outstandingEventsCountName) { counters.getOutstandingEventCount() }

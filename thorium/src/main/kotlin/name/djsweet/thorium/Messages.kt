@@ -618,14 +618,14 @@ fun addressForQueryClientAtOffset(clientID: String): String {
     return "thorium.query.clients.${clientID}"
 }
 
-private var queryServerQueryAddresses: Array<String>? = null
-fun addressForQueryServerQuery(config: GlobalConfig, verticleOffset: Int): String {
-    var currentQueryServerQueryAddresses = queryServerQueryAddresses
-    if (currentQueryServerQueryAddresses == null) {
-        currentQueryServerQueryAddresses = Array(config.queryThreads) { addressForQueryServerQueryAtOffset(it) }
-        queryServerQueryAddresses = currentQueryServerQueryAddresses
+private var routerServerAddresses: Array<String>? = null
+fun addressForRouterServer(config: GlobalConfig, verticleOffset: Int): String {
+    var currentRouterServerAddresses = routerServerAddresses
+    if (currentRouterServerAddresses == null) {
+        currentRouterServerAddresses = Array(config.routerThreads) { addressForQueryServerQueryAtOffset(it) }
+        routerServerAddresses = currentRouterServerAddresses
     }
-    return currentQueryServerQueryAddresses[verticleOffset]
+    return currentRouterServerAddresses[verticleOffset]
 }
 
 private var translatorServerAddresses: Array<String>? = null

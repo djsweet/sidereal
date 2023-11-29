@@ -695,10 +695,10 @@ class QueryRouterVerticle(
 
         this.idempotencyExpirationMS = this.config.idempotencyExpirationMS
         this.maxQueryTerms = this.config.maxQueryTerms
-        this.maxOutstandingDecrements = this.config.maxOutstandingEventsPerQueryThread.toLong()
+        this.maxOutstandingDecrements = this.config.maxOutstandingEventsPerRouterThread.toLong()
 
         val eventBus = this.vertx.eventBus()
-        val queryAddress = addressForQueryServerQuery(this.config, this.verticleOffset)
+        val queryAddress = addressForRouterServer(this.config, this.verticleOffset)
         this.queryHandler = eventBus.localConsumer(queryAddress) { message ->
             when (val body = message.body()) {
                 is RegisterQueryRequest -> this.runCoroutineAndReply(message) { this.registerQuery(body) }
@@ -943,7 +943,7 @@ suspend fun registerQueryServer(
 ): Set<String> {
     val opts = DeploymentOptions().setWorker(true)
     val futures = mutableListOf<Future<String>>()
-    val queryThreads = config.queryThreads
+    val queryThreads = config.routerThreads
     val idempotencyKeyCacheSize = config.maxIdempotencyKeys
     for (i in 0 until queryThreads) {
         futures.add(

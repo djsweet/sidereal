@@ -23,10 +23,10 @@ class GlobalConfig(private val sharedData: SharedData) {
         const val defaultMaxIdempotencyKeys = 1024 * 1024
         const val defaultMaxQueryTerms = 32
         const val defaultMaxJsonParsingRecursion = 64
-        const val defaultMaxOutstandingEventsPerQueryThread = 128 * 1024
+        const val defaultMaxOutstandingEventsPerRouterThread = 128 * 1024
         const val defaultMaxBodySize = 10 * 1024 * 1024
         const val defaultCloudEventSource = "//name.djsweet.thorium"
-        val defaultQueryThreads = availableProcessors()
+        val defaultRouterThreads = availableProcessors()
         val defaultTranslatorThreads = availableProcessors()
         val defaultWebServerThreads = availableProcessors()
     }
@@ -105,18 +105,18 @@ class GlobalConfig(private val sharedData: SharedData) {
             this.limitLocalMap[this.maxJsonParsingRecursionKey] = newRecursionLimit.coerceAtLeast(0)
         }
 
-    private val maxOutstandingEventsPerQueryKey = "maxOutstandingEventsPerThread"
-    var maxOutstandingEventsPerQueryThread: Int
+    private val maxOutstandingEventsPerRouterThreadKey = "maxOutstandingEventsPerThread"
+    var maxOutstandingEventsPerRouterThread: Int
         get() = this.limitLocalMap.getOrDefault(
-            this.maxOutstandingEventsPerQueryKey,
-            defaultMaxOutstandingEventsPerQueryThread
+            this.maxOutstandingEventsPerRouterThreadKey,
+            defaultMaxOutstandingEventsPerRouterThread
         )
         set(newOutstandingEventsPerQuery) {
-            this.limitLocalMap[this.maxOutstandingEventsPerQueryKey] = newOutstandingEventsPerQuery
+            this.limitLocalMap[this.maxOutstandingEventsPerRouterThreadKey] = newOutstandingEventsPerQuery
                 .coerceAtLeast(1)
         }
 
-    val maxOutstandingEvents: Int get() = this.maxOutstandingEventsPerQueryThread * this.queryThreads
+    val maxOutstandingEvents: Int get() = this.maxOutstandingEventsPerRouterThread * this.routerThreads
 
     private val maxBodySizeBytesKey = "maxBodySizeBytes"
     var maxBodySizeBytes: Int
@@ -125,11 +125,11 @@ class GlobalConfig(private val sharedData: SharedData) {
             this.limitLocalMap[this.maxBodySizeBytesKey] = newMaxBodySize.coerceAtLeast(128)
         }
 
-    private val queryThreadsKey = "queryThreads"
-    var queryThreads: Int
-        get() = this.limitLocalMap.getOrDefault(this.queryThreadsKey, defaultQueryThreads)
+    private val routerThreadsKey = "routerThreads"
+    var routerThreads: Int
+        get() = this.limitLocalMap.getOrDefault(this.routerThreadsKey, defaultRouterThreads)
         set(newQueryThreadCount) {
-            this.limitLocalMap[this.queryThreadsKey] = newQueryThreadCount
+            this.limitLocalMap[this.routerThreadsKey] = newQueryThreadCount
                 .coerceAtLeast(1)
                 .coerceAtMost(availableProcessors())
         }

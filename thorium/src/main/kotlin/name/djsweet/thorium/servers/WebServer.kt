@@ -109,7 +109,7 @@ fun handleQuery(
 
     // The initial proposed query server is randomized, to ensure that too many concurrent connections
     // don't overwhelm a single query server.
-    val queryThreads = config.queryThreads
+    val queryThreads = config.routerThreads
     val initialOffset = ThreadLocalRandom.current().nextInt().absoluteValue % queryThreads
     var bestOffset = 0
     var bestQueryCount = Int.MAX_VALUE
@@ -122,7 +122,7 @@ fun handleQuery(
             bestQueryCount = queryCount
         }
     }
-    val serverAddress = addressForQueryServerQuery(config, bestOffset)
+    val serverAddress = addressForRouterServer(config, bestOffset)
     val response = req.response()
     val sseClient = QueryClientSSEServer(response, returnAddress, clientID, channel, serverAddress)
     val registerRequest = RegisterQueryRequest(

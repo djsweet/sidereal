@@ -461,17 +461,17 @@ variables.
   CloudEvents emitted by Thorium will use this string as the "source"
   metadata.
 
-- **Flag:** `--query-threads`
+- **Flag:** `--router-threads`
   <br/>
-  **Environment Variable:** `THORIUM_QUERY_THREADS`
+  **Environment Variable:** `THORIUM_ROUTER_THREADS`
   <br/>
   **Type:** Integer
   <br/>
   **Default Value:** Number of logical CPU threads reported by the operating
   system.
 
-  Thorium will spawn this many operating system threads to service consumer
-  connections.
+  Thorium will spawn this many operating system threads to route events to
+  consuming queries.
 
 - **Flag:** `--translator-threads`
   <br/>
@@ -539,9 +539,9 @@ variables.
   contain thousands of levels of nesting, and thus it is left as a
   configurable value.
 
-- **Flag:** `--max-outstanding-events-per-query-thread`
+- **Flag:** `--max-outstanding-events-per-router-thread`
   <br/>
-  **Environment Variable:** `THORIUM_MAX_OUTSTANDING_EVENTS_PER_QUERY_THREAD`
+  **Environment Variable:** `THORIUM_MAX_OUTSTANDING_EVENTS_PER_ROUTER_THREAD`
   <br/>
   **Type:** Integer
   <br/>
@@ -550,10 +550,11 @@ variables.
   Thorium keeps track of the number of events present "within" the system. An
   event must be delivered to all interested consumers before it is no longer
   tracked as being outstanding. If the number of outstanding events exceeds
-  this number, Thorium will respond to producers with an HTTP 429,
-  establishing backpressure within the event routing path. The producers are
-  expected to re-attempt the publication of their events after a brief period
-  of waiting when encountering this HTTP 429.
+  this number multiplied by the number of routing threads, Thorium will
+  respond to producers with an HTTP 429, establishing backpressure within the
+  event routing path. The producers are expected to re-attempt the publication
+  of their events after a brief period of waiting when encountering this
+  HTTP 429.
 
 - **Flag:** `--max-query-terms`
   <br/>

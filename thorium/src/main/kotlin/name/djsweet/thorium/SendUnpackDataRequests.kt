@@ -22,10 +22,10 @@ fun sendUnpackDataRequests(
 ): Future<SendUnpackDataRequestsStatus> {
     val eventBus = vertx.eventBus()
 
-    val queryThreads = config.queryThreads
+    val routerThreads = config.routerThreads
     val translatorThreads = config.translatorThreads
 
-    val eventIncrement = (unpackReqs.size * queryThreads).toLong()
+    val eventIncrement = (unpackReqs.size * routerThreads).toLong()
     val newOutstandingEventCount = counters.incrementOutstandingEventCountByAndGet(eventIncrement)
 
     if (respectLimit) {
