@@ -604,3 +604,43 @@ variables.
   Thorium will close a TCP connection after this many milliseconds of no
   activity. This prevents connections dropped without a TCP FIN or TCP RST
   from consuming resources.
+
+## Metrics
+
+Metric observability for Thorium is available by requesting `GET /metrics`.
+The response body follows
+[Prometheus' Text-based format](https://prometheus.io/docs/instrumenting/exposition_formats/#text-based-format).
+
+The currently exposed metrics are
+
+- ***thorium_data_byte_budget***
+  <br/>
+  A [gauge](https://prometheus.io/docs/concepts/metric_types/#gauge)
+  indicating the maximum size of any key/value pair in a query term.
+  This is unlikely to change during normal execution, but may be lowered
+  automatically if Thorium encounters a StackOverflowError when routing
+  an event to consuming queries.
+- ***thorium_outstanding_events***
+  <br/>
+  A [gauge](https://prometheus.io/docs/concepts/metric_types/#gauge)
+  indicating the number of events accepted by Thorium, but not yet
+  confirmed delivered to consumers.
+- ***thorium_active_queries***
+  <br/>
+  A [gauge](https://prometheus.io/docs/concepts/metric_types/#gauge)
+  indicating the number of queries being serviced, labeled per `router`.
+- ***thorium_event_routing_seconds***
+  <br/>
+  A [summary](https://prometheus.io/docs/concepts/metric_types/#summary),
+  without quantiles, of the time (in seconds) spent routing events to
+  consuming queries, labeled per `router`.
+- ***thorium_idempotency_key_cache_size***
+  <br/>
+  A [gauge](https://prometheus.io/docs/concepts/metric_types/#gauge)
+  indicating the number of "source", "id" combinations saved in the
+  tracking set, labeled per `router`.
+- ***thorium_json_translation_seconds***
+  <br/>
+  A [summary](https://prometheus.io/docs/concepts/metric_types/#summary),
+  without quantiles, of the time (in seconds) spent translating events into
+  Thorium's internal index representation, labeled per `translator`.
