@@ -18,17 +18,24 @@ sourceSets {
     }
 }
 
-val operatingSystem = org.gradle.nativeplatform.platform.internal.DefaultNativePlatform.getCurrentOperatingSystem()!!
-
 val cliktVersion = "4.2.1"
 val logbackVersion = "1.3.13"
 val micrometerVersion = "1.11.3"
-val nettyResolverDnsVersion = "4.1.92.Final"
+val nettyVersion = "4.1.92.Final"
 val slf4jVersion = "2.0.9"
 val vertxVersion = "4.4.5"
+
 val netJqwik = "net.jqwik:jqwik:1.7.3"
+val nettyBSDTransport = "io.netty:netty-transport-native-kqueue:${nettyVersion}"
+val nettyEPollTransport = "io.netty:netty-transport-native-epoll:${nettyVersion}"
+val nettyMacOSResolver = "io.netty:netty-resolver-dns-native-macos:${nettyVersion}"
 val kotlinXBenchmarkRuntime = "org.jetbrains.kotlinx:kotlinx-benchmark-runtime:0.4.7"
 val kotlinXCollectionsImmutable = "org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.5"
+
+val linuxX86Qualifier = "linux-x86_64"
+val linuxArmQualifier = "linux-aarch_64"
+val macOSX86Qualifier = "osx-x86_64"
+val macOSArmQualifier = "osx-aarch_64"
 
 val benchmarksImplementation: Configuration = configurations.getAt("benchmarksImplementation")
 
@@ -43,18 +50,17 @@ dependencies {
     implementation("io.micrometer:micrometer-registry-prometheus:${micrometerVersion}")
     implementation(kotlinXCollectionsImmutable)
 
-    if (operatingSystem.isMacOsX) {
-        // io.netty.resolver.dns.DnsServerAddressStreamProviders prints a warning on macOS about how it
-        // can't resolve this package on its classpath by default.
-        val classifier = if (System.getProperty("os.arch") == "aarch64") {
-            "osx-aarch_64"
-        } else {
-            "osx-x86_64"
-        }
-        implementation(
-            "io.netty:netty-resolver-dns-native-macos:$nettyResolverDnsVersion:$classifier"
-        )
-    }
+    // Native transports for Netty. Having the "wrong targets" bundled in the build does increase artifact size,
+    // but is otherwise harmless, and is portable too!
+    // These two specifically suppress an error about Netty not being able to find
+    // io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider.
+    implementation("${nettyMacOSResolver}:$macOSX86Qualifier")
+    implementation("${nettyMacOSResolver}:$macOSArmQualifier")
+    // These are native event loop transports.
+    implementation("${nettyEPollTransport}:$linuxX86Qualifier")
+    implementation("${nettyEPollTransport}:$linuxArmQualifier")
+    implementation("${nettyBSDTransport}:$macOSX86Qualifier")
+    implementation("${nettyBSDTransport}:$macOSArmQualifier")
 
     implementation(project(":query-tree"))
 
