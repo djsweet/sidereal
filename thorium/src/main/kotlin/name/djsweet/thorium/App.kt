@@ -1,5 +1,6 @@
 package name.djsweet.thorium
 
+import ch.qos.logback.classic.Level
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.context
 import com.github.ajalt.clikt.core.subcommands
@@ -7,6 +8,7 @@ import com.github.ajalt.clikt.output.MordantHelpFormatter
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
+import com.github.ajalt.clikt.parameters.types.choice
 import com.github.ajalt.clikt.parameters.types.int
 import io.micrometer.core.instrument.Gauge
 import io.micrometer.prometheus.PrometheusConfig
@@ -16,6 +18,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import name.djsweet.thorium.servers.registerQueryServer
 import name.djsweet.thorium.servers.registerWebServer
+import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import kotlin.system.exitProcess
 
@@ -36,6 +39,17 @@ internal class KvpByteBudgetCommand: CliktCommand(
 internal class ServeCommand: CliktCommand(
     help =" Runs the Thorium Reactive Query Server"
 ) {
+    companion object {
+        private fun logLevelFromString(levelString: String): Level = when (levelString) {
+            "trace" -> Level.TRACE
+            "debug" -> Level.DEBUG
+            "info" -> Level.INFO
+            "warn" -> Level.WARN
+            "error" -> Level.ERROR
+            else -> Level.INFO
+        }
+    }
+
     private val logger = LoggerFactory.getLogger(ServeCommand::class.java)
 
     private val serverPort by option(
@@ -47,6 +61,11 @@ internal class ServeCommand: CliktCommand(
         help = "Reports this string as the 'source' for all internally generated CloudEvents",
         envvar = "${envVarPrefix}SOURCE_NAME"
     ).default(GlobalConfig.defaultCloudEventSource)
+
+    private val logLevel by option(
+        help = "Sets the minimum logging severity",
+        envvar = "${envVarPrefix}LOG_LEVEL"
+    ).choice("trace", "debug", "info", "warn", "error").default("info")
 
     private val routerThreads by option(
         help = "Number of threads to use for routing events to queries. Expected to be between 1 and the number of logical processors available",
@@ -104,6 +123,9 @@ internal class ServeCommand: CliktCommand(
     ).int().default(GlobalConfig.defaultTcpIdleTimeoutMS)
 
     override fun run() {
+        (LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME) as ch.qos.logback.classic.Logger).level = logLevelFromString(
+            this.logLevel
+        )
         val meterRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
 
         val workerPoolSize = (this.routerThreads + this.webServerThreads)

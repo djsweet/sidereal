@@ -21,10 +21,11 @@ sourceSets {
 val operatingSystem = org.gradle.nativeplatform.platform.internal.DefaultNativePlatform.getCurrentOperatingSystem()!!
 
 val cliktVersion = "4.2.1"
-val vertxVersion = "4.4.5"
+val logbackVersion = "1.3.13"
 val micrometerVersion = "1.11.3"
 val nettyResolverDnsVersion = "4.1.92.Final"
 val slf4jVersion = "2.0.9"
+val vertxVersion = "4.4.5"
 val netJqwik = "net.jqwik:jqwik:1.7.3"
 val kotlinXBenchmarkRuntime = "org.jetbrains.kotlinx:kotlinx-benchmark-runtime:0.4.7"
 val kotlinXCollectionsImmutable = "org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.5"
@@ -33,7 +34,9 @@ val benchmarksImplementation: Configuration = configurations.getAt("benchmarksIm
 
 dependencies {
     implementation("com.github.ajalt.clikt:clikt:${cliktVersion}")
-    implementation("org.slf4j:slf4j-simple:${slf4jVersion}")
+    implementation("org.slf4j:slf4j-api:${slf4jVersion}")
+    implementation("ch.qos.logback:logback-core:${logbackVersion}")
+    implementation("ch.qos.logback:logback-classic:${logbackVersion}")
     implementation("io.vertx:vertx-core:${vertxVersion}")
     implementation("io.vertx:vertx-lang-kotlin:${vertxVersion}")
     implementation("io.vertx:vertx-lang-kotlin-coroutines:${vertxVersion}")

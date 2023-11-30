@@ -461,6 +461,19 @@ variables.
   CloudEvents emitted by Thorium will use this string as the "source"
   metadata.
 
+- **Flag:** `--log-level`
+  <br/>
+  **Environment Variable:** `THORIUM_LOG_LEVEL`
+  <br/>
+  **Type:** One of `trace`, `debug`, `info`, `warn`, or `error`
+  <br/>
+  **Default Value:** `info`
+
+  Sets the minimum logging level. Log levels are defined in a hierarchy, with
+  `trace` being the lowest and `error` being the highest. If this is set to
+  `info`, then all logs at a level of `INFO`, `WARN`, and `ERROR` are generated,
+  but `TRACE` and `DEBUG` are ignored.
+
 - **Flag:** `--router-threads`
   <br/>
   **Environment Variable:** `THORIUM_ROUTER_THREADS`
