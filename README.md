@@ -258,7 +258,7 @@ Content-Type: application/cloudevents-batch+json
 then a client receiving events for the "example" channel would see
 
 ```
-GET /channels/example HTTP/1.1
+GET /channels/example?one="one"&two="two"&three=3 HTTP/1.1
 ...
 
 HTTP/1.1 200 OK
