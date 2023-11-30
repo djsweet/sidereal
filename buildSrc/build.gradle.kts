@@ -15,8 +15,10 @@ repositories {
     mavenCentral()
 }
 
+val kotlinVersion = "1.9.21"
+
 dependencies {
-    implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.21")
+    implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
     implementation("org.jetbrains.kotlinx:kotlinx-benchmark-runtime:0.4.7")
 }
 

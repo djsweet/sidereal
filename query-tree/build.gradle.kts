@@ -5,7 +5,10 @@ import kotlinx.benchmark.gradle.*
 plugins {
     id("name.djsweet.thorium.kotlin-library-conventions")
     id("org.jetbrains.kotlinx.benchmark") version "0.4.7"
-    id("org.jetbrains.kotlin.plugin.allopen") version "1.8.21"
+    // allopen is required to properly build the benchmark implementations; JMH assumes that its target classes
+    // are open for inheritance, but Kotlin's default is that classes are final.
+    // Make sure this stays in sync with the Kotlin plugin version in buildSrc!
+    id("org.jetbrains.kotlin.plugin.allopen") version "1.9.21"
 }
 
 allOpen {
