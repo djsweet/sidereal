@@ -3,3 +3,7 @@
 
 # Ignore Gradle build output directory
 build
+
+# Reports come from `native-image` tracing the build-time class initializations. We don't need this
+# checked into source control.
+reports
