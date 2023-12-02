@@ -123,18 +123,7 @@ internal class ServeCommand: CliktCommand(
         envvar = "${envVarPrefix}TCP_IDLE_TIMEOUT_MS"
     ).int().default(GlobalConfig.defaultTcpIdleTimeoutMS)
 
-    override fun run() {
-        (LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME) as ch.qos.logback.classic.Logger).level = logLevelFromString(
-            this.logLevel
-        )
-        val meterRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
-
-        val workerPoolSize = (this.routerThreads + this.webServerThreads)
-            .coerceAtMost(availableProcessors())
-        val nonblockingPoolSize = webServerThreads.coerceAtMost(2 * availableProcessors())
-        val opts = VertxOptions().setWorkerPoolSize(workerPoolSize).setEventLoopPoolSize(nonblockingPoolSize)
-
-        val vertx = Vertx.vertx(opts)
+    private fun runWithVertx(vertx: Vertx) {
         val initialSafeKeyValueSize = maxSafeKeyValueSizeSync(vertx)
 
         val logger = this.logger
@@ -169,6 +158,7 @@ internal class ServeCommand: CliktCommand(
 
         val queryThreads = config.routerThreads
         val counters = GlobalCounterContext(queryThreads)
+        val meterRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
 
         Gauge.builder(outstandingEventsCountName) { counters.getOutstandingEventCount() }
             .description(outstandingEventsCountDescription)
@@ -209,8 +199,24 @@ internal class ServeCommand: CliktCommand(
                 for (deploymentID in queryDeploymentIDs) {
                     vertx.undeploy(deploymentID).await()
                 }
-                vertx.close().await()
             }
+        }
+    }
+
+    override fun run() {
+        (LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME) as ch.qos.logback.classic.Logger).level = logLevelFromString(
+            this.logLevel
+        )
+        val workerPoolSize = (this.routerThreads + this.webServerThreads)
+            .coerceAtMost(availableProcessors())
+        val nonblockingPoolSize = webServerThreads.coerceAtMost(2 * availableProcessors())
+        val opts = VertxOptions().setWorkerPoolSize(workerPoolSize).setEventLoopPoolSize(nonblockingPoolSize)
+
+        val vertx = Vertx.vertx(opts)
+        try {
+            this.runWithVertx(vertx)
+        } finally {
+            runBlocking { vertx.close().await() }
         }
     }
 }
