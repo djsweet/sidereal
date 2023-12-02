@@ -14,6 +14,7 @@ import io.micrometer.core.instrument.Gauge
 import io.micrometer.prometheus.PrometheusConfig
 import io.micrometer.prometheus.PrometheusMeterRegistry
 import io.vertx.core.*
+import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import name.djsweet.thorium.servers.registerQueryServer
@@ -206,8 +207,9 @@ internal class ServeCommand: CliktCommand(
                 }
             } finally {
                 for (deploymentID in queryDeploymentIDs) {
-                    vertx.undeploy(deploymentID)
+                    vertx.undeploy(deploymentID).await()
                 }
+                vertx.close().await()
             }
         }
     }
