@@ -14,8 +14,12 @@ import io.micrometer.core.instrument.Gauge
 import io.micrometer.prometheus.PrometheusConfig
 import io.micrometer.prometheus.PrometheusMeterRegistry
 import io.vertx.core.*
+import io.vertx.core.json.JsonObject
+import io.vertx.kotlin.core.json.jsonObjectOf
+import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import name.djsweet.thorium.logging.JsonLogEncoder
 import name.djsweet.thorium.servers.registerQueryServer
 import name.djsweet.thorium.servers.registerWebServer
 import org.slf4j.Logger
@@ -122,18 +126,7 @@ internal class ServeCommand: CliktCommand(
         envvar = "${envVarPrefix}TCP_IDLE_TIMEOUT_MS"
     ).int().default(GlobalConfig.defaultTcpIdleTimeoutMS)
 
-    override fun run() {
-        (LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME) as ch.qos.logback.classic.Logger).level = logLevelFromString(
-            this.logLevel
-        )
-        val meterRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
-
-        val workerPoolSize = (this.routerThreads + this.webServerThreads)
-            .coerceAtMost(availableProcessors())
-        val nonblockingPoolSize = webServerThreads.coerceAtMost(2 * availableProcessors())
-        val opts = VertxOptions().setWorkerPoolSize(workerPoolSize).setEventLoopPoolSize(nonblockingPoolSize)
-
-        val vertx = Vertx.vertx(opts)
+    private fun runWithVertx(vertx: Vertx) {
         val initialSafeKeyValueSize = maxSafeKeyValueSizeSync(vertx)
 
         val logger = this.logger
@@ -168,6 +161,7 @@ internal class ServeCommand: CliktCommand(
 
         val queryThreads = config.routerThreads
         val counters = GlobalCounterContext(queryThreads)
+        val meterRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
 
         Gauge.builder(outstandingEventsCountName) { counters.getOutstandingEventCount() }
             .description(outstandingEventsCountDescription)
@@ -206,10 +200,54 @@ internal class ServeCommand: CliktCommand(
                 }
             } finally {
                 for (deploymentID in queryDeploymentIDs) {
-                    vertx.undeploy(deploymentID)
+                    vertx.undeploy(deploymentID).await()
                 }
             }
         }
+    }
+
+    override fun run() {
+        val rootLogger = LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME) as ch.qos.logback.classic.Logger
+        rootLogger.level = logLevelFromString(this.logLevel)
+
+        val workerPoolSize = (this.routerThreads + this.webServerThreads)
+            .coerceAtMost(availableProcessors())
+        val nonblockingPoolSize = webServerThreads.coerceAtMost(2 * availableProcessors())
+        val opts = VertxOptions().setWorkerPoolSize(workerPoolSize).setEventLoopPoolSize(nonblockingPoolSize)
+
+        val vertx = Vertx.vertx(opts)
+        var exitCode = 0
+        try {
+            this.runWithVertx(vertx)
+        } catch (e: Exception) {
+            rootLogger.level = Level.OFF
+            rootLogger.detachAndStopAllAppenders()
+            // This is really a last-ditch log that we can't afford to lose. The logging system is otherwise
+            // asynchronous, which means that if we used it, we'd lose this log. But we also can't have it continue
+            // to run while we're trying to print this, either, which is why it's being shut off here.
+            val logError: JsonObject
+            if (e is java.net.BindException) {
+                logError = JsonLogEncoder.baseJsonErrorEventForRightNow(
+                    this.logger.name,
+                    "Port already in use: ${this.serverPort}"
+                )
+                JsonLogEncoder.addPropertiesToJsonLogInPlace(
+                    logError,
+                    jsonObjectOf("serverPort" to this.serverPort)
+                )
+            } else {
+                logError = JsonLogEncoder.jsonForException(
+                    this.logger.name,
+                    e.message ?: "Exception raised in main thread",
+                    e
+                )
+            }
+            println(logError.encode())
+            exitCode = 1
+        } finally {
+            runBlocking { vertx.close().await() }
+        }
+        exitProcess(exitCode)
     }
 }
 

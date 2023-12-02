@@ -39,6 +39,17 @@ class JsonLogEncoder: EncoderBase<ILoggingEvent>() {
             "message" to message
         )
 
+        fun baseJsonErrorEventForRightNow(logName: String, message: String) =
+            baseJsonEvent(wallNowAsString(), Level.ERROR.toString(), logName, message)
+
+        fun addPropertiesToJsonLogInPlace(log: JsonObject, propertyMap: JsonObject): Boolean {
+            val hasProperties = propertyMap.size() > 0
+            if (hasProperties) {
+                log.put("properties", propertyMap)
+            }
+            return hasProperties
+        }
+
         private fun baseJsonThrowable(info: ThrowableInfo, cause: ThrowableInfo?): JsonObject {
             val basis = jsonObjectOf(
                 "name" to info.className,
@@ -53,12 +64,31 @@ class JsonLogEncoder: EncoderBase<ILoggingEvent>() {
             return basis
         }
 
-        private fun jsonFrame(className: String, methodName: String, fileName: String?, lineNumber: Int) = jsonObjectOf(
-            "class" to className,
-            "method" to methodName,
-            "file" to fileName,
-            "line" to lineNumber
+        private fun jsonForStackTraceElement(elem: StackTraceElement) = jsonObjectOf(
+            "class" to elem.className,
+            "method" to elem.methodName,
+            "file" to elem.fileName,
+            "line" to elem.lineNumber
         )
+
+        fun jsonForException(logName: String, message: String, e: Exception): JsonObject {
+            val exceptionCause = e.cause
+            val throwableMap = baseJsonThrowable(
+                ThrowableInfo(e.javaClass.name, e.message ?: "(No message)"),
+                if (exceptionCause == null) {
+                    null
+                } else {
+                    ThrowableInfo(exceptionCause.javaClass.name, exceptionCause.message ?: "(No message)")
+                }
+            )
+            val stackFramesArray = jsonArrayOf()
+            for (frame in e.stackTrace) {
+                stackFramesArray.add(jsonForStackTraceElement(frame))
+            }
+            throwableMap.put("stacktrace", stackFramesArray)
+
+            return baseJsonErrorEventForRightNow(logName, message).put("throwable", throwableMap)
+        }
 
         private val logName = JsonLogEncoder::class.java.name
     }
@@ -98,9 +128,8 @@ class JsonLogEncoder: EncoderBase<ILoggingEvent>() {
             }
         }
 
-        if (propertyMap.size() != 0) {
-            jsonEvent.put("properties", propertyMap)
-        } else if (event.argumentArray?.isNotEmpty() == true) {
+        val addedProperties = addPropertiesToJsonLogInPlace(jsonEvent, propertyMap)
+        if (!addedProperties && event.argumentArray?.isNotEmpty() == true) {
             jsonEvent.put("arguments", event.argumentArray.map {
                 when (it) {
                     null -> null
@@ -128,14 +157,8 @@ class JsonLogEncoder: EncoderBase<ILoggingEvent>() {
                 val stackFramesArray = jsonArrayOf()
                 val stopAtFrame = (stackTraceElements.size - throwable.commonFrames).coerceAtLeast(0)
                 for (i in 0 until stopAtFrame) {
-                    val frame = stackTraceElements[i].stackTraceElement
                     stackFramesArray.add(
-                        jsonFrame(
-                            frame.className,
-                            frame.methodName,
-                            frame.fileName,
-                            frame.lineNumber
-                        )
+                        jsonForStackTraceElement(stackTraceElements[i].stackTraceElement)
                     )
                 }
 
@@ -154,38 +177,11 @@ class JsonLogEncoder: EncoderBase<ILoggingEvent>() {
         if (event == null) {
             return this.emptyBytes
         }
-        try {
-            return this.encodeNonNullImpl(event)
+        return try {
+            this.encodeNonNullImpl(event)
         } catch (e: Exception) {
-            val exceptionCause = e.cause
-            val throwableMap = baseJsonThrowable(
-                ThrowableInfo(e.javaClass.name, e.message ?: "(No message)"),
-                if (exceptionCause == null) {
-                    null
-                } else {
-                    ThrowableInfo(exceptionCause.javaClass.name, exceptionCause.message ?: "(No message)")
-                }
-            )
-            val stackFramesArray = jsonArrayOf()
-            for (frame in e.stackTrace) {
-                stackFramesArray.add(
-                    jsonFrame(
-                        frame.className,
-                        frame.methodName,
-                        frame.fileName,
-                        frame.lineNumber
-                    )
-                )
-            }
-            throwableMap.put("stacktrace", stackFramesArray)
-
-            val logError = baseJsonEvent(
-                wallNowAsString(),
-                Level.ERROR.toString(),
-                logName,
-                "Could not render log event as JSON"
-            ).put("throwable", throwableMap)
-            return convertStringToByteArray(logError.encode() + "\n")
+            val logError = jsonForException(logName, "Could not render log event as JSON", e)
+            convertStringToByteArray(logError.encode() + "\n")
         }
     }
 }
