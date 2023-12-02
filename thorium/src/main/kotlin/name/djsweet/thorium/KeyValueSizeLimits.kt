@@ -44,7 +44,9 @@ private fun recurseUntilZero(cur: Int, result: Int, onResult: (result: Int) -> I
     return if (cur <= 0) {
         onResult(resultReconstituted.toInt())
     } else {
-        recurseUntilZero(curReconstituted.toInt() - 1, result, onResult)
+        // This elides any potential tail call elimination, which isn't supported by the JVM, but may be supported
+        // by GraalVM in the future.
+        1 + recurseUntilZero(curReconstituted.toInt() - 1, result, onResult)
     }
 }
 
@@ -58,8 +60,10 @@ private fun maxSafeKeyValueSizeSingleIteration(startingUpperBound: Int): Int {
             maxAsReportedByHandler = it
             it
         }
-        // This may seem redundant, but we need to ensure that the handler actually
-        // gets used, and can't be optimized out.
+        // This may seem redundant, but
+        // 1. we needed to ensure that the handler actually gets used, and can't be optimized out.
+        // 2. recurseUntilZero actually returns 2x the number of recursive calls, because every call adds 1 to
+        //    the prior result, which starts with the number of calls to make in the first place.
         maxBeforeCrash = maxBeforeCrash.coerceAtMost(maxAsReportedByHandler)
         return maxBeforeCrash
     } catch (e: StackOverflowError) {
@@ -73,8 +77,10 @@ private fun maxSafeKeyValueSizeSingleIteration(startingUpperBound: Int): Int {
                 maxAsReportedByHandler = it
                 it
             }
-            // This may seem redundant, but we need to ensure that the handler actually
-            // gets used, and can't be optimized out.
+            // This may seem redundant, but
+            // 1. we needed to ensure that the handler actually gets used, and can't be optimized out.
+            // 2. recurseUntilZero actually returns 2x the number of recursive calls, because every call adds 1 to
+            //    the prior result, which starts with the number of calls to make in the first place.
             maxBeforeCrash = maxBeforeCrash.coerceAtMost(maxAsReportedByHandler)
             // We've already tried the upper bound, and we know that it crashed, so we won't try it again.
             // We'll deal with the entry we have as the last possible one instead.
