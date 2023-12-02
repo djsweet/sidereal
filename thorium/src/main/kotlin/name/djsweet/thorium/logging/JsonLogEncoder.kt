@@ -87,12 +87,7 @@ class JsonLogEncoder: EncoderBase<ILoggingEvent>() {
             }
             throwableMap.put("stacktrace", stackFramesArray)
 
-            return baseJsonEvent(
-                wallNowAsString(),
-                Level.ERROR.toString(),
-                logName,
-                message
-            ).put("throwable", throwableMap)
+            return baseJsonErrorEventForRightNow(logName, message).put("throwable", throwableMap)
         }
 
         private val logName = JsonLogEncoder::class.java.name
