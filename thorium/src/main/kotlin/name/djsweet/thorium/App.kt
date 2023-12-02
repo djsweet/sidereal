@@ -14,6 +14,8 @@ import io.micrometer.core.instrument.Gauge
 import io.micrometer.prometheus.PrometheusConfig
 import io.micrometer.prometheus.PrometheusMeterRegistry
 import io.vertx.core.*
+import io.vertx.core.json.JsonObject
+import io.vertx.kotlin.core.json.jsonObjectOf
 import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -223,11 +225,23 @@ internal class ServeCommand: CliktCommand(
             // This is really a last-ditch log that we can't afford to lose. The logging system is otherwise
             // asynchronous, which means that if we used it, we'd lose this log. But we also can't have it continue
             // to run while we're trying to print this, either, which is why it's being shut off here.
-            val logError = JsonLogEncoder.jsonForException(
-                this.logger.name,
-                e.message ?: "Exception raised in main thread",
-                e
-            )
+            val logError: JsonObject
+            if (e is java.net.BindException) {
+                logError = JsonLogEncoder.baseJsonErrorEventForRightNow(
+                    this.logger.name,
+                    "Port already in use: ${this.serverPort}"
+                )
+                JsonLogEncoder.addPropertiesToJsonLogInPlace(
+                    logError,
+                    jsonObjectOf("serverPort" to this.serverPort)
+                )
+            } else {
+                logError = JsonLogEncoder.jsonForException(
+                    this.logger.name,
+                    e.message ?: "Exception raised in main thread",
+                    e
+                )
+            }
             println(logError.encode())
             exitCode = 1
         } finally {

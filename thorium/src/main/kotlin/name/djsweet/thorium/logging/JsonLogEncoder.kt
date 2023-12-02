@@ -39,6 +39,17 @@ class JsonLogEncoder: EncoderBase<ILoggingEvent>() {
             "message" to message
         )
 
+        fun baseJsonErrorEventForRightNow(logName: String, message: String) =
+            baseJsonEvent(wallNowAsString(), Level.ERROR.toString(), logName, message)
+
+        fun addPropertiesToJsonLogInPlace(log: JsonObject, propertyMap: JsonObject): Boolean {
+            val hasProperties = propertyMap.size() > 0
+            if (hasProperties) {
+                log.put("properties", propertyMap)
+            }
+            return hasProperties
+        }
+
         private fun baseJsonThrowable(info: ThrowableInfo, cause: ThrowableInfo?): JsonObject {
             val basis = jsonObjectOf(
                 "name" to info.className,
@@ -122,9 +133,8 @@ class JsonLogEncoder: EncoderBase<ILoggingEvent>() {
             }
         }
 
-        if (propertyMap.size() != 0) {
-            jsonEvent.put("properties", propertyMap)
-        } else if (event.argumentArray?.isNotEmpty() == true) {
+        val addedProperties = addPropertiesToJsonLogInPlace(jsonEvent, propertyMap)
+        if (!addedProperties && event.argumentArray?.isNotEmpty() == true) {
             jsonEvent.put("arguments", event.argumentArray.map {
                 when (it) {
                     null -> null
