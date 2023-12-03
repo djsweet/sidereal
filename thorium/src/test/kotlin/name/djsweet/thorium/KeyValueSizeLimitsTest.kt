@@ -119,10 +119,25 @@ class KeyValueSizeLimitsTest {
         }
     }
 
+    private fun keySizeValueLimitWithStackOverflowReporting(testName: String, originalSizeLimit: Int) {
+        try {
+            // We're using 3/2 as a scale-up factor to deal with the 4:3 expansion factor + tag overhead of
+            // Radix64JsonEncoding.
+            this.keyValueSizeLimitImpl(originalSizeLimit * 3 / 2)
+        } catch (e: StackOverflowError) {
+            val stackTraceSize = e.stackTrace.size
+            println("Stack overflow in $testName with stack size $stackTraceSize against tested limit $originalSizeLimit")
+            for (i in stackTraceSize-1 downTo (stackTraceSize - 20).coerceAtLeast(0)) {
+                val stackFrame = e.stackTrace[i]
+                println("  at ${stackFrame.className}.${stackFrame.methodName}(${stackFrame.fileName}:${stackFrame.lineNumber})")
+            }
+            throw e
+        }
+    }
+
     @Test
     fun keyValueSizeLimitPreventsStackOverflow() {
-        val sizeLimit = maxSafeKeyValueSizeSync()
-        this.keyValueSizeLimitImpl(sizeLimit * 3 / 2)
+        this.keySizeValueLimitWithStackOverflowReporting("synchronous limit", maxSafeKeyValueSizeSync())
     }
 
     @Test
@@ -134,7 +149,7 @@ class KeyValueSizeLimitsTest {
             runBlocking {
                 awaitResult { handler ->
                     vertx.executeBlocking { ->
-                        self.keyValueSizeLimitImpl(sizeLimit * 3 / 2)
+                        self.keySizeValueLimitWithStackOverflowReporting("vertx limit", sizeLimit)
                     }.andThen(handler)
                 }
             }

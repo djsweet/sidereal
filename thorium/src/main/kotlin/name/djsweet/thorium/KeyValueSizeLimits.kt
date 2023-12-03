@@ -20,7 +20,15 @@ private const val MAX_POSSIBLE_KEY_VALUE_SIZE = 65536
 // a callback into recurseUntilZero. This decreased the base number of recursive stack calls,
 // as one would expect, so the safety factor was reduced until we started getting StackOverflowError
 // again.
-private const val MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR = 13
+//
+// GraalVM native builds add another wrinkle -- these builds require an even greater safety factor
+// than OpenJDK running a JIT JVM. So, here, we're pulling a build-time trick of static initialization
+// combined with an explicit system property to configure this value separately.
+private val safetyFactorPropertyString = System.getProperty(buildOnlyKvpSafetyFactorPropertyName)
+private val MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR = when (safetyFactorPropertyString) {
+    null -> 13
+    else -> Integer.parseInt(safetyFactorPropertyString)
+}
 private const val MAX_POSSIBLE_KEY_VALUE_SIZE_WARMUP_ITERATIONS = 10
 private const val MAX_POSSIBLE_KEY_VALUE_SIZE_ITERATIONS = 60
 

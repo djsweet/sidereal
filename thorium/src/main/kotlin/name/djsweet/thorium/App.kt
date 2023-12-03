@@ -232,4 +232,15 @@ internal class ThoriumCommand: CliktCommand(
     }
 }
 
-fun main(args: Array<String>) = ThoriumCommand().subcommands(KvpByteBudgetCommand(), ServeCommand()).main(args)
+fun main(args: Array<String>) {
+    // This property is meant only to be set at build-time and not at runtime in a normal JVM context.
+    // Clearing this property successfully prevents JVM execution contexts from ever seeing this, because
+    // according to the Java 7 Language Specification, Section 12.4.1, "When Initialization Occurs",
+    //
+    // Since we aren't referencing KeyValueSizeLimits.kt here, well before we call into it, and none of the
+    // above occurrences have happened yet, KeyValueSizeLimits.kt won't be initialized on the JVM; it'll only
+    // be initialized at build-time due to its inclusion as a build-time class in native-image.properties.
+    System.clearProperty(buildOnlyKvpSafetyFactorPropertyName)
+
+    return ThoriumCommand().subcommands(KvpByteBudgetCommand(), ServeCommand()).main(args)
+}
