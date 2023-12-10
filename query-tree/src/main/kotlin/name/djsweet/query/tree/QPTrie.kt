@@ -1468,7 +1468,8 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
      * Returns a new [QPTrie], wherein the value for the given [key] is updated by the [updater] callback.
      *
      * This method is implemented recursively, so care should be taken to ensure that the keys present in the QPTrie
-     * are short enough, or sparse enough, to prevent [StackOverflowError]s.
+     * are short enough, or sparse enough, to prevent [StackOverflowError]s. Consider using
+     * [QPTrie.keySizeIsSafeFromOverflow] to determine the maximum safe key size before calling this.
      *
      * The new QPTrie will actually be the given QPTrie if the resulting `value` from `updater` is identity-equal to the
      * value already present in the given QPTrie corresponding to the given key. This means that a `null` update to a
@@ -1492,7 +1493,8 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
      * already has a corresponding value for the given key, this value is effectively replaced in the new QPTrie.
      *
      * This method is implemented recursively, so care should be taken to ensure that the keys present in the QPTrie
-     * are short enough, or sparse enough, to prevent [StackOverflowError]s.
+     * are short enough, or sparse enough, to prevent [StackOverflowError]s. Consider using
+     * [QPTrie.keySizeIsSafeFromOverflow] to determine the maximum safe key size before calling this.
      *
      * The new QPTrie will actually be the given QPTrie if the given value is identity-equal to the value already
      * present in the given QPTrie corresponding to the given key. This is permissible because the QPTries would
@@ -1512,7 +1514,8 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
      * usage.
      *
      * This method is implemented recursively, so care should be taken to ensure that the keys present in the QPTrie
-     * are short enough, or sparse enough, to prevent [StackOverflowError]s.
+     * are short enough, or sparse enough, to prevent [StackOverflowError]s. Consider using
+     * [QPTrie.keySizeIsSafeFromOverflow] to determine the maximum safe key size before calling this.
      *
      * The new QPTrie will actually be the given QPTrie if the given value is identity-equal to the value already
      * present in the given QPTrie corresponding to the given key. This is permissible because the QPTries would
@@ -1526,7 +1529,8 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
      * Returns a new [QPTrie], wherein there is no value corresponding to the given [key].
      *
      * This method is implemented recursively, so care should be taken to ensure that the keys present in the QPTrie
-     * are short enough, or sparse enough, to prevent [StackOverflowError]s.
+     * are short enough, or sparse enough, to prevent [StackOverflowError]s. Consider using
+     * [QPTrie.keySizeIsSafeFromOverflow] to determine the maximum safe key size before calling this.
      *
      * The new QPTrie will actually be the given QPTrie if there was not already a value corresponding to the given
      * key. This is permissible because the QPTries would otherwise be functionally equivalent.
@@ -1558,7 +1562,8 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
      * This method of obtaining key/value pairs is significantly faster than using the equivalent
      *  [iteratorUnsafeSharedKey] mechanism, but is implemented recursively, so care should be taken
      * to ensure that the keys present in the QPTrie are short enough, or sparse enough, to prevent
-     * [StackOverflowError]s.
+     * [StackOverflowError]s. Consider using [QPTrie.keySizeIsSafeFromOverflow] to determine the maximum safe key size
+     * before calling this.
      *
      * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
      * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
@@ -1587,7 +1592,8 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
      * This method of obtaining key/value pairs is significantly faster than using the equivalent
      * [iteratorAscendingUnsafeSharedKey] mechanism, but is implemented recursively, so care should be taken
      * to ensure that the keys present in the QPTrie are short enough, or sparse enough, to prevent
-     * [StackOverflowError]s.
+     * [StackOverflowError]s. Consider using [QPTrie.keySizeIsSafeFromOverflow] to determine the maximum safe key size
+     * before calling this.
      *
      * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
      * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
@@ -1617,7 +1623,8 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
      * This method of obtaining key/value pairs is significantly faster than using the equivalent
      * [iteratorDescendingUnsafeSharedKey] mechanism, but is implemented recursively, so care should be taken
      * to ensure that the keys present in the QPTrie are short enough, or sparse enough, to prevent
-     * [StackOverflowError]s.
+     * [StackOverflowError]s. Consider using [QPTrie.keySizeIsSafeFromOverflow] to determine the maximum safe key size
+     * before calling this.
      *
      * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
      * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
@@ -1648,7 +1655,8 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
      * This method of obtaining key/value pairs is significantly faster than using the equivalent
      * [iteratorLessThanOrEqualUnsafeSharedKey] mechanism, but is implemented recursively, so care should be taken
      * to ensure that the keys present in the QPTrie are short enough, or sparse enough, to prevent
-     * [StackOverflowError]s.
+     * [StackOverflowError]s. Consider using [QPTrie.keySizeIsSafeFromOverflow] to determine the maximum safe key size
+     * before calling this.
      *
      * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
      * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
@@ -1679,7 +1687,8 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
      * This method of obtaining key/value pairs is significantly faster than using the equivalent
      * [iteratorGreaterThanOrEqualUnsafeSharedKey] mechanism, but is implemented recursively, so care should be taken
      * to ensure that the keys present in the QPTrie are short enough, or sparse enough, to prevent
-     * [StackOverflowError]s.
+     * [StackOverflowError]s. Consider using [QPTrie.keySizeIsSafeFromOverflow] to determine the maximum safe key size
+     * before calling this.
      *
      * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
      * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
@@ -1708,7 +1717,9 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
      * [key].
      *
      * This method of obtaining key/value pairs is significantly faster than using the equivalent
-     * [iteratorStartsWithUnsafeSharedKey] mechanism.
+     * [iteratorStartsWithUnsafeSharedKey] mechanism, but is implemented recursively, so care should be taken to ensure
+     * that the keys present in the QPTrie are short enough, or sparse enough, to prevent [StackOverflowError]s.
+     * Consider using [QPTrie.keySizeIsSafeFromOverflow] to determine the maximum safe key size before calling this.
      *
      * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
      * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
@@ -1737,7 +1748,9 @@ class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
      * the given [key].
      *
      * This method of obtaining key/value pairs is significantly faster than using the equivalent
-     * [iteratorPrefixOfOrEqualToUnsafeSharedKey] mechanism.
+     * [iteratorPrefixOfOrEqualToUnsafeSharedKey] mechanism, but is implemented recursively, so care should be taken to
+     * ensure that the keys present in the QPTrie are short enough, or sparse enough, to prevent [StackOverflowError]s.
+     * Consider using [QPTrie.keySizeIsSafeFromOverflow] to determine the maximum safe key size before calling this.
      *
      * The `key` member of the resulting pairs are internally used by the QPTrie and must not be modified. Sharing this
      * key in such an unsafe way reduces the number of memory allocations, and consequently CPU time and GC pressure,
