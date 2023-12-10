@@ -19,7 +19,7 @@ private const val MAX_POSSIBLE_KEY_VALUE_SIZE = 65536
 // tests to pass across OpenJDK 17, OpenJDK 18, and GraalVM 21. (In the interest of full disclosure: the tests also
 // use an expansion factor of 1.5x for the exact same reason -- this is probably the biggest contributor.)
 private const val MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR = 1.5
-private const val MAX_POSSIBLE_KEY_VALUE_SIZE_WARMUP_ITERATIONS = 10
+private const val MAX_POSSIBLE_KEY_VALUE_SIZE_WARMUP_ITERATIONS = 50
 private const val MAX_POSSIBLE_KEY_VALUE_SIZE_ITERATIONS = 60
 
 private fun maxSafeKeyValueSizeSingleIteration(startingUpperBound: Int): Int {
