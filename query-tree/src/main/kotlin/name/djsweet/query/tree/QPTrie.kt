@@ -1340,6 +1340,72 @@ private fun<V> keysInto(node: OddNybble<V>, result: ArrayList<ByteArray>) {
  *
  */
 class QPTrie<V>: Iterable<QPTrieKeyValue<V>> {
+    companion object {
+        /**
+         * Reports whether the given [keySize] might ever cause a [StackOverflowError] during updates or visitation
+         *
+         * The internal design of QPTrie relies heavily on call stack allocation, which tends to be very limited
+         * compared to heap allocation. Whenever we've exhausted the allocation on the stack, our executing environment
+         * will raise a [StackOverflowError], which we will often need to avoid in the real world. This function exists
+         * to verify whether a worst-case [keySize] can be used for both updating a QPTrie and calling
+         * [QPTrie.visitUnsafeSharedKey] without risk of a [StackOverflowError].
+         */
+        fun keySizeIsSafeFromOverflow(keySize: Int): Boolean {
+            if (keySize < 1) {
+                return true
+            }
+
+            val basePair = QPTrieKeyValue(emptyByteArray, 1)
+
+            @Suppress("UNCHECKED_CAST")
+            var oddNybble = OddNybble(
+                emptyByteArray,
+                0,
+                0,
+                basePair,
+                1,
+                emptyByteArray,
+                emptyEvenNybbleArray as Array<EvenNybble<Int>>,
+            )
+            for (i in 2..keySize * 2) {
+                val evenNybble = EvenNybble(
+                    byteArrayOf(0),
+                    arrayOf(oddNybble)
+                )
+                val headPair = QPTrieKeyValue(emptyByteArray, i)
+                oddNybble = OddNybble(
+                    emptyByteArray,
+                    0,
+                    0,
+                    headPair,
+                    i.toLong(),
+                    byteArrayOf(0),
+                    arrayOf(evenNybble)
+                )
+            }
+
+            var trie = QPTrie(oddNybble)
+
+            try {
+                // First test: recursive update
+                val keyArray = ByteArray(keySize + 1)
+                keyArray[keySize] = 1
+                // This should be prone to StackOverflowError.
+                trie = trie.update(keyArray) { it ?: 0 }
+
+                // Second test: full iteration
+                var seenEntries = 0
+                // This should be prone to StackOverflowError.
+                trie.visitUnsafeSharedKey {
+                    seenEntries++
+                }
+                return seenEntries > 0
+            } catch (e: StackOverflowError) {
+                return false
+            }
+        }
+    }
+
     private val root: OddNybble<V>?
 
     /**
