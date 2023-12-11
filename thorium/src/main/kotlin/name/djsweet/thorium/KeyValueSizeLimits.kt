@@ -14,11 +14,10 @@ private const val MAX_POSSIBLE_KEY_VALUE_SIZE = 65536
 // This used to be used with a non-allocating recurseUntilZero function, which was a poor simulation of the internals
 // of QPTrie, the implementation that required these limits in the first place. We've since switched to a
 // StackAllocationError test implemented inside QPTrie itself, triggering the exact code that will have issues
-// with stack overflows later. As a result, the safety factor could be reduced to a much smaller float. 1.5x
-// fits with the 33% + overhead increase of Radix64Encoding, and seems to be the least common factor that allows
-// tests to pass across OpenJDK 17, OpenJDK 18, and GraalVM 21. (In the interest of full disclosure: the tests also
-// use an expansion factor of 1.5x for the exact same reason -- this is probably the biggest contributor.)
-private const val MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR = 1.5
+// with stack overflows later. As a result, the safety factor could be reduced to a much smaller float. We started with
+// 1.5x, because this tends to track with the expected overhead of Radix64Encoding, but this would still incur crashes,
+// so it's been gradually bumped up to 2.1, where the crashes have stopped.
+private const val MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR = 2.1
 private const val MAX_POSSIBLE_KEY_VALUE_SIZE_WARMUP_ITERATIONS = 50
 private const val MAX_POSSIBLE_KEY_VALUE_SIZE_ITERATIONS = 60
 
