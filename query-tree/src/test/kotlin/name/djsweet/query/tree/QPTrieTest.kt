@@ -852,4 +852,22 @@ class QPTrieTest {
         }
         assertFalse(sawEntry)
     }
+
+    @Test fun verifyingSafeKeySize() {
+        assertTrue(QPTrie.keySizeIsSafeFromOverflow(0))
+        var keySize = 1
+        // We should be able to deal with at least 256kB before a crash
+        for (i in 0..8) {
+            assertTrue(QPTrie.keySizeIsSafeFromOverflow(keySize))
+            keySize *= 2
+        }
+        // 2^26 =~ 64_000_000; that should be multiple gigabytes of stack and ought to incur a stack overflow
+        for (i in 9..26) {
+            if (!QPTrie.keySizeIsSafeFromOverflow(keySize)) {
+                return
+            }
+            keySize *= 2
+        }
+        fail<String>("Should have thrown StackOverflowError here")
+    }
 }

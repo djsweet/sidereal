@@ -20,8 +20,8 @@ import org.junit.jupiter.api.Test
 //    These crashes indicate that the safe margin was only barely sufficient for simple updates, and not
 //    sufficient for more complex updates.
 //
-// As an example, if MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR=4, CB=30857, NCB=13620, then
-// CB/NCB = 2.266, so we set MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR=ceil(2.266 * 4) = ceil(9.064) = 10.
+// As an example, if MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR=1.25, CB=9137, NCB=3619, then
+// CB/NCB = 2.525, so we set MAX_POSSIBLE_KEY_VALUE_SIZE_SAFETY_FACTOR=ceil(2.525 * 1.25) = ceil(3.156) = 4.0.
 
 // Note that we are testing keys that are 50% larger than the byte budget. We're encoding all data
 // according to the Radix64 encoding, which at a minimum is 1/3 larger than the data it is encoding,
