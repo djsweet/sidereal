@@ -134,6 +134,8 @@ benchmark {
     }
 }
 
+val operatingSystem = org.gradle.nativeplatform.platform.internal.DefaultNativePlatform.getCurrentOperatingSystem()!!
+
 graalvmNative {
     binaries {
         all {
@@ -143,6 +145,10 @@ graalvmNative {
                 // We'll look into this.
                 "-O3",
             )
+
+            if (operatingSystem.isLinux) {
+                buildArgs.add("--gc=G1")
+            }
         }
 
         named("test") {
