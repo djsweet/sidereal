@@ -8,6 +8,9 @@ plugins {
     // are open for inheritance, but Kotlin's default is that classes are final.
     // Make sure this stays in sync with the Kotlin plugin version in buildSrc!
     id("org.jetbrains.kotlin.plugin.allopen") version "1.9.21"
+
+    // Native builds are possible with the GraalVM build tools
+    id("org.graalvm.buildtools.native") version "0.9.28"
 }
 
 allOpen {
@@ -127,6 +130,58 @@ benchmark {
         register("benchmarks") {
             this as JvmBenchmarkTarget
             jmhVersion = "1.21"
+        }
+    }
+}
+
+val operatingSystem = org.gradle.nativeplatform.platform.internal.DefaultNativePlatform.getCurrentOperatingSystem()!!
+
+graalvmNative {
+    binaries {
+        all {
+            buildArgs.addAll(
+                "--no-fallback",
+                // native-image 21.0.1 2023-10-17 on macOS 13.6 segmentation faults at -O2, but not -O1 or -O3.
+                // We'll look into this.
+                "-O3",
+            )
+
+            // The G1 garbage collector is the garbage collector you want -- it's designed for long-running processes,
+            // is multithreaded, and is capable of high throughput with OK latency. But it's also only available on
+            // Linux, and only if you're not using GraalVM Community Edition.
+            //
+            // We can be firm about building with the non-community-edition GraalVM tooling, but can't be so firm
+            // that this should only run on Linux. Admittedly, this check only works when building directly on Linux,
+            // but as of this writing, cross-compilation isn't supported by the GraalVM Gradle Plugin anyway.
+            if (operatingSystem.isLinux) {
+                buildArgs.add("--gc=G1")
+            }
+        }
+
+        named("test") {
+            // These are all necessary to get the tests to build natively -- without them, we wouldn't be able
+            // to run ./gradlew nativeTest
+            buildArgs.addAll(
+                "--initialize-at-build-time=net.jqwik.api.AfterFailureMode",
+                "--initialize-at-build-time=net.jqwik.api.EdgeCasesMode",
+                "--initialize-at-build-time=net.jqwik.api.FixedSeedMode",
+                "--initialize-at-build-time=net.jqwik.api.GenerationMode",
+                "--initialize-at-build-time=net.jqwik.api.ShrinkingMode",
+                "--initialize-at-build-time=net.jqwik.engine.JqwikProperties",
+                "--initialize-at-build-time=net.jqwik.engine.JqwikTestEngine",
+                "--initialize-at-build-time=net.jqwik.engine.DefaultJqwikConfiguration",
+                "--initialize-at-build-time=net.jqwik.engine.DefaultJqwikConfiguration\$2",
+                "--initialize-at-build-time=net.jqwik.engine.PropertyAttributesDefaults\$1",
+                "--initialize-at-build-time=net.jqwik.engine.descriptor.ContainerClassDescriptor",
+                "--initialize-at-build-time=net.jqwik.engine.descriptor.JqwikEngineDescriptor",
+                "--initialize-at-build-time=net.jqwik.engine.descriptor.PropertyConfiguration",
+                "--initialize-at-build-time=net.jqwik.engine.descriptor.PropertyMethodDescriptor",
+                "--initialize-at-build-time=net.jqwik.engine.discovery.DefaultPropertyAttributes",
+                "--initialize-at-build-time=net.jqwik.engine.execution.GenerationInfo",
+                "--initialize-at-build-time=net.jqwik.engine.execution.lifecycle.LifecycleHooksRegistry",
+                "--initialize-at-build-time=net.jqwik.engine.recording.TestRunData",
+                "--initialize-at-build-time=net.jqwik.engine.recording.TestRunDatabase"
+            )
         }
     }
 }
