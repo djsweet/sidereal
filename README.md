@@ -42,6 +42,12 @@ argument to Gradle's `--args` argument. Run
 for a list of these flags, or see the
 [Server Configuration](#server-configuration) section for more details.
 
+Automated tests can be run with
+
+```shell
+./gradlew test
+```
+
 ## Building a runnable JAR
 
 Gradle can build directly-runnable [JAR Files](https://docs.oracle.com/javase/tutorial/deployment/jar/basicsindex.html)
@@ -56,6 +62,42 @@ and run directly using
 
 ```shell
 java -jar ./thorium/build/libs/thorium.jar serve
+```
+
+## Building a native executable
+
+Native builds are made possible by the
+[Gradle Plugin for GraalVM Native Image Building](https://graalvm.github.io/native-build-tools/latest/gradle-plugin.html#_introduction).
+As a prerequisite for its use, you will need to
+
+1. Install a [GraalVM JDK](https://www.graalvm.org/downloads/), which will 
+   also include the Native Build tooling.
+2. Export the location of the installed GraalVM JDK with the environment
+   variable `GRAALVM_HOME`.
+
+   On macOS, if your version of GraalVM covers a specific version of Java
+   for which another JDK is not available, e.g. you have installed GraalVM
+   21 and do not have any other JDK installed for Java 21, you can set
+   `GRAALVM_HOME` by using the `java_home` tool. For example,
+   ```shell
+   export GRAALVM_HOME=$(/usr/libexec/java_home -v 21) 
+   ```
+
+Once GraalVM has been installed, and its installation path has been stored
+in the `GRAALVM_HOME` environment variable, you can build a native executable
+with
+
+```shell
+./gradlew nativeBuild
+```
+
+and the resulting artifact would be saved to
+`./thorium/build/native/nativeCompile/thorium`.
+
+Automated tests can be run against a native executable by running
+
+```shell
+./gradlew nativeTest
 ```
 
 ## Sending events

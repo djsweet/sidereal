@@ -146,12 +146,21 @@ graalvmNative {
                 "-O3",
             )
 
+            // The G1 garbage collector is the garbage collector you want -- it's designed for long-running processes,
+            // is multithreaded, and is capable of high throughput with OK latency. But it's also only available on
+            // Linux, and only if you're not using GraalVM Community Edition.
+            //
+            // We can be firm about building with the non-community-edition GraalVM tooling, but can't be so firm
+            // that this should only run on Linux. Admittedly, this check only works when building directly on Linux,
+            // but as of this writing, cross-compilation isn't supported by the GraalVM Gradle Plugin anyway.
             if (operatingSystem.isLinux) {
                 buildArgs.add("--gc=G1")
             }
         }
 
         named("test") {
+            // These are all necessary to get the tests to build natively -- without them, we wouldn't be able
+            // to run ./gradlew nativeTest
             buildArgs.addAll(
                 "--initialize-at-build-time=net.jqwik.api.AfterFailureMode",
                 "--initialize-at-build-time=net.jqwik.api.EdgeCasesMode",
