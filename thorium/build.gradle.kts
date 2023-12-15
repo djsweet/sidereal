@@ -97,7 +97,7 @@ tasks.test {
     // As silly as this looks, Gradle sometimes gets very confused about
     // whether it needs to run the `test` task, because the artifacts
     // of the last test run get dumped, and it thinks "oh well these artifacts
-    // are here so I don't need to do this."
+    // are here, so I don't need to do this."
     outputs.upToDateWhen { false }
     useJUnitPlatform {
         includeEngines("jqwik", "junit-jupiter")
@@ -118,6 +118,13 @@ tasks.jar {
         .map(::zipTree)
     from(dependencies)
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+tasks.named("run") {
+    // Gradle 8.4 very often considers the "run" task up-to-date, seemingly as a consequence of the GraalVM
+    // plugin being in use. "run" is never up-to-date; we always need to run it when requested. So we'll
+    // force the issue here.
+    outputs.upToDateWhen { false }
 }
 
 benchmark {

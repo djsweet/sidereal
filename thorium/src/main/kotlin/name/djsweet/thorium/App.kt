@@ -35,7 +35,12 @@ internal class KvpByteBudgetCommand: CliktCommand(
 ) {
     override fun run() {
         val vertx = Vertx.vertx()
-        println(maxSafeKeyValueSizeSync(vertx))
+        try {
+            println(maxSafeKeyValueSizeSync(vertx))
+        } finally {
+            runBlocking { vertx.close().await() }
+        }
+        System.out.flush()
         exitProcess(0)
     }
 }
@@ -247,6 +252,7 @@ internal class ServeCommand: CliktCommand(
         } finally {
             runBlocking { vertx.close().await() }
         }
+        System.out.flush()
         exitProcess(exitCode)
     }
 }
@@ -265,6 +271,7 @@ internal class ThoriumCommand: CliktCommand(
     override fun run() {
         if (this.version) {
             println(versionString)
+            System.out.flush()
             exitProcess(0)
         }
     }
