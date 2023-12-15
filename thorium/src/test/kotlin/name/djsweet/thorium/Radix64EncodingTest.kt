@@ -447,7 +447,6 @@ class Radix64EncodingTest {
         @ForAll @From("lowLevelEncodingSpec") spec: LowLevelEncodingSpec
     ) {
         val encoded = spec.encode()
-        // println("byte arrays were ${spec.byteArrays?.map { r -> r.toList() }}")
         val decoded = LowLevelEncodingSpec.decode(encoded)
         assertEquals(spec, decoded)
         assertEquals(decoded, spec)
@@ -703,7 +702,6 @@ class Radix64EncodingTest {
         val encoder = Radix64JsonEncoder()
         spec.encode(encoder)
         val bytes = encoder.encode()
-        println(bytes.toList())
         val decoded = JsonEncodingSpec.decode(bytes)
         assertEquals(listOf(spec), decoded)
     }
