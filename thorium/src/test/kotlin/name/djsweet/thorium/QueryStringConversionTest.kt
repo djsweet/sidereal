@@ -11,26 +11,44 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import java.util.*
 
-private typealias UnaryTarget = Triple<Pair<String, List<String>>, String, Pair<String, ByteArray>>
+// As in "full JsonPointer encoded string" to "path through nested objects"
+private typealias JsonPointerSelector = Pair<String, List<String>>
+// The left hand side is a JSON-encoded value. So 6 would be '6', "six" would be '"six"', null is always null.
+private typealias JsonEncodingToRadix64Encoding = Pair<String, ByteArray>
 
-private typealias BinaryTarget = Triple<
-            Pair<String, List<String>>,
-            String,
-            Pair<Pair<String, ByteArray>, Pair<String, ByteArray>>
-    >
+data class UnaryTarget(
+    val selector: JsonPointerSelector,
+    val operator: String,
+    val jsonValue: JsonEncodingToRadix64Encoding,
+)
+
+data class BinaryTarget(
+    val selector: JsonPointerSelector,
+    val operator: String,
+    val lhs: JsonEncodingToRadix64Encoding,
+    val rhs: JsonEncodingToRadix64Encoding,
+)
 
 class QueryStringConversionTest {
-    private val notStartingJsonPath = Arbitraries
+    private val notStartingJsonSelectors = Arbitraries
         .strings()
         .ofMaxLength(64)
+        // JsonPointers start with /, and we've extended this with a prefix of ../ so that the default selection
+        // happens within the "data" property, but we can still break out of that "data" property.
+        // We also support non-JsonPointer selectors by default, so you can say
+        //   x=y
+        // which means data["x"] == "y". Since we want these to be valid JSON property selectors without also
+        // colliding with the JSON Pointer syntax, we're dropping everything that starts with / or ../
         .filter { !it.startsWith("/") && !it.startsWith("../") }
         // All key paths are presumed to start with "data" if they are not JSON Pointers
         .map { it to listOf("data", it) }
+
     private val jsonPathEntry = Arbitraries
         .strings()
         .ofMaxLength(64)
         .map {
             val builder = StringBuilder()
+            // These are escapes defined for JSON Pointers in https://datatracker.ietf.org/doc/html/rfc6901
             for (ch in it) {
                 when (ch) {
                     '/' -> {
@@ -59,6 +77,9 @@ class QueryStringConversionTest {
         .map { (path, fromMetadata) ->
             val builder = StringBuilder()
             val valueList = mutableListOf<String>()
+            // By default, every JSON accessor is defined in terms of the "data" property in the object.
+            // Other top-level properties require that a full JSON Pointer be prefixed by "..", as if the
+            // pointer were a POSIX path.
             if (fromMetadata) {
                 builder.append("..")
             } else {
@@ -73,19 +94,23 @@ class QueryStringConversionTest {
         }
 
     @Provide
-    fun invalidJsonPathEncodingCharacters(): Arbitrary<Char> = Arbitraries.chars().filter { it != '0' && it != '1' }
+    fun invalidJsonPathEncodingCharacters(): Arbitrary<Char> =
+        // ~0 and ~1 are well-defined and expected in https://datatracker.ietf.org/doc/html/rfc6901. We are trying
+        // to test for invalid encodings like ~2, ~3, ~x, etc.
+        Arbitraries.chars().filter { it != '0' && it != '1' }
 
     @Provide
-    fun randomInsertionValue(): Arbitrary<Double> = Arbitraries.doubles().between(0.0, true, 1.0, false)
+    fun randomInsertionValue(): Arbitrary<Double> =
+        Arbitraries.doubles().between(0.0, true, 1.0, false)
 
     @Provide
-    fun fullJsonPathSelectors(): Arbitrary<Pair<String, List<String>>> {
+    fun fullJsonPathSelectors(): Arbitrary<JsonPointerSelector> {
         return this.jsonPath
     }
 
     @Provide
-    fun validKeySelectors(): Arbitrary<Pair<String, List<String>>> {
-        return Arbitraries.oneOf(this.notStartingJsonPath, this.jsonPath)
+    fun validKeySelectors(): Arbitrary<JsonPointerSelector> {
+        return Arbitraries.oneOf(this.notStartingJsonSelectors, this.jsonPath)
     }
 
     private fun encodeStringListInRadix64(sl: List<String>): ByteArray {
@@ -98,7 +123,7 @@ class QueryStringConversionTest {
 
     @Property
     fun validKeySelectorsSuccessfullyEncode(
-        @ForAll @From("validKeySelectors") selectorSpec: Pair<String, List<String>>
+        @ForAll @From("validKeySelectors") selectorSpec: JsonPointerSelector
     ) {
         val (queryStringEncoded, toByteEncode) = selectorSpec
         val bytesEncoded = encodeStringListInRadix64(toByteEncode)
@@ -106,8 +131,8 @@ class QueryStringConversionTest {
         stringOrJsonPointerToStringKeyPath(queryStringEncoded).whenError {
             fail<String>("Could not decode $queryStringEncoded")
         }.whenSuccess {
-            val endcodedFromKeyPath = stringKeyPathToEncodedKeyPath(it)
-            assertEquals(bytesEncoded.toList(), endcodedFromKeyPath.first.toList())
+            val encodedFromKeyPath = stringKeyPathToEncodedKeyPath(it)
+            assertEquals(bytesEncoded.toList(), encodedFromKeyPath.first.toList())
             succeeded = true
         }
         assertTrue(succeeded)
@@ -115,7 +140,7 @@ class QueryStringConversionTest {
 
     @Property
     fun invalidKeySelectorsEscapeAtEnd(
-        @ForAll @From("fullJsonPathSelectors") selectorSpec: Pair<String, List<String>>
+        @ForAll @From("fullJsonPathSelectors") selectorSpec: JsonPointerSelector
     ) {
         val (queryStringEncoded) = selectorSpec
         var succeeded = false
@@ -130,15 +155,15 @@ class QueryStringConversionTest {
 
     @Property
     fun invalidKeySelectorsInvalidEscape(
-        @ForAll @From("fullJsonPathSelectors") selectorSpec: Pair<String, List<String>>,
+        @ForAll @From("fullJsonPathSelectors") selectorSpec: JsonPointerSelector,
         @ForAll @From("invalidJsonPathEncodingCharacters") badChar: Char,
         @ForAll @From("randomInsertionValue") insertionPointBasis: Double
     ) {
         val (queryStringEncoded) = selectorSpec
-        val preserveChars = if (queryStringEncoded.startsWith("../")) { 3 } else { 1 }
         // We want to always preserve the prefix that signals to stringOrJsonPointerToStringKeyPath that we are working
         // with a JSON Pointer. If we aren't dealing with metadata, we start with /; if we are, we start with ../.
         // In the first case, we always skip past 1 character, and in the second case, we always skip past 3 characters.
+        val preserveChars = if (queryStringEncoded.startsWith("../")) { 3 } else { 1 }
         val insertionPoint = (insertionPointBasis * (queryStringEncoded.length - preserveChars) + preserveChars).toInt()
         val testString = "${queryStringEncoded.substring(0, insertionPoint)}~$badChar${queryStringEncoded.substring(insertionPoint)}"
         var succeeded = false
@@ -155,7 +180,9 @@ class QueryStringConversionTest {
     private val maxStringByteLength = maxStringLength * 4
 
     @Provide
-    fun jsonValueWithinBudget(): Arbitrary<Pair<String, ByteArray>> {
+    fun jsonValueWithinBudget(): Arbitrary<JsonEncodingToRadix64Encoding> {
+        // This provider yields JSON-encoded values (i.e. 'null', '"something"', '7') mapping to their
+        // Radix64JsonEncoding.
         return Arbitraries.oneOf(listOf(
             Arbitraries.just(null).map { "null" to Radix64JsonEncoder.ofNull() },
             Arbitraries.oneOf(listOf(
@@ -164,6 +191,10 @@ class QueryStringConversionTest {
             )).map { it.toString() to Radix64JsonEncoder.ofBoolean(it) },
             Arbitraries.doubles().map { it.toString() to Radix64JsonEncoder.ofNumber(it) },
             Arbitraries.strings().ofMaxLength(this.maxStringLength).filter {
+                // This arbitrary tests bare strings that aren't properly JSON-encoded.
+                // These prefixes are used to determine the exact operator to apply to the value at the selector.
+                // While you could safely put these in double-quotes, you can't safely put them in a bare string,
+                // because that would change the operator meaning.
                 if (
                         it.startsWith(">") ||
                         it.startsWith("<") ||
@@ -173,6 +204,8 @@ class QueryStringConversionTest {
                     false
                 } else {
                     try {
+                        // These bare strings must not be valid JSON. Specifically, numbers, booleans, and null
+                        // will be treated as such if they aren't enclosed in quotes.
                         JsonObject("{ \"item\": $it }")
                         false
                     } catch (x: Exception) {
@@ -182,6 +215,8 @@ class QueryStringConversionTest {
             }.map { it to Radix64JsonEncoder.ofString(it, this.maxStringByteLength) },
             Arbitraries.strings().ofMaxLength(this.maxStringLength).filter {
                 try {
+                    // These strings need to be valid JSON strings. Specifically, no double quotes early-terminating
+                    // the resulting string, _unless_ they are escaped.
                     JsonObject("{ \"item\": \"$it\" }")
                     true
                 } catch (x: Exception) {
@@ -195,7 +230,7 @@ class QueryStringConversionTest {
 
     @Property
     fun convertingQueryStringValueToByteArray(
-        @ForAll @From("jsonValueWithinBudget") specs: Pair<String, ByteArray>
+        @ForAll @From("jsonValueWithinBudget") specs: JsonEncodingToRadix64Encoding
     ) {
         val (queryString, encodedResult) = specs
         var succeeded = false
@@ -224,12 +259,16 @@ class QueryStringConversionTest {
             Arbitraries.just("["),
             Arbitraries.just("!")
         ))
-        val equalityContainsNotTerms = this.jsonPath.flatMap { pathPair ->
+
+        // You can have as many equality terms as you'd like...
+        val equalityContainsNotTerms = this.jsonPath.flatMap { selector ->
             equalityContainsNotUnaryOpChoices.flatMap { opString ->
-                this.jsonValueWithinBudget().map { Triple(pathPair, opString, it) }
+                this.jsonValueWithinBudget().map { UnaryTarget(selector, opString, it) }
             }
         }.list().ofMaxSize(maxQueryStringTerms - 2)
-        val unaryOpTerm = this.jsonPath.flatMap { pathPair ->
+
+        // But for any other operator, you can have at most one of them.
+        val unaryOpTerm = this.jsonPath.flatMap { selector ->
             nonEqualityUnaryOpChoices.flatMap { opString ->
                 val valuesWithinBudget = if (opString == "~") {
                     // ~ only works correctly with Strings, and will fail with an HTTP 400 otherwise.
@@ -237,9 +276,10 @@ class QueryStringConversionTest {
                 } else {
                     this.jsonValueWithinBudget()
                 }
-                valuesWithinBudget.map{ Triple(pathPair, opString, it) }
+                valuesWithinBudget.map{ UnaryTarget(selector, opString, it) }
             }
         }.list().ofMaxSize(1)
+
         return equalityContainsNotTerms.flatMap { et ->
             unaryOpTerm.map { ut ->
                 val res = et.toMutableList()
@@ -257,7 +297,8 @@ class QueryStringConversionTest {
             Arbitraries.just("(between)"),
             Arbitraries.just("(between]")
         ))
-        return this.jsonPath.flatMap { pathPair ->
+
+        return this.jsonPath.flatMap { selector ->
             this.jsonValueWithinBudget().list().ofMinSize(2).ofMaxSize(2).filter {
                 it[0].javaClass === it[1].javaClass
             }.flatMap { entries ->
@@ -271,7 +312,7 @@ class QueryStringConversionTest {
                     } else {
                         Pair(right, left)
                     }
-                    Triple(pathPair, opString, resultPair)
+                    BinaryTarget(selector, opString, resultPair.first, resultPair.second)
                 }
             }.list().ofMaxSize(1)
         }
@@ -296,7 +337,7 @@ class QueryStringConversionTest {
         var arrayContains = QPTrie<QPTrie<Boolean>>()
         var notEquals = QPTrie<QPTrie<Boolean>>()
 
-        val dedupUnaryTargets = mutableMapOf<String, UnaryTarget>()
+        val deduplicatedUnaryTargets = mutableMapOf<String, UnaryTarget>()
         for (target in unaryTargets) {
             val (pathPair, opString) = target
             if (opString != "" && opString != "!" && opString != "[") {
@@ -307,16 +348,17 @@ class QueryStringConversionTest {
                     continue
                 }
             }
-            dedupUnaryTargets[pathPair.first] = target
+            deduplicatedUnaryTargets[pathPair.first] = target
         }
         for (target in binaryTargets) {
-            dedupUnaryTargets.remove(target.first.first)
+            deduplicatedUnaryTargets.remove(target.selector.first)
         }
 
         val queryString = mutableMapOf<String, List<String>>()
-        for ((pathPair, opString, valuePair) in dedupUnaryTargets.values) {
+        for ((pathPair, opString, valuePair) in deduplicatedUnaryTargets.values) {
             val keyPath = encodeStringListInRadix64(pathPair.second)
             queryString[pathPair.first] = listOf("$opString${valuePair.first}")
+            // Here, we're gradually building up the query-under-test.
             when (opString) {
                 "" -> {
                     querySpec = querySpec.withEqualityTerm(keyPath, valuePair.second)
@@ -366,8 +408,7 @@ class QueryStringConversionTest {
             }
         }
 
-        for ((pathPair, opString, boundsPair) in binaryTargets) {
-            val (lowerBoundPair, upperBoundPair) = boundsPair
+        for ((pathPair, opString, lowerBoundPair, upperBoundPair) in binaryTargets) {
             val keyPath = encodeStringListInRadix64(pathPair.second)
             val lowerBoundOpString = if (opString.startsWith("[")) {
                 ">="
