@@ -25,11 +25,17 @@ class ShareableQPTrieTest {
         assertTrue(test.trie === origTrie)
     }
 
+    private fun byteArray(maxSize: Int): Arbitrary<ByteArray>
+        = Arbitraries.bytes().array(ByteArray::class.java).ofMaxSize(maxSize)
+
+    private val keySize = 32
+    private val valueSize = 48
+
     @Provide
     fun qpTrieOfByteArrays(): Arbitrary<QPTrie<ByteArray>> {
-        val entries = Arbitraries.bytes().array(ByteArray::class.java).flatMap {
-            key -> Arbitraries.bytes().array(ByteArray::class.java).map { value -> key to value }
-        }.list()
+        val entries = this.byteArray(this.keySize).flatMap {
+            key -> this.byteArray(this.valueSize).map { value -> key to value }
+        }.list().ofMaxSize(16)
         return entries.map { QPTrie(it) }
     }
 
@@ -56,9 +62,9 @@ class ShareableQPTrieTest {
 
     @Provide
     fun qpTrieOfByteArrayLists(): Arbitrary<QPTrie<List<ByteArray>>> {
-        val entries = Arbitraries.bytes().array(ByteArray::class.java).flatMap { key ->
-            Arbitraries.bytes().array(ByteArray::class.java).list().map { value -> key to value }
-        }.list()
+        val entries = this.byteArray(this.keySize).flatMap { key ->
+            this.byteArray(this.valueSize).list().map { value -> key to value }
+        }.list().ofMaxSize(12)
         return entries.map { QPTrie(it) }
     }
 

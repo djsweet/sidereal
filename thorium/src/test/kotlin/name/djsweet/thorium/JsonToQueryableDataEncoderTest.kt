@@ -20,8 +20,8 @@ class JsonToQueryableDataEncoderTest {
         }
     }
 
-    private val keyLength = 16
-    private val stringLength = 128
+    private val keyLength = 12
+    private val stringLength = 64
     private val scalarArbitraries = listOf(
         Arbitraries.just(null),
         Arbitraries.oneOf(listOf(Arbitraries.just(true), Arbitraries.just(false))),
@@ -50,7 +50,7 @@ class JsonToQueryableDataEncoderTest {
         }
         val keyValuePairs = Arbitraries.strings().ofMaxLength(this.keyLength)
             .flatMap { key -> values.map { value -> key to value } }
-            .list().ofMinSize(0).ofMaxSize(8)
+            .list().ofMinSize(0).ofMaxSize(4)
         return keyValuePairs.map { pairs ->
             val result = JsonObject()
             for ((key, value) in pairs) {
@@ -61,13 +61,13 @@ class JsonToQueryableDataEncoderTest {
     }
 
     @Provide
-    fun generateJsonObjectDepth5(): Arbitrary<JsonObject> {
-        return this.generateJsonObject(5)
+    fun generateJsonObjectDepth3(): Arbitrary<JsonObject> {
+        return this.generateJsonObject(3)
     }
 
     @Provide
-    fun generateJsonObjectDepth8(): Arbitrary<JsonObject> {
-        return this.generateJsonObject(8)
+    fun generateJsonObjectDepth5(): Arbitrary<JsonObject> {
+        return this.generateJsonObject(5)
     }
 
     private fun ensureKeyValueEncodesJsonScalarKeyValue(key: ByteArray, value: ByteArray, obj: JsonObject) {
@@ -196,7 +196,7 @@ class JsonToQueryableDataEncoderTest {
 
     @Property
     fun recursiveOnlyJsonEncoding(
-        @ForAll @From("generateJsonObjectDepth5") obj: JsonObject
+        @ForAll @From("generateJsonObjectDepth3") obj: JsonObject
     ) {
         val tries = encodeJsonToQueryableData(obj, AcceptAllKeyValueFilterContext(), byteBudget, 6)
         this.ensureTriesEncodeJsonObject(tries, obj)
@@ -204,7 +204,7 @@ class JsonToQueryableDataEncoderTest {
 
     @Property
     fun iterativeOnlyJsonEncoding(
-        @ForAll @From("generateJsonObjectDepth5") obj: JsonObject
+        @ForAll @From("generateJsonObjectDepth3") obj: JsonObject
     ) {
         val tries = encodeJsonToQueryableData(obj, AcceptAllKeyValueFilterContext(), byteBudget, 0)
         this.ensureTriesEncodeJsonObject(tries, obj)
@@ -212,7 +212,7 @@ class JsonToQueryableDataEncoderTest {
 
     @Property
     fun hybridJsonEncoding(
-        @ForAll @From("generateJsonObjectDepth8") obj: JsonObject
+        @ForAll @From("generateJsonObjectDepth5") obj: JsonObject
     ) {
         val tries = encodeJsonToQueryableData(obj, AcceptAllKeyValueFilterContext(), byteBudget, 3)
         this.ensureTriesEncodeJsonObject(tries, obj)

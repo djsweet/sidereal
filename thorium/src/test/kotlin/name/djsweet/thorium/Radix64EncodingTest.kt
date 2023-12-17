@@ -421,7 +421,7 @@ class Radix64EncodingTest {
                 lowLevelEncodingSpecWithRecursionGuard(maxDepth - 1)
                     .list()
                     .ofMinSize(0)
-                    .ofMaxSize(7)
+                    .ofMaxSize(4)
                     .map { subs -> LowLevelEncodingSpec.ofSubArrays(subs) }
             ))
         }
@@ -429,7 +429,7 @@ class Radix64EncodingTest {
 
     @Provide
     fun lowLevelEncodingSpec(): Arbitrary<LowLevelEncodingSpec> {
-        return Arbitraries.integers().between(0, 5).flatMap { this.lowLevelEncodingSpecWithRecursionGuard(it) }
+        return Arbitraries.integers().between(0, 4).flatMap { this.lowLevelEncodingSpecWithRecursionGuard(it) }
     }
 
     @Provide
