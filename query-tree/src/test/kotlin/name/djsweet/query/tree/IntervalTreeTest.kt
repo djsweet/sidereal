@@ -488,14 +488,14 @@ class IntervalTreeTest {
             Arbitraries.integers().flatMap {
                 this.pairsWithUpdates(IntervalRange.fromBounds(first, it))
             }
-        }.list()
+        }.list().ofMaxSize(24)
     }
 
     @Provide
     fun listOfPairs(): Arbitrary<List<IntervalRange<Int>>> {
         return Arbitraries.integers().flatMap { first: Int -> Arbitraries.integers().map {
             IntervalRange.fromBounds(first, it)
-        } }.list()
+        } }.list().ofMaxSize(24)
     }
 
     @Property

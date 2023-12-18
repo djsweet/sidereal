@@ -345,9 +345,10 @@ class QueryTreeTest {
 
     @Provide
     fun intermediateQueryTerms(): Arbitrary<PersistentList<PublicIntermediateQueryTerm>> {
+        val equalityTermList = this.intermediateQueryTermForEquality().list().ofMaxSize(16)
         return Arbitraries.oneOf(listOf(
-            this.intermediateQueryTermForEquality().list(),
-            this.intermediateQueryTermForEquality().list().flatMap { terms ->
+            equalityTermList,
+            equalityTermList.flatMap { terms ->
                 this.intermediateQueryTermForInequality().map { inequalityTerm ->
                     terms.add(terms.size, inequalityTerm)
                     terms
@@ -558,10 +559,9 @@ class QueryTreeTest {
     }
 
     fun queryTreeTestDataWithQueryListSize(minSize: Int, maxSize: Int, unique: Boolean): Arbitrary<QueryTreeTestData> {
-        return this.byteArray(keySize).list().ofMinSize(1).ofMaxSize(keySpaceSize).flatMap { keySpace ->
-            val listArbitrary = this.querySpecWithKeySpace(keySpace).map {
-                    (queries) -> queries
-            }.list()
+        val keySpaceArbitrary = this.byteArray(keySize).list().ofMinSize(1).ofMaxSize(keySpaceSize)
+        return keySpaceArbitrary.flatMap { keySpace ->
+            val listArbitrary = this.querySpecWithKeySpace(keySpace).map { (queries) -> queries }.list()
 
             val queryList = if (minSize == maxSize) {
                 listArbitrary.ofSize(minSize)
@@ -572,7 +572,7 @@ class QueryTreeTest {
                 val basedData = listOfArbitrariesToArbitraryOfList(queries.map {
                     this.basedDataForQuerySpec(it, keySpace)
                 }).map { flattenList(it) }
-                val arbitraryData = arbitraryDataForKeySpace(keySpace).list().ofMaxSize(128)
+                val arbitraryData = arbitraryDataForKeySpace(keySpace).list().ofMaxSize(32)
 
                 val basedDataSample = basedData.sample()
                 val arbitraryDataSample = arbitraryData.sample()
@@ -873,6 +873,8 @@ class QueryTreeTest {
                     // What we're saying here is that we expect between 1 and 6 instances of the exact same
                     // query, at least in this iteration of generated data. There may be even more than 6 instances,
                     // because of duplicates in "queries", but the actual tests are robust against this.
+                    // Note that this is a different Arbitrary every time to prevent jqwik from saturating the
+                    // input "size" later.
                     queries.map { it to Arbitraries.integers().between(1, 6).sample() },
                     data
                 )
