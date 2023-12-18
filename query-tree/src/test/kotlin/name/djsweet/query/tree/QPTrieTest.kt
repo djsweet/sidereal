@@ -8,7 +8,7 @@ import net.jqwik.api.constraints.DoubleRange
 import java.util.*
 import java.util.concurrent.ThreadLocalRandom
 
-private fun <V> trieIsEmpty(trie: QPTrie<V>) {
+private fun <V> verifyTrieIsEmpty(trie: QPTrie<V>) {
     assertEquals(0, trie.size)
     assertNull(trie.get(byteArrayOf(0x1, 0x2, 0x3)))
 
@@ -133,13 +133,13 @@ class QPTrieTest {
 
     @Test fun emptyTrie() {
         val trie = QPTrie<String>()
-        trieIsEmpty(trie)
+        verifyTrieIsEmpty(trie)
 
         val removeNothing = trie.remove(byteArrayOf(0x1, 0x2, 0x3))
-        trieIsEmpty(removeNothing)
+        verifyTrieIsEmpty(removeNothing)
 
         val updateNull = trie.update(byteArrayOf(0x1, 0x2, 0x3)) { null }
-        trieIsEmpty(updateNull)
+        verifyTrieIsEmpty(updateNull)
     }
 
     @Test fun twoElementTrieSimpleGetting() {
@@ -383,8 +383,6 @@ class QPTrieTest {
     }
 
     @Test fun sanityCheckByteArrayPairs() {
-        // We can't actually use a Map here; it uses hashing semantics for
-        // equality that aren't well documented.
         val arr1 = ByteArrayButComparable(byteArrayOf())
         val arr2 = ByteArrayButComparable(byteArrayOf())
         val map = IntervalTree(listOf(
@@ -402,36 +400,59 @@ class QPTrieTest {
         )
     }
 
+    data class TrieTestSpec(
+        val key: PublicByteArrayButComparable,
+        val value: String,
+    )
+
     @Provide
-    fun trieTestSpecs(): Arbitrary<List<Pair<PublicByteArrayButComparable, String>>> {
-        return Arbitraries.integers().between(0, 256).flatMap { specSize ->
-            Arbitraries.bytes().list().ofMaxSize(64).flatMap { byteList ->
-                Arbitraries.strings().map { Pair(PublicByteArrayButComparable(ByteArrayButComparable(byteList.toByteArray())), it) }
-            }.list().ofMaxSize(specSize)
+    fun trieTestSpecs(): Arbitrary<List<TrieTestSpec>> {
+        val specSizeArbitrary = Arbitraries.integers().between(0, 256)
+
+        return specSizeArbitrary.flatMap { specSize ->
+            val byteListArbitrary = Arbitraries.bytes().list().ofMaxSize(64)
+
+            val specArbitrary = byteListArbitrary.flatMap { byteList ->
+                Arbitraries.strings().map { value ->
+                    val key = PublicByteArrayButComparable(ByteArrayButComparable(byteList.toByteArray()))
+                    TrieTestSpec(key, value)
+                }
+            }
+            return@flatMap specArbitrary.list().ofMaxSize(specSize)
         }
     }
 
+    data class TestTrieListWithRemovalOffset(
+        val specs: List<TrieTestSpec>,
+        val removalOffset: Int,
+    )
+
     @Provide
-    fun testTrieSpecsWithRemovalOffset(): Arbitrary<Pair<List<Pair<PublicByteArrayButComparable, String>>, Int>> {
+    fun testTrieSpecsWithRemovalOffset(): Arbitrary<TestTrieListWithRemovalOffset> {
         return this.trieTestSpecs().flatMap { spec ->
-            Arbitraries.integers().between(0, spec.size / 2).map { reverseSplitPoint ->
-                Pair(spec, reverseSplitPoint)
+            val reverseSplitPointArbitrary = Arbitraries.integers().between(0, spec.size / 2)
+            reverseSplitPointArbitrary.map { reverseSplitPoint ->
+                TestTrieListWithRemovalOffset(spec, reverseSplitPoint)
             }
         }
     }
 
     @Property
     fun trieLifecycleWithoutPrefixes(
-        @ForAll @From("testTrieSpecsWithRemovalOffset") spec: Pair<List<Pair<PublicByteArrayButComparable, String>>, Int>,
+        @ForAll @From("testTrieSpecsWithRemovalOffset") specsWithRemovalOffset: TestTrieListWithRemovalOffset,
         @ForAll @DoubleRange(min = 0.0, max= 1.0) putUnsafeProbability: Double,
     ) {
+        val (specs, removalOffset) = specsWithRemovalOffset
         val random = ThreadLocalRandom.current()
-        val initialEntries = spec.first.toTypedArray()
+        val initialEntries = specs.toTypedArray()
 
+        // jqwik might give us the same key multiple times, but we need to test distinct keys. We can make these keys
+        // distinct by putting them into an IntervalTree (which is tested elsewhere) and pulling the pairs back out.
         var distinct = IntervalTree<ByteArrayButComparable, String>()
         for ((publicByteArray, value) in initialEntries) {
             distinct = distinct.put(IntervalRange.fromBounds(publicByteArray.actual, publicByteArray.actual), value)
         }
+
         var trie = QPTrie<String>()
         var expectedSize = 0
         for ((key, value) in distinct) {
@@ -445,13 +466,15 @@ class QPTrieTest {
             expectedSize += 1
         }
         assertEquals(expectedSize.toLong(), trie.size)
+
         for ((key, value) in distinct) {
             val found = trie.get(key.lowerBound.array)
             assertEquals(value, found)
         }
         verifyIteratorInvariants(trie, distinct)
+
         var distinctRemoved = IntervalTree<ByteArrayButComparable, String>()
-        for (i in 0 until spec.second) {
+        for (i in 0 until removalOffset) {
             val (publicArray, value) = initialEntries[initialEntries.size - i - 1]
             val actual = publicArray.actual
             distinct = distinct.remove(IntervalRange.fromBounds(actual, actual))
@@ -465,14 +488,15 @@ class QPTrieTest {
             val found = trie.get(key.lowerBound.array)
             assertEquals(value, found)
         }
-        for (i in 0 until spec.second) {
+        for (i in 0 until removalOffset) {
             val (publicArray) = initialEntries[initialEntries.size - i - 1]
             assertNull(trie.get(publicArray.actual.array))
         }
         verifyIteratorInvariants(trie, distinct)
     }
 
-    @Provide fun prefixLookupsSchedule(): Arbitrary<List<Pair<ByteArray, String>>> {
+    @Provide
+    fun prefixLookupsSchedule(): Arbitrary<List<Pair<ByteArray, String>>> {
         // This is going to be a list of key-value pairs where all keys share an exact common prefix,
         // and most of them share a prefix with the rest of them, all the way to an otherwise unique key
         // that shares prefixes with all others.
@@ -543,7 +567,9 @@ class QPTrieTest {
         }
     }
 
-    private fun groupPrefixLookupSchedule(schedule: List<Pair<ByteArray, String>>): Map<Byte, List<Pair<ByteArray, String>>> {
+    private fun groupPrefixLookupSchedule(
+        schedule: List<Pair<ByteArray, String>>
+    ): Map<Byte, List<Pair<ByteArray, String>>> {
         val withSortOrder = schedule.sortedBy { ByteArrayButComparable(it.first) }
         val workingMap = mutableMapOf<Byte, MutableList<Pair<ByteArray, String>>>()
         for (item in withSortOrder) {
@@ -569,7 +595,12 @@ class QPTrieTest {
         val trie = QPTrie(schedule.shuffled())
         val grouped = this.groupPrefixLookupSchedule(schedule)
         for (kvp in grouped) {
-            // Above in grouped, we took
+            // Above in grouped, we took the key/value schedule and mapped the first byte of each key to a list of
+            // key/value pairs where the key starts with this byte.
+            //
+            // All we really need is the first byte for grouping. For a given mapping of byte to list of keys,
+            // prefixLookupSchedule generates keys such that every preceding key in the list is a prefix of
+            // whatever key you are currently looking at.
             val targets = kvp.value
             for (i in targets.indices) {
                 val lookupKey = targets[i].first
@@ -662,7 +693,7 @@ class QPTrieTest {
     }
 
     @Test
-    fun mutatingSingleKeyDoesntAffectTrie() {
+    fun mutatingSingleKeyDoesNotAffectTrie() {
         val targetKey = byteArrayOf(0)
         var trie = QPTrie(listOf(targetKey to 7))
 
@@ -698,20 +729,6 @@ class QPTrieTest {
             greaterReceived.add(ByteArrayButComparable(it.key) to it.value)
         }
         val expectedReceived = listOf(ByteArrayButComparable(greaterArray) to "greater")
-        for (i in 0 until greaterReceived.size.coerceAtLeast(expectedReceived.size)) {
-            if (i < greaterReceived.size) {
-                val thing = greaterReceived[i]
-                println("OK we looked at ${thing.first} -> ${thing.second}")
-            } else {
-                println("We did not have a pair for $i")
-            }
-            if (i < expectedReceived.size) {
-                val expectedThing = expectedReceived[i]
-                println("But we should have had ${expectedThing.first} -> ${expectedThing.second}")
-            } else {
-                println("But we should not have had anything at $i")
-            }
-        }
         assertListOfByteArrayValuePairsEquals(expectedReceived, greaterReceived)
     }
 
