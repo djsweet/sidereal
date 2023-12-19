@@ -19,11 +19,13 @@ class ArrayListStackTest {
         stack.push(1)
         assertEquals(1, stack.size)
         assertEquals(1, stack.peek())
+
         stack.push(2)
         assertEquals(2, stack.size)
         assertEquals(2, stack.peek())
         assertEquals(2, stack.pop())
         assertEquals(1, stack.size)
+
         stack.push(3)
         assertEquals(2, stack.size)
         assertEquals(3, stack.peek())
@@ -33,6 +35,7 @@ class ArrayListStackTest {
         assertEquals(1, stack.pop())
         assertEquals(0, stack.size)
         assertNull(stack.peek())
+
         assertEquals(0, stack.size)
         assertNull(stack.pop())
         assertEquals(0, stack.size)

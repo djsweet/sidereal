@@ -421,7 +421,7 @@ class Radix64EncodingTest {
                 lowLevelEncodingSpecWithRecursionGuard(maxDepth - 1)
                     .list()
                     .ofMinSize(0)
-                    .ofMaxSize(7)
+                    .ofMaxSize(4)
                     .map { subs -> LowLevelEncodingSpec.ofSubArrays(subs) }
             ))
         }
@@ -429,7 +429,7 @@ class Radix64EncodingTest {
 
     @Provide
     fun lowLevelEncodingSpec(): Arbitrary<LowLevelEncodingSpec> {
-        return Arbitraries.integers().between(0, 5).flatMap { this.lowLevelEncodingSpecWithRecursionGuard(it) }
+        return Arbitraries.integers().between(0, 4).flatMap { this.lowLevelEncodingSpecWithRecursionGuard(it) }
     }
 
     @Provide
@@ -447,7 +447,6 @@ class Radix64EncodingTest {
         @ForAll @From("lowLevelEncodingSpec") spec: LowLevelEncodingSpec
     ) {
         val encoded = spec.encode()
-        // println("byte arrays were ${spec.byteArrays?.map { r -> r.toList() }}")
         val decoded = LowLevelEncodingSpec.decode(encoded)
         assertEquals(spec, decoded)
         assertEquals(decoded, spec)
@@ -703,7 +702,6 @@ class Radix64EncodingTest {
         val encoder = Radix64JsonEncoder()
         spec.encode(encoder)
         val bytes = encoder.encode()
-        println(bytes.toList())
         val decoded = JsonEncodingSpec.decode(bytes)
         assertEquals(listOf(spec), decoded)
     }

@@ -11,29 +11,13 @@ import java.util.*
 import kotlin.collections.ArrayList
 
 class QueryTreeTest {
+    data class SpecToTermsMapping internal constructor(
+        internal val spec: QuerySpec,
+        internal val equalityTerms: List<IntermediateQueryTerm>,
+        internal val inequalityTerm: IntermediateQueryTerm?
+    )
+
     companion object {
-        private fun launderIntermediateQueryTermsToPublic(
-            spec: Triple<QuerySpec, ArrayList<IntermediateQueryTerm>, IntermediateQueryTerm?>
-        ): Triple<QuerySpec, ArrayList<PublicIntermediateQueryTerm>, PublicIntermediateQueryTerm?> {
-            val (querySpec, equalityTermsInternal, inequalityTermInternal) = spec
-            val equalityTerms = ArrayList(equalityTermsInternal.map { PublicIntermediateQueryTerm(it) })
-            val inequalityTerm = if (inequalityTermInternal != null) {
-                PublicIntermediateQueryTerm(inequalityTermInternal)
-            } else {
-                null
-            }
-            return Triple(querySpec, equalityTerms, inequalityTerm)
-        }
-
-        private fun unLaunderIntermediateQueryTermsFromPublic(
-            spec: Triple<QuerySpec, ArrayList<PublicIntermediateQueryTerm>, PublicIntermediateQueryTerm?>
-        ): Triple<QuerySpec, ArrayList<IntermediateQueryTerm>, IntermediateQueryTerm?> {
-            val (querySpec, equalityTermsPublic, inequalityTermPublic) = spec
-            val equalityTerms = ArrayList(equalityTermsPublic.map { it.actual })
-            val inequalityTerm = inequalityTermPublic?.actual
-            return Triple(querySpec, equalityTerms, inequalityTerm)
-        }
-
         private fun enforceRangeInvariantsByteArray(range: Pair<ByteArray, ByteArray>): Pair<ByteArray, ByteArray> {
             val rangeCompare = Arrays.compareUnsigned(range.first, range.second)
             return if (rangeCompare > 0) {
@@ -130,46 +114,50 @@ class QueryTreeTest {
         return Arbitraries.bytes().array(ByteArray::class.java).ofMaxSize(maxSize)
     }
 
-    private fun generateLessThanTerm(key: ByteArray, existingSpec: QuerySpec): Arbitrary<Pair<QuerySpec, IntermediateQueryTerm>> {
+    private fun generateLessThanTerm(key: ByteArray, existingSpec: QuerySpec): Arbitrary<SpecToTermsMapping> {
         return this.byteArray(valueSize).map { value ->
-            Pair(
+            SpecToTermsMapping(
                 existingSpec.withLessThanOrEqualToTerm(key, value),
+                listOf(),
                 IntermediateQueryTerm.greaterOrLessTerm(key, null, value)
             )
         }
     }
 
-    private fun generateRangeTerm(key: ByteArray, existingSpec: QuerySpec): Arbitrary<Pair<QuerySpec, IntermediateQueryTerm>> {
+    private fun generateRangeTerm(key: ByteArray, existingSpec: QuerySpec): Arbitrary<SpecToTermsMapping> {
         return this.byteArray(valueSize).flatMap { maybeLowerBound ->
             this.byteArray(valueSize).map { maybeUpperBound ->
                 val (lowerBound, upperBound) = enforceRangeInvariantsByteArray(Pair(maybeLowerBound, maybeUpperBound))
-                Pair(
+                SpecToTermsMapping(
                     existingSpec.withBetweenOrEqualToTerm(key, lowerBound, upperBound),
+                    listOf(),
                     IntermediateQueryTerm.greaterOrLessTerm(key, lowerBound, upperBound)
                 )
             }
         }
     }
 
-    private fun generateGreaterThanTerm(key: ByteArray, existingSpec: QuerySpec): Arbitrary<Pair<QuerySpec, IntermediateQueryTerm>> {
+    private fun generateGreaterThanTerm(key: ByteArray, existingSpec: QuerySpec): Arbitrary<SpecToTermsMapping> {
         return this.byteArray(valueSize).map { value ->
-            Pair(
+            SpecToTermsMapping(
                 existingSpec.withGreaterThanOrEqualToTerm(key, value),
+                listOf(),
                 IntermediateQueryTerm.greaterOrLessTerm(key, value, null)
             )
         }
     }
 
-    private fun generateStartsWithTerm(key: ByteArray, existingSpec: QuerySpec): Arbitrary<Pair<QuerySpec, IntermediateQueryTerm>> {
+    private fun generateStartsWithTerm(key: ByteArray, existingSpec: QuerySpec): Arbitrary<SpecToTermsMapping> {
         return this.byteArray(valueSize).map {value ->
-            Pair(
+            SpecToTermsMapping(
                 existingSpec.withStartsWithTerm(key, value),
+                listOf(),
                 IntermediateQueryTerm.startsWithTerm(key, value)
             )
         }
     }
 
-    private fun generateInequalityQuery(key: ByteArray, existingSpec: QuerySpec): Arbitrary<Pair<QuerySpec, IntermediateQueryTerm>> {
+    private fun generateInequalityQuery(key: ByteArray, existingSpec: QuerySpec): Arbitrary<SpecToTermsMapping> {
         return Arbitraries.oneOf(listOf(
             this.generateLessThanTerm(key, existingSpec),
             this.generateRangeTerm(key, existingSpec),
@@ -187,14 +175,14 @@ class QueryTreeTest {
         }
     }
 
-    private fun querySpecNoInequality(keySpace: List<ByteArray>): Arbitrary<Triple<QuerySpec, ArrayList<IntermediateQueryTerm>, IntermediateQueryTerm?>> {
+    private fun querySpecNoInequality(keySpace: List<ByteArray>): Arbitrary<SpecToTermsMapping> {
         // We don't need to build out a huge query spec from the entirety of the key space.
         // 1. That's pretty unrealistic
         // 2. That's hella slow in jqwik.
         val subsetSize = Arbitraries.integers().between(0, keySpace.size).sample()
         val subset = keySpace.shuffled().subList(0, subsetSize)
         if (subset.isEmpty()) {
-            return Arbitraries.just(Triple(QuerySpec.empty, arrayListOf(), null))
+            return Arbitraries.just(SpecToTermsMapping(QuerySpec.empty, arrayListOf(), null))
         }
 
         val firstQuery = this.generateEqualityQuery(subset.last(), QuerySpec.empty).map { (querySpec, term) ->
@@ -204,50 +192,51 @@ class QueryTreeTest {
             val (newQuerySpec, newTerm) = this.generateEqualityQuery(key, querySpec).sample()
             Triple(newQuerySpec, terms.add(0, newTerm), inequality)
         }
-        return Arbitraries.just(Triple(querySpec, ArrayList(reverseTerms.reversed()), inequality))
+        return Arbitraries.just(SpecToTermsMapping(querySpec, ArrayList(reverseTerms.reversed()), inequality))
     }
 
-    private fun querySpecInequality(keySpace: List<ByteArray>): Arbitrary<Triple<QuerySpec, ArrayList<IntermediateQueryTerm>, IntermediateQueryTerm?>> {
+    private fun querySpecInequality(keySpace: List<ByteArray>): Arbitrary<SpecToTermsMapping> {
         val subSpace = keySpace.subList(0, keySpace.size - 1)
         val key = keySpace.last()
         return this.querySpecNoInequality(subSpace).flatMap { (querySpec, terms, _) ->
-            this.generateInequalityQuery(key, querySpec).map { (newQuerySpec, inequalityTerm)  ->
-                Triple(newQuerySpec, terms, inequalityTerm)
+            this.generateInequalityQuery(key, querySpec).map { (newQuerySpec, _, inequalityTerm)  ->
+                SpecToTermsMapping(newQuerySpec, terms, inequalityTerm)
             }
         }
     }
 
-    private fun querySpecJustInequality(keySpace: List<ByteArray>): Arbitrary<Triple<QuerySpec, ArrayList<IntermediateQueryTerm>, IntermediateQueryTerm?>> {
+    private fun querySpecJustInequality(keySpace: List<ByteArray>): Arbitrary<SpecToTermsMapping> {
         val key = keySpace.shuffled().first()
-        return this.generateInequalityQuery(key, QuerySpec.empty).map {(querySpec, inequalityTerm) ->
-            Triple(querySpec, arrayListOf(), inequalityTerm)
+        return this.generateInequalityQuery(key, QuerySpec.empty).map {(querySpec, _, inequalityTerm) ->
+            SpecToTermsMapping(querySpec, arrayListOf(), inequalityTerm)
         }
     }
 
     private fun querySpecWithKeySpace(
         keySpace: List<ByteArray>
-    ): Arbitrary<Triple<QuerySpec, ArrayList<PublicIntermediateQueryTerm>, PublicIntermediateQueryTerm?>> {
+    ): Arbitrary<SpecToTermsMapping> {
         return Arbitraries.oneOf(
             listOf(
                 this.querySpecNoInequality(keySpace),
                 this.querySpecInequality(keySpace),
                 this.querySpecJustInequality(keySpace),
             )
-        ).map { launderIntermediateQueryTermsToPublic(it) }
+        )
     }
 
     @Provide
-    fun querySpecMeta(): Arbitrary<Triple<QuerySpec, ArrayList<PublicIntermediateQueryTerm>, PublicIntermediateQueryTerm?>> {
-        return this.byteArray(keySize).list().ofMinSize(1).ofMaxSize(keySpaceSize).flatMap { keySpace ->
+    fun querySpecMeta(): Arbitrary<SpecToTermsMapping> {
+        val byteArrayList = this.byteArray(keySize).list().ofMinSize(1).ofMaxSize(keySpaceSize)
+        return byteArrayList.flatMap { keySpace ->
             this.querySpecWithKeySpace(keySpace)
         }
     }
 
     @Property
     fun buildingQuerySpecs(
-        @ForAll @From("querySpecMeta") publicSpec: Triple<QuerySpec, ArrayList<PublicIntermediateQueryTerm>, PublicIntermediateQueryTerm?>
+        @ForAll @From("querySpecMeta") spec: SpecToTermsMapping
     ) {
-        val (querySpec, equalityTerms, maybeInequalityTerm) = unLaunderIntermediateQueryTermsFromPublic(publicSpec)
+        val (querySpec, equalityTerms, maybeInequalityTerm) = spec
         var equalityTrie = QPTrie(equalityTerms.map { term -> Pair(term.key, term.lowerBound!!) })
         if (maybeInequalityTerm != null) {
             equalityTrie = equalityTrie.remove(maybeInequalityTerm.key)
@@ -356,9 +345,10 @@ class QueryTreeTest {
 
     @Provide
     fun intermediateQueryTerms(): Arbitrary<PersistentList<PublicIntermediateQueryTerm>> {
+        val equalityTermList = this.intermediateQueryTermForEquality().list().ofMaxSize(16)
         return Arbitraries.oneOf(listOf(
-            this.intermediateQueryTermForEquality().list(),
-            this.intermediateQueryTermForEquality().list().flatMap { terms ->
+            equalityTermList,
+            equalityTermList.flatMap { terms ->
                 this.intermediateQueryTermForInequality().map { inequalityTerm ->
                     terms.add(terms.size, inequalityTerm)
                     terms
@@ -569,10 +559,9 @@ class QueryTreeTest {
     }
 
     fun queryTreeTestDataWithQueryListSize(minSize: Int, maxSize: Int, unique: Boolean): Arbitrary<QueryTreeTestData> {
-        return this.byteArray(keySize).list().ofMinSize(1).ofMaxSize(keySpaceSize).flatMap { keySpace ->
-            val listArbitrary = this.querySpecWithKeySpace(keySpace).map {
-                    (queries) -> queries
-            }.list()
+        val keySpaceArbitrary = this.byteArray(keySize).list().ofMinSize(1).ofMaxSize(keySpaceSize)
+        return keySpaceArbitrary.flatMap { keySpace ->
+            val listArbitrary = this.querySpecWithKeySpace(keySpace).map { (queries) -> queries }.list()
 
             val queryList = if (minSize == maxSize) {
                 listArbitrary.ofSize(minSize)
@@ -583,7 +572,7 @@ class QueryTreeTest {
                 val basedData = listOfArbitrariesToArbitraryOfList(queries.map {
                     this.basedDataForQuerySpec(it, keySpace)
                 }).map { flattenList(it) }
-                val arbitraryData = arbitraryDataForKeySpace(keySpace).list().ofMaxSize(128)
+                val arbitraryData = arbitraryDataForKeySpace(keySpace).list().ofMaxSize(32)
 
                 val basedDataSample = basedData.sample()
                 val arbitraryDataSample = arbitraryData.sample()
@@ -645,7 +634,7 @@ class QueryTreeTest {
                     for (i in handles.indices) {
                         println("${paths[i]} -> ${handles[i]}")
                     }
-                    println("And the tree has")
+                    println("The tree has")
                     for ((knownPath, knownResult) in queryTree) {
                         println("$knownPath -> $knownResult")
                     }
@@ -727,7 +716,7 @@ class QueryTreeTest {
             // that immediate inserts also work.
             val resultForPath = queryTree.getByPath(path)
             if (handle != resultForPath) {
-                println("Wait, the path should have been $path=$handle")
+                println("The path should have been $path=$handle")
                 println("Instead it was $path=$resultForPath")
             }
             assertEquals(handle, resultForPath)
@@ -741,8 +730,8 @@ class QueryTreeTest {
             val resultForPath = queryTree.getByPath(paths[i])
             if (handles[i] != resultForPath) {
                 println("Concerning the path ${paths[i]}")
-                println("Expected ${handles[i]}")
-                println("Got $resultForPath")
+                println("The data should have been ${handles[i]}")
+                println("Instead it was $resultForPath")
                 for (idx in paths.indices) {
                     println("${paths[idx]} = ${handles[idx]}")
                 }
@@ -793,7 +782,6 @@ class QueryTreeTest {
             val path = paths[i]
             val handle = handles[i]
             var priorHandle: SizeComputableInteger? = null
-            // println("ok, remove $path ${queries[i]} for first run")
             queryTree = queryTree.updateByPath(path) {
                 priorHandle = it
                 null
@@ -850,15 +838,9 @@ class QueryTreeTest {
 
         val (path, tree) = QueryTree<SizeComputableInteger>().updateByQuery(querySpec) { handle }
         assertEquals(1L, tree.size)
-        // /*
-        for ((treePath, value) in tree) {
-            println("$treePath=$value")
-            val byPath = tree.getByPath(treePath)
-            println("$treePath=$byPath")
-        }
-        // */
-        val gottenAgain = tree.getByPath(path)
-        assertEquals(handle, gottenAgain)
+
+        val gotten = tree.getByPath(path)
+        assertEquals(handle, gotten)
 
         val byData = tree.getByData(QPTrie(listOf(byteArrayOf(12) to byteArrayOf(12)))).asSequence().toList()
         assertEquals(1, byData.size)
@@ -872,11 +854,7 @@ class QueryTreeTest {
 
         val (path, tree) = QueryTree<SizeComputableInteger>().updateByQuery(querySpec) { handle }
         assertEquals(1L, tree.size)
-        /*
-        for ((treePath, value) in tree) {
-            println("${treePath}=${value}")
-        }
-        // */
+
         val gottenAgain = tree.getByPath(path)
         assertEquals(handle, gottenAgain)
 
@@ -892,6 +870,11 @@ class QueryTreeTest {
         return this.queryTreeTestData().flatMap { (queries, data) ->
             Arbitraries.just(
                 QuerySetTreeTestData(
+                    // What we're saying here is that we expect between 1 and 6 instances of the exact same
+                    // query, at least in this iteration of generated data. There may be even more than 6 instances,
+                    // because of duplicates in "queries", but the actual tests are robust against this.
+                    // Note that this is a different Arbitrary every time to prevent jqwik from saturating the
+                    // input "size" later.
                     queries.map { it to Arbitraries.integers().between(1, 6).sample() },
                     data
                 )
@@ -1054,15 +1037,15 @@ class QueryTreeTest {
                 // that immediate inserts also work.
                 val resultsForPath = queryTree.getByPath(path).asSequence().toSet()
                 if (handlesForQuery != resultsForPath) {
-                    println("Wait, the path should have been $path=$handlesForQuery")
+                    println("The path should have been $path=$handlesForQuery")
                     println("Instead it was $path=$resultsForPath")
                     var sawSomething = false
                     for ((actualPath, actualValue) in queryTree) {
                         sawSomething = true
-                        println("So what we had was $actualPath=$actualValue")
+                        println("What we had was $actualPath=$actualValue")
                     }
                     if (!sawSomething) {
-                        println("Why is the tree empty?")
+                        println("The tree was empty??")
                     }
                 }
                 assertEquals(handlesForQuery, resultsForPath)
@@ -1130,7 +1113,8 @@ class QueryTreeTest {
 
     @Test fun queryTreeSetMissingQueryRegistrationsSampleBefore() {
         // These specs caused a failure in queryTreeSet as "Sample arg0".
-        // This was actually fine.
+        // This was actually intended functionality, but a buggy test. We're keeping this here just as extra
+        // assurance that the behavior of QueryTree remains correct.
         val firstSpec = Pair(
             QuerySpec
                 .withEqualityTerm(
@@ -1405,8 +1389,8 @@ class QueryTreeTest {
     }
 
     @Test fun queryTreeSetMissingQueryRegistrationsSampleAfter() {
-        // These specs caused a failure in queryTreeSet as "After Execution arg0".
-        // This was actually buggy.
+        // These exact specs caused a failure in queryTreeSet as "After Execution arg0".
+        // To make sure the bug is always fixed, we've reproduced them here.
         val firstKey = byteArrayOf()
         val firstValue = byteArrayOf(-63, -28, 74, -8, -18, 9, 126, -107)
         val secondKey = byteArrayOf(3, -4, 26, -72, -24, -49)

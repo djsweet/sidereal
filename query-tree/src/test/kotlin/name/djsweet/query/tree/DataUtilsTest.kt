@@ -15,14 +15,16 @@ class DataUtilsTest {
 
     @Provide
     fun sharedKeyValueSpec(): Arbitrary<Pair<QPTrie<ByteArray>, QPTrie<ByteArray>>> {
-        return this.byteArrayList().map { byteArrays ->
+        val keys = this.byteArrayList().map { byteArrays ->
             val uniques = QPTrie(byteArrays.map { Pair(it, true) })
             val uniquesList = arrayListOf<ByteArray>()
             for ((key) in uniques) {
                 uniquesList.add(key)
             }
             uniquesList
-        }.flatMap { availableKeys ->
+        }
+
+        val values = keys.flatMap { availableKeys ->
             this.byteArrayList().ofMinSize(availableKeys.size).ofMaxSize(availableKeys.size).map {
                 val keysAndValues = ArrayList<Pair<ByteArray, ByteArray>>()
                 for (index in it.indices) {
@@ -30,18 +32,26 @@ class DataUtilsTest {
                 }
                 keysAndValues
             }
-        }.flatMap { availableKeyValuePairs ->
+        }
+
+        return values.flatMap { availableKeyValuePairs ->
+            // This arbitrary governs how many of the keys are shared between both QPTries in the resulting pair
             Arbitraries.integers().between(0, availableKeyValuePairs.size).flatMap { sharedCount ->
+                // This arbitrary governs how many non-shared data points will be placed in the first element of
+                // the pair. Any remaining data points beyond this point will be put in the second element of the pair.
                 Arbitraries.integers().between(0, availableKeyValuePairs.size - sharedCount).map { dataCount ->
                     var data = QPTrie<ByteArray>()
                     var keyDispatch = QPTrie<ByteArray>()
+                    // Shared data
                     for (i in 0 until sharedCount) {
                         data = data.put(availableKeyValuePairs[i].first, availableKeyValuePairs[i].second)
                         keyDispatch = keyDispatch.put(availableKeyValuePairs[i].first, availableKeyValuePairs[i].second)
                     }
+                    // First element only data
                     for (i in sharedCount until (sharedCount + dataCount)) {
                         data = data.put(availableKeyValuePairs[i].first, availableKeyValuePairs[i].second)
                     }
+                    // Second element only data
                     for (i in (sharedCount + dataCount) until availableKeyValuePairs.size) {
                         keyDispatch = keyDispatch.put(availableKeyValuePairs[i].first, availableKeyValuePairs[i].second)
                     }

@@ -53,7 +53,6 @@ class KeyValueSizeLimitsTest {
             // if we did this the other way around, we would skip the stack allocation
             // for modifying the lowNybble QPTrie node.
             trie = trie.put(highNybble, size * 2).put(lowNybble, size * 2 + 1)
-            //println("ok for size=$size budget=$sizeLimit heap=${Runtime.getRuntime().maxMemory()}")
         }
         assertEquals((sizeLimit * 2).toLong(), trie.size)
 

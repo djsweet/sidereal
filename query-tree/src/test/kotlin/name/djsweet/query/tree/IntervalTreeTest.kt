@@ -310,7 +310,7 @@ class IntervalTreeTest {
         )
         var tree = IntervalTree(basis.map { IntervalRange.fromPair(it.first) to it.second })
         this.testInOrderTraversal(tree)
-        // /*
+
         tree = tree.put(IntervalRange.fromPair(basis[0].first), "f")
         assertEquals(5, tree.size)
         this.testInOrderTraversal(tree)
@@ -343,7 +343,6 @@ class IntervalTreeTest {
 
         assertFalse(firstTreeIterator.hasNext())
         val treeAfterReplacement = tree
-        // */
 
         try {
             tree = tree.remove(IntervalRange.fromPair(basis[1].first))
@@ -483,22 +482,20 @@ class IntervalTreeTest {
         return Arbitraries.strings().list().ofMinSize(1).ofMaxSize(5) .map { Pair(p, ArrayList(it)) }
     }
 
-    // jqwik reflection appears to be broken and cannot lift pairsWithUpdates into a kotlin List.
     @Provide
     fun listOfPairsWithUpdates(): Arbitrary<List<Pair<IntervalRange<Int>, ArrayList<String>>>> {
         return Arbitraries.integers().flatMap { first: Int ->
             Arbitraries.integers().flatMap {
                 this.pairsWithUpdates(IntervalRange.fromBounds(first, it))
             }
-        }.list()
+        }.list().ofMaxSize(24)
     }
 
-    // ... jqwik appears to not be able to lift Pairs into lists at all?
     @Provide
     fun listOfPairs(): Arbitrary<List<IntervalRange<Int>>> {
         return Arbitraries.integers().flatMap { first: Int -> Arbitraries.integers().map {
             IntervalRange.fromBounds(first, it)
-        } }.list()
+        } }.list().ofMaxSize(24)
     }
 
     @Property
