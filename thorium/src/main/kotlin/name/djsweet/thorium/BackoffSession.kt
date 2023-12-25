@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Dani Sweet <thorium@djsweet.name>
+//
+// SPDX-License-Identifier: MIT
+
 package name.djsweet.thorium
 
 // FIXME: Document the choice of exponential jitter and polynomial backoff

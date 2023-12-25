@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Dani Sweet <thorium@djsweet.name>
+//
+// SPDX-License-Identifier: MIT
+
 import kotlinx.benchmark.gradle.JvmBenchmarkTarget
 import kotlinx.benchmark.gradle.benchmark
 

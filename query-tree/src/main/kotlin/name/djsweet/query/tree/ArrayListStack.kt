@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Dani Sweet <thorium@djsweet.name>
+//
+// SPDX-License-Identifier: MIT
+
 package name.djsweet.query.tree
 
 // Something about kotlin.collections.ArrayList makes it measurably slower than java.util.ArrayList,

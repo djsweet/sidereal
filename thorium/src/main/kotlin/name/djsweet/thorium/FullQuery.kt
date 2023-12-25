@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Dani Sweet <thorium@djsweet.name>
+//
+// SPDX-License-Identifier: MIT
+
 package name.djsweet.thorium
 
 import name.djsweet.query.tree.QPTrie

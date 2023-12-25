@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Dani Sweet <thorium@djsweet.name>
+//
+// SPDX-License-Identifier: MIT
+
 package name.djsweet.query.tree;
 
 // These would all be in Kotlin, except for limitations in

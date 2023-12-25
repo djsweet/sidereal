@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Dani Sweet <thorium@djsweet.name>
+//
+// SPDX-License-Identifier: MIT
+
 package name.djsweet.query.tree.benchmarks
 
 import kotlinx.collections.immutable.PersistentMap
