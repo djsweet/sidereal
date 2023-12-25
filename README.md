@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2023 Dani Sweet <thorium@djsweet.name>
+
+SPDX-License-Identifier: CC-BY-SA-2.0
+-->
+
 # Thorium - Reactive queries over streaming CloudEvents
 
 Thorium is a standalone HTTP server providing reactive queries over
