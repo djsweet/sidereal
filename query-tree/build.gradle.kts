@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 Dani Sweet <thorium@djsweet.name>
+//
+// SPDX-License-Identifier: MIT
+
 @file:Suppress("UnstableApiUsage")
 
 import kotlinx.benchmark.gradle.*

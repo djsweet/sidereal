@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2023 Dani Sweet <thorium@djsweet.name>
+
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Thorium - Reactive queries over streaming CloudEvents
 
 Thorium is a standalone HTTP server providing reactive queries over
@@ -99,6 +105,17 @@ Automated tests can be run against a native executable by running
 ```shell
 ./gradlew nativeTest
 ```
+
+## Licensing
+Thorium is available under the terms of the
+[MIT License](https://spdx.org/licenses/MIT.html) as per the
+[LICENSE](./LICENSE) file. Other licensing information is presented
+using [SPDX License IDs](https://spdx.dev/learn/handling-license-info/)
+embedded in the source files.
+
+More information regarding the technical practice of maintaining license
+information is available in
+[docs/development/licenses.md](docs/development/licenses.md).
 
 ## Sending events
 

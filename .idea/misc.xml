@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+SPDX-FileCopyrightText: 2023 Dani Sweet <thorium@djsweet.name>
+
+SPDX-License-Identifier: CC0-1.0
+-->
+
 <project version="4">
   <component name="EntryPointsManager">
     <list size="1">

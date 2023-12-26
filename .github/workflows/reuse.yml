@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: 2023 Dani Sweet <thorium@djsweet.name>
+# SPDX-License-Identifier: MIT
+
+# This workflow executes the `reuse` tool (https://git.fsfe.org/reuse/tool)
+# with `reuse lint` to ensure compliance with the REUSE specification
+# (https://reuse.software/spec/)
+
+name: Ensure REUSE Licensing Compliance
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+jobs:
+  reuse-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install `pipx`
+        run: sudo apt-get update && sudo apt-get install -y pipx
+
+      - name: Prepare cache for `pipx` virtual environments
+        uses: actions/cache@v3
+        id: cache-pipx
+        env:
+          cache-name: ${{ runner.os }}-pipx
+        with:
+          key: pipx-venv
+          path: |
+            /opt/pipx/venvs
+            /opt/pipx_bin
+
+      - name: Install `reuse`
+        run: pipx install reuse
+
+      - uses: actions/checkout@v3
+      - name: Run `reuse lint`
+        run: /opt/pipx_bin/reuse lint
