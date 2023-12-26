@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install `pipx`
-        run: apt-get update && apt-get install -y pipx
+        run: sudo apt-get update && sudo apt-get install -y pipx
 
       - name: Prepare cache for `pipx` virtual environments
         uses: actions/cache@v3
