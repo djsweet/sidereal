@@ -31,7 +31,7 @@ jobs:
         with:
           key: pipx-venv
           path: |
-            /opt/pipx
+            /opt/pipx/venvs
             /opt/pipx_bin
 
       - name: Install `reuse`
