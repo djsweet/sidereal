@@ -31,12 +31,12 @@ jobs:
         with:
           key: pipx-venv
           path: |
-            ~/.local/pipx
-            ~/.local/bin
+            /opt/pipx
+            /opt/pipx_bin
 
       - name: Install `reuse`
         run: pipx install reuse
 
       - uses: actions/checkout@v3
       - name: Run `reuse lint`
-        run: pipx --help
+        run: /opt/pipx_bin/reuse lint
