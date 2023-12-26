@@ -29,6 +29,7 @@ jobs:
         env:
           cache-name: ${{ runner.os }}-pipx
         with:
+          key: pipx-venv
           path: |
             ~/.local/pipx
             ~/.local/bin
