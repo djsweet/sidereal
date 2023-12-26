@@ -1,7 +1,7 @@
 <!--
 SPDX-FileCopyrightText: 2023 Dani Sweet <thorium@djsweet.name>
 
-SPDX-License-Identifier: CC-BY-SA-2.0
+SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
 # Licensing in Thorium
