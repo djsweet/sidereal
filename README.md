@@ -17,6 +17,13 @@ an inversion to the usual practice of data being indexed by their fields. This
 query indexing allows Thorium to scale efficiently to thousands of concurrent
 queries while still ingesting tens of thousands of events per second.
 
+## Thorium is still experimental!
+
+Thorium is still very much a work in progress, and isn't yet at a state where
+it can be considered "production ready". Some aspects of it might change
+in a breaking manner in the near future. If you'd like to try Thorium out,
+please proceed with caution.
+
 ## Running from source
 
 You'll need a Java Development Kit (JDK) supporting Java 17 or greater.
