@@ -9,10 +9,7 @@ import io.vertx.core.Future
 import io.vertx.core.eventbus.MessageConsumer
 import io.vertx.core.http.HttpServerResponse
 import io.vertx.kotlin.core.json.jsonObjectOf
-import name.djsweet.thorium.ReportData
-import name.djsweet.thorium.UnregisterQueryRequest
-import name.djsweet.thorium.localRequestOptions
-import name.djsweet.thorium.wallNowAsString
+import name.djsweet.thorium.*
 
 const val serverSentPingTimeout = 30_000.toLong()
 
@@ -86,7 +83,7 @@ class QueryClientSSEServer(
         this.resp.endHandler {
             eventBus.request<Any>(
                 this.serverAddress,
-                UnregisterQueryRequest(this.channel, this.clientID),
+                UnregisterQueryRequest(this.channel, this.clientID, this.clientID),
                 localRequestOptions
             ).onComplete {
                 vertx.undeploy(this.deploymentID())
@@ -108,8 +105,9 @@ class QueryClientSSEServer(
             }
             this.writeHeadersIfNecessary()
             this.setupPingTimer()
-            if (messageBody is ReportData) {
-                resp.write(messageBody.serverSentEventPayload.value).onComplete {
+            if (messageBody is ReportDataWithClientAndQueryIDs) {
+                val (data) = messageBody
+                resp.write(data.serverSentEventPayload.value).onComplete {
                     message.reply("handled")
                 }
             }

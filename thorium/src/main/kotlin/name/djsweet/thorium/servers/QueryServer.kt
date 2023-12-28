@@ -43,9 +43,10 @@ internal const val thoriumMetaQueryRemovalType = "name.djsweet.thorium.meta.quer
 private const val backoffBaseWaitTimeMS = 0.5
 
 data class QueryResponderSpec(
-    val query: FullQuery,
+    val queries: List<FullQuery>,
     val respondTo: String,
     val clientID: String,
+    val queryID: String,
     val addedAt: Long,
     val arrayContainsCounter: Long,
 )
@@ -128,44 +129,61 @@ abstract class ServerVerticle(
 
 class ChannelInfo {
     var queryTree = QuerySetTree<QueryResponderSpec>()
-    val queriesByClientID = HashMap<String, Pair<QueryResponderSpec, QueryPath>>()
+    val queriesByClientThenQueryID = HashMap<String, HashMap<String, Pair<QueryResponderSpec, List<QueryPath>>>>()
 
-    fun registerQuery(query: FullQuery, clientID: String, respondTo: String): QueryPath {
+    fun registerQuery(queries: List<FullQuery>, clientID: String, queryID: String, respondTo: String): List<QueryPath> {
         val queryTree = this.queryTree
-        val queriesByClientID = this.queriesByClientID
-        val priorQuery = queriesByClientID[clientID]
+        val queryIDsByClientID = this.queriesByClientThenQueryID
+        val queriesByQueryID = queryIDsByClientID[clientID] ?: HashMap()
+        val priorQuery = queriesByQueryID[clientID]
 
         val basisQueryTree = if (priorQuery == null) {
             queryTree
         } else {
-            val (priorResponder, priorPath) = priorQuery
-            queryTree.removeElementByPath(priorPath, priorResponder)
+            val (priorResponder, priorPaths) = priorQuery
+            priorPaths.fold(queryTree) { qt, priorPath -> qt.removeElementByPath(priorPath, priorResponder) }
         }
+
+        val arrayContainsConditions = queries.sumOf { it.countArrayContainsConditions() }
         val responderSpec = QueryResponderSpec(
-            query,
+            queries,
             respondTo,
             clientID,
-            0,
-            query.countArrayContainsConditions()
+            queryID,
+            monotonicNowMS(),
+            arrayContainsConditions
         )
-        val (newPath, newQueryTree) = basisQueryTree.addElementByQuery(query.treeSpec, responderSpec)
+        val newPaths = mutableListOf<QueryPath>()
+        var newQueryTree = basisQueryTree
+        for (query in queries) {
+            val (newPath, nextQueryTree) = newQueryTree.addElementByQuery(query.treeSpec, responderSpec)
+            newPaths.add(newPath)
+            newQueryTree = nextQueryTree
+        }
 
         this.queryTree = newQueryTree
-        queriesByClientID[clientID] = responderSpec to newPath
-        return newPath
+        queriesByQueryID[queryID] = responderSpec to newPaths
+        queryIDsByClientID[clientID] = queriesByQueryID
+        return newPaths
     }
 
-    fun unregisterQuery(clientID: String): QueryPath? {
-        val queriesByClientID = this.queriesByClientID
-        val priorQuery = queriesByClientID[clientID] ?: return null
+    fun unregisterQuery(clientID: String, queryID: String): List<QueryPath>? {
+        val queriesByClientID = this.queriesByClientThenQueryID
+        val priorQueriesByQueryID = queriesByClientID[clientID] ?: return null
+        val priorQuery = priorQueriesByQueryID[queryID] ?: return null
         val (responder, path) = priorQuery
-        this.queryTree = this.queryTree.removeElementByPath(path, responder)
-        queriesByClientID.remove(clientID)
+        for (pathElem in path) {
+            this.queryTree = this.queryTree.removeElementByPath(pathElem, responder)
+        }
+        priorQueriesByQueryID.remove(queryID)
+        if (priorQueriesByQueryID.isEmpty()) {
+            queriesByClientID.remove(clientID)
+        }
         return path
     }
 
     fun isEmpty(): Boolean {
-        return this.queriesByClientID.isEmpty()
+        return this.queriesByClientThenQueryID.isEmpty()
     }
 }
 
@@ -201,7 +219,8 @@ class QueryRouterVerticle(
         idempotencyKeyLoadFactor.toFloat()
     )
     private val idempotencyKeyRemovalSchedule = LongKeyedBinaryMinHeap<Pair<String, String>>(idempotencyKeyCacheSize)
-    private val responders = ArrayList<QueryResponderSpec>()
+    private val responders = HashSet<QueryResponderSpec>()
+    private val responsesByReplyAddress = HashMap<String, ReportDataWithClientAndQueryIDs>()
     private val arrayResponderReferenceCounts = mutableMapOf<QueryResponderSpec, Long>()
     private val arrayResponderInsertionPairs = ArrayList<Pair<ByteArray, ByteArray>>()
 
@@ -221,12 +240,16 @@ class QueryRouterVerticle(
         val counters = this.counters
         for ((channel, channelInfo) in this.channels) {
             val removePathIncrements = ArrayList<Pair<List<String>, Int>>()
-            for ((_, responderSpecToPath) in channelInfo.queriesByClientID) {
-                val (responderSpec, queryPath) = responderSpecToPath
-                val (_, respondTo, clientID) = responderSpec
-                eventBus.publish(respondTo, UnregisterQueryRequest(channel, clientID))
-                extractKeyPathsFromQueryPath(queryPath, -1) {
-                    removePathIncrements.add(it)
+            for ((_, queryIDsToQueries) in channelInfo.queriesByClientThenQueryID) {
+                for ((_, responderSpecToPath) in queryIDsToQueries) {
+                    val (responderSpec, queryPaths) = responderSpecToPath
+                    val (_, respondTo, clientID, queryID) = responderSpec
+                    eventBus.publish(respondTo, UnregisterQueryRequest(channel, clientID, queryID))
+                    for (queryPath in queryPaths) {
+                        extractKeyPathsFromQueryPath(queryPath, -1) {
+                            removePathIncrements.add(it)
+                        }
+                    }
                 }
             }
             counters.updateKeyPathReferenceCountsForChannel(channel, removePathIncrements)
@@ -306,79 +329,104 @@ class QueryRouterVerticle(
         // This is a suspend function because of the weird whenError/whenSuccess callback mechanisms.
         // We're luckily suspending anyway, but... whoops.
         return suspendCoroutine { cont ->
-            while (true) {
-                val possiblyFullQuery: HttpProtocolErrorOr<FullQueryAndAffectedKeyIncrements>
-                try {
-                    possiblyFullQuery = convertQueryStringToFullQuery(
-                        req.queryParams,
-                        this.maxQueryTerms,
-                        this.byteBudget
-                    )
-                } catch (x: StackOverflowError) {
-                    // This is an intentional early trapping of StackOverflowError, even though
-                    // it's being handled transparently in runAndReply. Doing this here allows us
-                    // to re-attempt without a crash, which should result in .whenError getting
-                    // an appropriate HTTP status code.
-                    this.handleStackOverflowWithNewByteBudget()
-                    continue
-                }
-                possiblyFullQuery
-                    .whenError { cont.resumeWith(Result.success(HttpProtocolErrorOrJson.ofError(it))) }
-                    .whenSuccess { (query, increments) ->
-                        val (channel) = req
-                        val channels = this.channels
-                        val config = this.config
-                        val counters = this.counters
-                        val channelInfo = channels[channel] ?: ChannelInfo()
-                        val basisQueryTreeSize = channelInfo.queryTree.size
-                        channelInfo.registerQuery(query, req.clientID, req.returnAddress)
-                        channels[channel] = channelInfo
-                        counters.alterQueryCountForThread(
-                            this.verticleOffset,
-                            channelInfo.queryTree.size - basisQueryTreeSize
+            val (channel, clientID, queryID, queryString, queryParams, returnAddress) = req
+
+            stackOverflowRetry@ while (true) {
+                val fullQueries = mutableListOf<FullQuery>()
+                val keyIncrements = mutableListOf<Pair<List<String>, Int>>()
+
+                for (conjunction in queryParams) {
+                    val possiblyFullQuery: HttpProtocolErrorOr<FullQueryAndAffectedKeyIncrements>
+                    try {
+                        possiblyFullQuery = convertQueryStringToFullQuery(
+                            conjunction,
+                            this.maxQueryTerms,
+                            this.byteBudget
                         )
-                        counters.updateKeyPathReferenceCountsForChannel(channel, increments)
-                        sendUnpackDataRequests(
-                            this.vertx,
-                            config,
-                            counters,
-                            listOf(this.unpackDataRequestForMetaChannel(
-                                clientID = req.clientID,
-                                eventType = thoriumMetaQueryRegistrationType,
-                                idPrefix = "+",
-                                data = jsonObjectOf(
-                                    "instanceID" to config.instanceID,
-                                    "channel" to req.channel,
-                                    "clientID" to req.clientID,
-                                    "query" to req.queryString
-                                )
-                            )),
-                            respectLimit = false
-                        ).onComplete {
-                            // We'll have to wait for the meta channel send before we report to the registering
-                            // client that we've connected. Query registrants may depend on the meta channel send
-                            // strictly happening before the query was registered, possibly as a registration
-                            // verification measure.
-                            if (it.failed()) {
-                                // Note that this will also attempt to send over the meta channel, too, but will
-                                // report a channel/clientID pair that possibly nobody saw. Consumers should be aware
-                                // of this possible failure mode.
-                                val self = this
-                                vertxFuture {
-                                    self.unregisterQuery(UnregisterQueryRequest(req.channel, req.clientID))
-                                    cont.resumeWithException(it.cause())
-                                }
-                            } else {
-                                cont.resumeWith(Result.success(
-                                    HttpProtocolErrorOrJson.ofSuccess(jsonObjectOf(
-                                        "channel" to req.channel,
-                                        "clientID" to req.clientID
-                                    ))
-                                ))
-                            }
-                        }
+                    } catch (x: StackOverflowError) {
+                        // This is an intentional early trapping of StackOverflowError, even though
+                        // it's being handled transparently in runAndReply. Doing this here allows us
+                        // to re-attempt without a crash, which should result in .whenError getting
+                        // an appropriate HTTP status code.
+                        this.handleStackOverflowWithNewByteBudget()
+                        continue@stackOverflowRetry
                     }
-                break
+                    var hadError = false
+                    possiblyFullQuery
+                        .whenError {
+                            cont.resumeWith(Result.success(HttpProtocolErrorOrJson.ofError(it)))
+                            hadError = true
+                        }.whenSuccess { (query, increments) ->
+                            fullQueries.add(query)
+                            keyIncrements.addAll(increments)
+                        }
+                    if (hadError) {
+                        break@stackOverflowRetry
+                    }
+                }
+
+                val channels = this.channels
+                val config = this.config
+                val counters = this.counters
+                val channelInfo = channels[channel] ?: ChannelInfo()
+                val basisQueryTreeSize = channelInfo.queryTree.size
+
+                channelInfo.registerQuery(fullQueries, clientID, queryID, returnAddress)
+                channels[channel] = channelInfo
+                counters.alterQueryCountForThread(
+                    this.verticleOffset,
+                    channelInfo.queryTree.size - basisQueryTreeSize
+                )
+                counters.updateKeyPathReferenceCountsForChannel(channel, keyIncrements)
+                sendUnpackDataRequests(
+                    this.vertx,
+                    config,
+                    counters,
+                    listOf(
+                        this.unpackDataRequestForMetaChannel(
+                            clientID = clientID,
+                            eventType = thoriumMetaQueryRegistrationType,
+                            idPrefix = "+",
+                            data = jsonObjectOf(
+                                "instanceID" to config.instanceID,
+                                "channel" to channel,
+                                "clientID" to clientID,
+                                "queryID" to queryID,
+                                "query" to queryString
+                            )
+                        )
+                    ),
+                    respectLimit = false
+                ).onComplete {
+                    // We'll have to wait for the meta channel send before we report to the registering
+                    // client that we've connected. Query registrants may depend on the meta channel send
+                    // strictly happening before the query was registered, possibly as a registration
+                    // verification measure.
+                    if (it.failed()) {
+                        // Note that this will also attempt to send over the meta channel, too, but will
+                        // report a channel/clientID pair that possibly nobody saw. Consumers should be aware
+                        // of this possible failure mode.
+                        val self = this
+                        vertxFuture {
+                            self.unregisterQuery(UnregisterQueryRequest(channel, clientID, queryID))
+                            cont.resumeWithException(it.cause())
+                        }
+                    } else {
+                        cont.resumeWith(
+                            Result.success(
+                                HttpProtocolErrorOrJson.ofSuccess(
+                                    jsonObjectOf(
+                                        "channel" to channel,
+                                        "clientID" to clientID,
+                                        "queryID" to queryID
+                                    )
+                                )
+                            )
+                        )
+                    }
+                }
+
+                break@stackOverflowRetry
             }
         }
     }
@@ -386,6 +434,7 @@ class QueryRouterVerticle(
     private suspend fun unregisterQuery(
         channel: String,
         clientID: String,
+        queryID: String,
         withRemovedPath: (QueryPath) -> Unit
     ): HttpProtocolErrorOrJson {
         val channelInfo = this.channels[channel] ?: return HttpProtocolErrorOrJson.ofError(
@@ -398,19 +447,22 @@ class QueryRouterVerticle(
         )
 
         val basisQueryTreeSize = channelInfo.queryTree.size
-        val involvedPath = channelInfo.unregisterQuery(clientID)
-        return if (involvedPath == null) {
+        val involvedPaths = channelInfo.unregisterQuery(clientID, queryID)
+        return if (involvedPaths == null) {
             HttpProtocolErrorOrJson.ofError(
                 HttpProtocolError(
                     404, jsonObjectOf(
                         "code" to "missing-client-id",
                         "channel" to channel,
-                        "clientID" to clientID
+                        "clientID" to clientID,
+                        "queryID" to queryID
                     )
                 )
             )
         } else {
-            withRemovedPath(involvedPath)
+            for (involvedPath in involvedPaths) {
+                withRemovedPath(involvedPath)
+            }
             val counters = this.counters
             val config = this.config
             val vertx = this.vertx
@@ -461,7 +513,7 @@ class QueryRouterVerticle(
     }
 
     private suspend fun unregisterQuery(req: UnregisterQueryRequest): HttpProtocolErrorOrJson {
-        return this.unregisterQuery(req.channel, req.clientID) { queryPath ->
+        return this.unregisterQuery(req.channel, req.clientID, req.queryID) { queryPath ->
             val decrements = mutableListOf<Pair<List<String>, Int>>()
             extractKeyPathsFromQueryPath(queryPath, -1) {
                 decrements.add(it)
@@ -472,21 +524,23 @@ class QueryRouterVerticle(
 
     private fun trySendDataToResponder(
         eventBus: EventBus,
-        data: ReportData,
-        responder: QueryResponderSpec,
+        respondTo: String,
+        data: ReportDataWithClientAndQueryIDs,
         prior: Future<Message<Any>>,
         removedPathIncrements: MutableList<Pair<List<String>, Int>>
     ): Future<Message<Any>> {
-        val (_, respondTo, clientID) = responder
+        val (reportData, clientID, queryIDs) = data
         val current = eventBus.request<Any>(respondTo, data, localRequestOptions).onFailure {
             val self = this
             vertxFuture {
-                self.unregisterQuery(data.channel, responder.clientID) { queryPath ->
-                    extractKeyPathsFromQueryPath(queryPath, -1) {
-                        removedPathIncrements.add(it)
+                for (queryID in queryIDs) {
+                    self.unregisterQuery(reportData.channel, clientID, queryID) { queryPath ->
+                        extractKeyPathsFromQueryPath(queryPath, -1) {
+                            removedPathIncrements.add(it)
+                        }
                     }
+                    eventBus.publish(respondTo, UnregisterQueryRequest(reportData.channel, clientID, queryID))
                 }
-                eventBus.publish(respondTo, UnregisterQueryRequest(data.channel, clientID))
             }
         }
         return prior.eventually { current }
@@ -519,15 +573,17 @@ class QueryRouterVerticle(
         }
     }
 
-    private fun respondToData(response: ReportData) {
+    private fun respondToData(reportData: ReportData) {
         val responders = this.responders
+        val responsesByReturnAddress = this.responsesByReplyAddress
+
         val idempotencyKeys = this.idempotencyKeys
         val idempotencyKeyCacheSize = this.idempotencyKeyCacheSize
         val arrayResponderReferenceCounts = this.arrayResponderReferenceCounts
         val arrayResponderInsertionPairs = this.arrayResponderInsertionPairs
         var respondFutures = Future.succeededFuture<Message<Any>>()
         val removedPathIncrements = ArrayList<Pair<List<String>, Int>>()
-        val (channel, idempotencyKey, queryableScalarData, queryableArrayData) = response
+        val (channel, idempotencyKey, queryableScalarData, queryableArrayData) = reportData
 
         try {
             val eventBus = this.vertx.eventBus()
@@ -559,42 +615,61 @@ class QueryRouterVerticle(
 
             var arrayResponderQueries = QPTrie<QPTrie<IdentitySet<QueryResponderSpec>>>()
             for (responder in responders) {
-                val (query, _, _, _, arrayContainsCount) = responder
+                val (queries, respondTo, clientID, queryID, _, arrayContainsCount) = responder
                 val dataTrie = queryableScalarData.trie
-                if (!query.startsWithMatchesAtOffsets(dataTrie)) {
-                    continue
-                }
-                if (!query.notEqualsMatchesData(dataTrie)) {
-                    continue
-                }
-                // If we have any arrayContains we have to inspect, save this for another phase
-                if (arrayContainsCount > 0) {
+                queryLoop@ for (query in queries) {
+                    if (!query.startsWithMatchesAtOffsets(dataTrie)) {
+                        continue@queryLoop
+                    }
+                    if (!query.notEqualsMatchesData(dataTrie)) {
+                        continue@queryLoop
+                    }
+                    // If we don't have any arrayContains to inspect for _this_ query, we can short-circuit out
+                    // and call it good.
+                    if (arrayContainsCount == 0L) {
+                        // We don't actually have to perform the array checks here! This responder will already
+                        // be triggered without having to go through the array checks.
+                        arrayResponderInsertionPairs.clear()
+                        break@queryLoop
+                    }
+                    // If we have any arrayContains we have to inspect, save this for another phase
                     arrayResponderReferenceCounts[responder] = arrayContainsCount
                     query.arrayContains.visitUnsafeSharedKey { (key, values) ->
                         values.visitAscendingUnsafeSharedKey { (value) ->
                             arrayResponderInsertionPairs.add(Pair(key, value))
                         }
                     }
+                }
 
-                    for ((key, value) in arrayResponderInsertionPairs) {
-                        arrayResponderQueries = arrayResponderQueries.update(key) { valueTrie ->
-                            (valueTrie ?: QPTrie()).update(value) {
-                                (it ?: IdentitySet()).add(responder)
-                            }
+                for ((key, value) in arrayResponderInsertionPairs) {
+                    arrayResponderQueries = arrayResponderQueries.update(key) { valueTrie ->
+                        (valueTrie ?: QPTrie()).update(value) {
+                            (it ?: IdentitySet()).add(responder)
                         }
                     }
+                }
 
-                    arrayResponderInsertionPairs.clear()
+                val hadArrayResponders = arrayResponderInsertionPairs.isNotEmpty()
+                // We only have one instance for all of these responders, so we have to clean up after ourselves
+                // on the way out. Note that we're clearing this even if we didn't have array-based queries, to
+                // simplify the cleanup.
+                arrayResponderInsertionPairs.clear()
+
+                if (hadArrayResponders) {
+                    // If we had array responders, we can't yet respond to this query: we still have to go through
+                    // the array-contains filtering below. Note that if any term in the OR set did _not_ have
+                    // array-contains and otherwise matched, we already emptied out `arrayResponderInsertionPairs`
+                    // so we would not have hit this condition.
                     continue
                 }
-                respondFutures = this.trySendDataToResponder(
-                    eventBus,
-                    response,
-                    responder,
-                    respondFutures,
-                    removedPathIncrements
-                )
+
+                val response = responsesByReturnAddress[respondTo]
+                    ?: ReportDataWithClientAndQueryIDs(reportData, clientID)
+                response.queryIDs.add(queryID)
+                responsesByReturnAddress[respondTo] = response
             }
+            // This is a little redundant, but running the .clear() early does give the garbage collector the
+            // ability to smear out its pause operations.
             responders.clear()
 
             if (arrayResponderReferenceCounts.size > 0L) {
@@ -608,14 +683,16 @@ class QueryRouterVerticle(
                             val nextReferenceCount = (arrayResponderReferenceCounts[responder] ?: 0) - 1
                             if (nextReferenceCount == 0L) {
                                 arrayResponderReferenceCounts.remove(responder)
-                                respondFutures =
-                                    this.trySendDataToResponder(
-                                        eventBus,
-                                        response,
-                                        responder,
-                                        respondFutures,
-                                        removedPathIncrements
-                                    )
+                                val (_, respondTo, clientID, queryID) = responder
+                                val response = responsesByReturnAddress[respondTo]
+                                    ?: ReportDataWithClientAndQueryIDs(reportData, clientID)
+
+                                val queryIDs = response.queryIDs
+                                // Perhaps this should have been a `Set` instead...
+                                if (queryIDs.indexOf(queryID) < 0) {
+                                    queryIDs.add(queryID)
+                                }
+                                responsesByReturnAddress[respondTo] = response
                             } else {
                                 arrayResponderReferenceCounts[responder] = nextReferenceCount
                             }
@@ -632,6 +709,16 @@ class QueryRouterVerticle(
                     }
                 }
             }
+
+            for ((respondTo, response) in responsesByReturnAddress) {
+                respondFutures = this.trySendDataToResponder(
+                    eventBus,
+                    respondTo,
+                    response,
+                    respondFutures,
+                    removedPathIncrements
+                )
+            }
         } finally {
             // Backpressure: we don't return until all clients either accept the message, or we time out.
             // If we time out, we remove the query and attempt to notify the client that we have done so.
@@ -646,6 +733,7 @@ class QueryRouterVerticle(
             }
 
             responders.clear()
+            responsesByReturnAddress.clear()
             arrayResponderInsertionPairs.clear()
             arrayResponderReferenceCounts.clear()
         }
