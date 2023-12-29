@@ -9,6 +9,7 @@ import kotlinx.coroutines.runBlocking
 
 fun<T> withVertx(consumer: (Vertx) -> T): T {
     val vertx = Vertx.vertx()
+    registerMessageCodecs(vertx)
     try {
         return consumer(vertx)
     } finally {
