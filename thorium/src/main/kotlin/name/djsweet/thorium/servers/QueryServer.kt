@@ -304,12 +304,13 @@ class QueryRouterVerticle(
 
     private fun unpackDataRequestForMetaChannel(
         clientID: String,
+        queryID: String,
         eventType: String,
         idPrefix: String,
         data: JsonObject
     ): UnpackDataRequest {
         val config = this.config
-        val globalID = "${config.instanceID} $idPrefix$clientID"
+        val globalID = "${config.instanceID} $idPrefix$clientID $queryID"
         val sourceName = config.sourceName
         return UnpackDataRequest(
             channel = metaChannelName,
@@ -385,6 +386,7 @@ class QueryRouterVerticle(
                     listOf(
                         this.unpackDataRequestForMetaChannel(
                             clientID = clientID,
+                            queryID = queryID,
                             eventType = thoriumMetaQueryRegistrationType,
                             idPrefix = "+",
                             data = jsonObjectOf(
@@ -471,12 +473,14 @@ class QueryRouterVerticle(
             }
             val unpackRequest = listOf(this.unpackDataRequestForMetaChannel(
                 clientID = clientID,
+                queryID = queryID,
                 eventType = thoriumMetaQueryRemovalType,
                 idPrefix = "-",
                 data = jsonObjectOf(
                     "instanceID" to config.instanceID,
                     "channel" to channel,
-                    "clientID" to clientID
+                    "clientID" to clientID,
+                    "queryID" to queryID,
                 )
             ))
             val backoffSession = BackoffSession(backoffBaseWaitTimeMS)
@@ -494,6 +498,7 @@ class QueryRouterVerticle(
                         .setMessage("Could not report query removal")
                         .addKeyValue("channel", channel)
                         .addKeyValue("clientID", clientID)
+                        .addKeyValue("queryID", queryID)
                         .log()
                 }
                 val sleepTimeMS = backoffSession.sleepTimeMS()
@@ -506,7 +511,8 @@ class QueryRouterVerticle(
             HttpProtocolErrorOrJson.ofSuccess(
                 jsonObjectOf(
                     "channel" to channel,
-                    "clientID" to clientID
+                    "clientID" to clientID,
+                    "queryID" to queryID
                 )
             )
         }
