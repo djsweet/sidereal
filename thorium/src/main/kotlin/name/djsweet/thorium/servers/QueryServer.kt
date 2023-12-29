@@ -632,7 +632,7 @@ class QueryRouterVerticle(
                     }
                     // If we don't have any arrayContains to inspect for _this_ query, we can short-circuit out
                     // and call it good.
-                    if (arrayContainsCount == 0L) {
+                    if (query.arrayContains.size == 0L) {
                         // We don't actually have to perform the array checks here! This responder will already
                         // be triggered without having to go through the array checks.
                         arrayResponderInsertionPairs.clear()
