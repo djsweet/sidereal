@@ -130,19 +130,15 @@ class KeyValueSizeLimitsTest {
 
     @Test
     fun keyValueSizeLimitForVertxPreventsStackOverflow() {
-        val vertx = Vertx.vertx()
-        val sizeLimit = maxSafeKeyValueSizeSync(vertx)
         val self = this
-        try {
-            runBlocking {
-                awaitResult { handler ->
-                    vertx.executeBlocking { ->
-                        self.keyValueSizeLimitImpl(sizeLimit * 3 / 2)
-                    }.andThen(handler)
-                }
+        withVertxAsync { vertx ->
+            // This doesn't need to be sync, but running this here _does_ give us code coverage.
+            val sizeLimit = maxSafeKeyValueSizeSync(vertx)
+            awaitResult { handler ->
+                vertx.executeBlocking { ->
+                    self.keyValueSizeLimitImpl(sizeLimit * 3 / 2)
+                }.andThen(handler)
             }
-        } finally {
-            vertx.close()
         }
     }
 }
