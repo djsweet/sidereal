@@ -21,8 +21,6 @@ import io.vertx.kotlin.coroutines.awaitEvent
 import io.vertx.kotlin.coroutines.vertxFuture
 import kotlinx.collections.immutable.PersistentMap
 import kotlinx.coroutines.delay
-import name.djsweet.query.tree.IdentitySet
-import name.djsweet.query.tree.QPTrie
 import name.djsweet.query.tree.QueryPath
 import name.djsweet.query.tree.QuerySetTree
 import name.djsweet.thorium.*
@@ -48,7 +46,7 @@ data class QueryResponderSpec(
     val clientID: String,
     val queryID: String,
     val addedAt: Long,
-    val arrayContainsCounter: Long,
+    val arrayContainsCounts: List<Long>,
 )
 
 abstract class ServerVerticle(
@@ -144,14 +142,14 @@ class ChannelInfo {
             priorPaths.fold(queryTree) { qt, priorPath -> qt.removeElementByPath(priorPath, priorResponder) }
         }
 
-        val arrayContainsConditions = queries.sumOf { it.countArrayContainsConditions() }
+        val arrayContainsCounts = queries.map { it.countArrayContainsConditions() }
         val responderSpec = QueryResponderSpec(
             queries,
             respondTo,
             clientID,
             queryID,
             monotonicNowMS(),
-            arrayContainsConditions
+            arrayContainsCounts
         )
         val newPaths = mutableListOf<QueryPath>()
         var newQueryTree = basisQueryTree
@@ -221,8 +219,6 @@ class QueryRouterVerticle(
     private val idempotencyKeyRemovalSchedule = LongKeyedBinaryMinHeap<Pair<String, String>>(idempotencyKeyCacheSize)
     private val responders = HashSet<QueryResponderSpec>()
     private val responsesByReplyAddress = HashMap<String, ReportDataWithClientAndQueryIDs>()
-    private val arrayResponderReferenceCounts = mutableMapOf<QueryResponderSpec, Long>()
-    private val arrayResponderInsertionPairs = ArrayList<Pair<ByteArray, ByteArray>>()
 
     private var idempotencyCleanupTimerID: Long? = null
     private var idempotencyExpirationMS = 0
@@ -582,14 +578,14 @@ class QueryRouterVerticle(
     private fun respondToData(reportData: ReportData) {
         val responders = this.responders
         val responsesByReturnAddress = this.responsesByReplyAddress
-
         val idempotencyKeys = this.idempotencyKeys
         val idempotencyKeyCacheSize = this.idempotencyKeyCacheSize
-        val arrayResponderReferenceCounts = this.arrayResponderReferenceCounts
-        val arrayResponderInsertionPairs = this.arrayResponderInsertionPairs
-        var respondFutures = Future.succeededFuture<Message<Any>>()
+
         val removedPathIncrements = ArrayList<Pair<List<String>, Int>>()
-        val (channel, idempotencyKey, queryableScalarData, queryableArrayData) = reportData
+        val (channel, idempotencyKey, queryableScalarDataShared, queryableArrayDataShared) = reportData
+        val queryableScalarData = queryableScalarDataShared.trie
+        val queryableArrayData = queryableArrayDataShared.trie
+        var respondFutures = Future.succeededFuture<Message<Any>>()
 
         try {
             val eventBus = this.vertx.eventBus()
@@ -615,104 +611,69 @@ class QueryRouterVerticle(
                 this.setupIdempotencyCleanupTimer()
             }
 
-            queryTree.visitByData(queryableScalarData.trie) { _, responder ->
+            queryTree.visitByData(queryableScalarData) { _, responder ->
                 responders.add(responder)
             }
 
-            var arrayResponderQueries = QPTrie<QPTrie<IdentitySet<QueryResponderSpec>>>()
-            for (responder in responders) {
-                val (queries, respondTo, clientID, queryID, _, arrayContainsCount) = responder
-                val dataTrie = queryableScalarData.trie
-                queryLoop@ for (query in queries) {
-                    if (!query.startsWithMatchesAtOffsets(dataTrie)) {
+            responderLoop@ for (responder in responders) {
+                val (queries, respondTo, clientID, queryID, _, arrayContainsCounts) = responder
+                var matched = false
+                queryLoop@ for ((index, query) in queries.withIndex()) {
+                    if (!query.startsWithMatchesAtOffsets(queryableScalarData)) {
                         continue@queryLoop
                     }
-                    if (!query.notEqualsMatchesData(dataTrie)) {
+                    if (!query.notEqualsMatchesData(queryableScalarData)) {
                         continue@queryLoop
                     }
                     // If we don't have any arrayContains to inspect for _this_ query, we can short-circuit out
                     // and call it good.
-                    if (query.arrayContains.size == 0L) {
+                    var arrayReferenceCount = arrayContainsCounts[index]
+                    if (arrayReferenceCount <= 0L) {
                         // We don't actually have to perform the array checks here! This responder will already
                         // be triggered without having to go through the array checks.
-                        arrayResponderInsertionPairs.clear()
+                        matched = true
                         break@queryLoop
                     }
-                    // If we have any arrayContains we have to inspect, save this for another phase
-                    arrayResponderReferenceCounts[responder] = arrayContainsCount
-                    query.arrayContains.visitUnsafeSharedKey { (key, values) ->
-                        values.visitAscendingUnsafeSharedKey { (value) ->
-                            arrayResponderInsertionPairs.add(Pair(key, value))
-                        }
-                    }
-                }
 
-                for ((key, value) in arrayResponderInsertionPairs) {
-                    arrayResponderQueries = arrayResponderQueries.update(key) { valueTrie ->
-                        (valueTrie ?: QPTrie()).update(value) {
-                            (it ?: IdentitySet()).add(responder)
-                        }
-                    }
-                }
-
-                val hadArrayResponders = arrayResponderInsertionPairs.isNotEmpty()
-                // We only have one instance for all of these responders, so we have to clean up after ourselves
-                // on the way out. Note that we're clearing this even if we didn't have array-based queries, to
-                // simplify the cleanup.
-                arrayResponderInsertionPairs.clear()
-
-                if (hadArrayResponders) {
-                    // If we had array responders, we can't yet respond to this query: we still have to go through
-                    // the array-contains filtering below. Note that if any term in the OR set did _not_ have
-                    // array-contains and otherwise matched, we already emptied out `arrayResponderInsertionPairs`
-                    // so we would not have hit this condition.
-                    continue
-                }
-
-                val response = responsesByReturnAddress[respondTo]
-                    ?: ReportDataWithClientAndQueryIDs(reportData, clientID)
-                response.queryIDs.add(queryID)
-                responsesByReturnAddress[respondTo] = response
-            }
-            // This is a little redundant, but running the .clear() early does give the garbage collector the
-            // ability to smear out its pause operations.
-            responders.clear()
-
-            if (arrayResponderReferenceCounts.size > 0L) {
-                queryableArrayData.trie.visitUnsafeSharedKey { (key, values) ->
-                    val respondersForKey = arrayResponderQueries.get(key) ?: return@visitUnsafeSharedKey
-                    for (value in values) {
-                        val respondersForValue = respondersForKey.get(value) ?: continue
-                        var nextQueriesForValue = respondersForValue
-                        respondersForValue.visitAll { responder ->
-                            nextQueriesForValue = nextQueriesForValue.remove(responder)
-                            val nextReferenceCount = (arrayResponderReferenceCounts[responder] ?: 0) - 1
-                            if (nextReferenceCount == 0L) {
-                                arrayResponderReferenceCounts.remove(responder)
-                                val (_, respondTo, clientID, queryID) = responder
-                                val response = responsesByReturnAddress[respondTo]
-                                    ?: ReportDataWithClientAndQueryIDs(reportData, clientID)
-
-                                val queryIDs = response.queryIDs
-                                // Perhaps this should have been a `Set` instead...
-                                if (queryIDs.indexOf(queryID) < 0) {
-                                    queryIDs.add(queryID)
+                    // We want to iterate as little as possible here, so that means greedily choosing to iterate
+                    // over the smallest of each collection.
+                    val arrayContains = query.arrayContains
+                    if (arrayContains.size < queryableArrayData.size) {
+                        arrayContains.visitUnsafeSharedKey keysVisit@ { (key, wantedValues) ->
+                            val dataValuesForKey = queryableArrayData.get(key) ?: return@keysVisit
+                            valuesVisit@ for (value in dataValuesForKey) {
+                                wantedValues.get(value) ?: continue@valuesVisit
+                                arrayReferenceCount--
+                                if (arrayReferenceCount == 0L) {
+                                    matched = true
+                                    return@keysVisit
                                 }
-                                responsesByReturnAddress[respondTo] = response
-                            } else {
-                                arrayResponderReferenceCounts[responder] = nextReferenceCount
                             }
                         }
-                        arrayResponderQueries = arrayResponderQueries.update(key) { valuesTrie ->
-                            valuesTrie?.update(value) {
-                                if (nextQueriesForValue.size > 0) {
-                                    nextQueriesForValue
-                                } else {
-                                    null
+                    } else {
+                        queryableArrayData.visitUnsafeSharedKey keysVisit@ { (key, dataValuesForKey) ->
+                            val wantedValues = arrayContains.get(key) ?: return@keysVisit
+                            valuesVisit@ for (value in dataValuesForKey) {
+                                wantedValues.get(value) ?: continue@valuesVisit
+                                arrayReferenceCount--
+                                if (arrayReferenceCount == 0L) {
+                                    matched = true
+                                    return@keysVisit
                                 }
                             }
                         }
                     }
+                    // If we've already matched the data, we don't have to inspect any more queries.
+                    if (matched) {
+                        break@queryLoop
+                    }
+                }
+
+                if (matched) {
+                    val response = responsesByReturnAddress[respondTo]
+                        ?: ReportDataWithClientAndQueryIDs(reportData, clientID)
+                    response.queryIDs.add(queryID)
+                    responsesByReturnAddress[respondTo] = response
                 }
             }
 
@@ -740,8 +701,6 @@ class QueryRouterVerticle(
 
             responders.clear()
             responsesByReturnAddress.clear()
-            arrayResponderInsertionPairs.clear()
-            arrayResponderReferenceCounts.clear()
         }
     }
 

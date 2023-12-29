@@ -517,7 +517,7 @@ class QueryStringConversionTest {
                     clientID = "me",
                     queryID = "the query",
                     addedAt = monotonicNowMS(),
-                    arrayContainsCounter = 0
+                    arrayContainsCounts = listOf(0)
                 )
                 val (_, queryTree) = QuerySetTree<QueryResponderSpec>()
                     .addElementByQuery(fullQuery.treeSpec, responder)
