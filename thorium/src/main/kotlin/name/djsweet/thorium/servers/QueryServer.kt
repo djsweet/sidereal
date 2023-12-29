@@ -165,7 +165,7 @@ class ChannelInfo {
         return newPaths
     }
 
-    fun unregisterQuery(clientID: String, queryID: String): List<QueryPath>? {
+    fun unregisterQuery(clientID: String, queryID: String): Pair<List<QueryPath>, Long>? {
         val queriesByClientID = this.queriesByClientThenQueryID
         val priorQueriesByQueryID = queriesByClientID[clientID] ?: return null
         val priorQuery = priorQueriesByQueryID[queryID] ?: return null
@@ -177,7 +177,7 @@ class ChannelInfo {
         if (priorQueriesByQueryID.isEmpty()) {
             queriesByClientID.remove(clientID)
         }
-        return path
+        return Pair(path, responder.queries.size.toLong())
     }
 
     fun isEmpty(): Boolean {
@@ -366,13 +366,12 @@ class QueryRouterVerticle(
                 val config = this.config
                 val counters = this.counters
                 val channelInfo = channels[channel] ?: ChannelInfo()
-                val basisQueryTreeSize = channelInfo.queryTree.size
 
                 channelInfo.registerQuery(fullQueries, clientID, queryID, returnAddress)
                 channels[channel] = channelInfo
                 counters.alterQueryCountForThread(
                     this.verticleOffset,
-                    channelInfo.queryTree.size - basisQueryTreeSize
+                    fullQueries.size.toLong()
                 )
                 counters.updateKeyPathReferenceCountsForChannel(channel, keyIncrements)
                 sendUnpackDataRequests(
@@ -444,9 +443,8 @@ class QueryRouterVerticle(
             )
         )
 
-        val basisQueryTreeSize = channelInfo.queryTree.size
-        val involvedPaths = channelInfo.unregisterQuery(clientID, queryID)
-        return if (involvedPaths == null) {
+        val involvedPathsAndQuerySize = channelInfo.unregisterQuery(clientID, queryID)
+        return if (involvedPathsAndQuerySize == null) {
             HttpProtocolErrorOrJson.ofError(
                 HttpProtocolError(
                     404, jsonObjectOf(
@@ -458,6 +456,8 @@ class QueryRouterVerticle(
                 )
             )
         } else {
+            val (involvedPaths, querySize) = involvedPathsAndQuerySize
+
             for (involvedPath in involvedPaths) {
                 withRemovedPath(involvedPath)
             }
@@ -502,7 +502,7 @@ class QueryRouterVerticle(
             }
             counters.alterQueryCountForThread(
                 this.verticleOffset,
-                channelInfo.queryTree.size - basisQueryTreeSize
+                -querySize
             )
             HttpProtocolErrorOrJson.ofSuccess(
                 jsonObjectOf(
