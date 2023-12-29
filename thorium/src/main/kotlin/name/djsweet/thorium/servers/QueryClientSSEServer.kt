@@ -77,6 +77,7 @@ class QueryClientSSEServer(
     }
 
     override fun start() {
+        super.start()
         val vertx = this.vertx
         val resp = this.resp
         val eventBus = vertx.eventBus()
@@ -98,7 +99,7 @@ class QueryClientSSEServer(
                 // particularly important around the query un-registration process: we might receive
                 // multiple data reports before the un-registration actually happens, even after
                 // we've requested it.
-                if (messageBody is ReportData) {
+                if (messageBody is ReportDataWithClientAndQueryIDs) {
                     message.reply("ended")
                 }
                 return@consumer
