@@ -93,6 +93,15 @@ fun failRequest(config: GlobalConfig, req: HttpServerRequest): Future<Void> {
     return jsonStatusResponseBodyCloseIfRequestBody(config, req, 500, internalFailureJson)
 }
 
+// We can support OR in our queries by using a long-deprecated feature of query strings: the ';' character.
+// The HTML 4.01 specification explicitly allows ';' to substitute for '&', but this has been removed in HTML 5.
+//
+// We'll piggyback off of this historical affordance for CGI by using ';' as an OR character, and treat the
+// full query string as if it were encoded in disjunctive normal form.
+fun queryStringToOrMaps(qs: String): List<Map<String, List<String>>> {
+    return qs.split(";").map { QueryStringDecoder(it, false).parameters() }
+}
+
 fun handleQuery(
     vertx: Vertx,
     config: GlobalConfig,
@@ -106,12 +115,7 @@ fun handleQuery(
     }
 
     val queryString = req.query() ?: ""
-    // We can support OR in our queries by using a long-deprecated feature of query strings: the ';' character.
-    // The HTML 4.01 specification explicitly allows ';' to substitute for '&', but this has been removed in HTML 5.
-    //
-    // We'll piggyback off of this historical affordance for CGI by using ';' as an OR character, and treat the
-    // full query string as if it were encoded in disjunctive normal form.
-    val queryMaps = queryString.split(";").map { QueryStringDecoder(it, false).parameters() }
+    val queryMaps = queryStringToOrMaps(queryString)
     val queryMapsSize = queryMaps.size.toLong()
     counters.incrementGlobalQueryCountByAndGet(queryMapsSize)
 

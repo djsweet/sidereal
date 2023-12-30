@@ -119,10 +119,6 @@ class QueryServerRouterTest {
         }
     }
 
-    private fun queryStringToMaps(qs: String): List<Map<String, List<String>>> {
-        return qs.split(";").map { QueryStringDecoder(it, false).parameters() }
-    }
-
     private suspend fun registerQueries(
         vertx: Vertx,
         channel: String,
@@ -133,7 +129,7 @@ class QueryServerRouterTest {
     ) {
         val eventBus = vertx.eventBus()
         for ((queryID, queryString) in queries) {
-            val maps = this.queryStringToMaps(queryString)
+            val maps = queryStringToOrMaps(queryString)
             val registerReply = eventBus.request<HttpProtocolErrorOrJson>(
                 queryServerAddress,
                 RegisterQueryRequest(
