@@ -10,12 +10,15 @@ Thorium is a standalone HTTP server providing reactive queries over
 streaming [CloudEvents](https://cloudevents.io). When used in conjunction with
 Change Data Capture, it can turn any database into a real-time database.
 
-A query in Thorium is a logical conjunction (`x AND y AND z` ...) of key/value
-terms (`key1=value1 AND key2=value2 AND key3=value3` ...). Queries are
-internally indexed by their terms (e.g. `key2=value2` is an index entry), as
-an inversion to the usual practice of data being indexed by their fields. This
-query indexing allows Thorium to scale efficiently to thousands of concurrent
-queries while still ingesting tens of thousands of events per second.
+A query in Thorium is a disjunction of conjunctions, encoded in
+[disjunctive normal form](https://mathworld.wolfram.com/DisjunctiveNormalForm.html),
+e.g. `(a AND b) OR (c AND d AND e) OR ...`, of key/value terms, e.g.
+`(key1=value1 AND key2=value2) OR (key3=value3 AND key4=value4) OR ...`.
+Queries are internally indexed by every conjunction, by their terms
+(e.g. `key2=value2` is an index entry), as an inversion to the usual practice
+of data being indexed by their fields. This query indexing allows Thorium to
+scale efficiently to thousands of concurrent queries while still ingesting
+tens of thousands of events per second.
 
 ## Thorium is still experimental!
 
@@ -114,6 +117,7 @@ Automated tests can be run against a native executable by running
 ```
 
 ## Licensing
+
 Thorium is available under the terms of the
 [MIT License](https://spdx.org/licenses/MIT.html) as per the
 [LICENSE](./LICENSE) file. Other licensing information is presented
@@ -219,8 +223,9 @@ for CloudEvents.
 
 Thorium is designed to efficiently support deep-content filtering of its JSON
 input across thousands of connected clients, with multiple query terms as part
-of a logical conjunction (x AND y AND z ...). This filtering is enabled by
-passing the terms of the filter as a query string. For example, if a consumer
+of a logical disjunction of conjunctions (e.g.
+`(a AND b AND c) OR (d AND e) OR ...`). This filtering is enabled by passing
+the terms of the filter as an HTTP query string. For example, if a consumer
 were to connect to a channel using
 
 ```
@@ -365,6 +370,32 @@ for the following reasons:
 - 8 would not match because `data["three"] == "three"` when we expected
   `data["three"] == 3`.
 
+#### `OR` in Queries (Disjunctions of Conjunctions)
+
+Disjunctions of conjunctions are made possible by using the now-historical
+`;` separator character. This separator has a lower affinity for logical
+terms than the `&` separator character. For example, if a consumer were
+to connect to a channel using
+
+```
+GET /channels/example?one="one"&two="two"&three=3;one=1&two=2&three="three" HTTP/1.1
+...
+```
+
+this would have similar results to connecting twice with both
+```
+GET /channels/example?one="one"&two="two"&three=3 HTTP/1.1
+...
+GET /channels/example?one=1&two=2&three="three" HTTP/1.1
+...
+```
+
+but with the added benefits of
+1. Only requiring one HTTP connection in the server-sent events interface
+2. Only reporting data once, even if multiple conjunctions are matched
+
+#### Deep JSON Member Access
+
 By default, if a key does not start with `/` or `../`, it is assumed to be a
 literal key within the "data" object of the event. For example, a query string
 of the form
@@ -449,6 +480,8 @@ you would use a query string
 ```
 ?../type="com.example.thorium"
 ```
+
+#### Query Values
 
 Values are encoded according to their JSON representation. Only `null`,
 booleans, numbers, and strings are supported as match values. If a value

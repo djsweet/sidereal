@@ -93,6 +93,15 @@ fun failRequest(config: GlobalConfig, req: HttpServerRequest): Future<Void> {
     return jsonStatusResponseBodyCloseIfRequestBody(config, req, 500, internalFailureJson)
 }
 
+// We can support OR in our queries by using a long-deprecated feature of query strings: the ';' character.
+// The HTML 4.01 specification explicitly allows ';' to substitute for '&', but this has been removed in HTML 5.
+//
+// We'll piggyback off of this historical affordance for CGI by using ';' as an OR character, and treat the
+// full query string as if it were encoded in disjunctive normal form.
+fun queryStringToOrMaps(qs: String): List<Map<String, List<String>>> {
+    return qs.split(";").map { QueryStringDecoder(it, false).parameters() }
+}
+
 fun handleQuery(
     vertx: Vertx,
     config: GlobalConfig,
@@ -105,9 +114,11 @@ fun handleQuery(
         return
     }
 
-    counters.incrementGlobalQueryCountByAndGet(1)
     val queryString = req.query() ?: ""
-    val queryMap = QueryStringDecoder(queryString, false).parameters()
+    val queryMaps = queryStringToOrMaps(queryString)
+    val queryMapsSize = queryMaps.size.toLong()
+    counters.incrementGlobalQueryCountByAndGet(queryMapsSize)
+
     val clientID = getClientIDFromSerial()
     val returnAddress = addressForQueryClientAtOffset(clientID)
 
@@ -132,8 +143,9 @@ fun handleQuery(
     val registerRequest = RegisterQueryRequest(
         channel,
         clientID,
+        clientID, // Each client is its own query, so we'll just use the same ID twice.
         queryString,
-        queryMap,
+        queryMaps,
         returnAddress
     )
     val eventBus = vertx.eventBus()
@@ -146,11 +158,11 @@ fun handleQuery(
         response.endHandler {
             eventBus.request<Any>(
                 serverAddress,
-                UnregisterQueryRequest(channel, clientID),
+                UnregisterQueryRequest(channel, clientID, clientID),
                 localRequestOptions
             ).onComplete {
                 vertx.undeploy(deploymentID).onSuccess {
-                    counters.decrementGlobalQueryCount(1)
+                    counters.decrementGlobalQueryCount(queryMapsSize)
                 }
             }
         }

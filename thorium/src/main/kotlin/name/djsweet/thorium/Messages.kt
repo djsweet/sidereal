@@ -102,11 +102,12 @@ abstract class ListIndexToMessageCodec<T, U: ListIndexToMessage<T>>(
 data class RegisterQueryRequest(
     val channel: String,
     val clientID: String,
+    val queryID: String,
     val queryString: String,
-    val queryParams: Map<String, List<String>>,
+    val queryParams: List<Map<String, List<String>>>,
     val returnAddress: String,
 ) {
-    constructor(): this("", "", "", mapOf(), "")
+    constructor(): this("", "", "", "", listOf(), "")
 }
 
 class RegisterQueryRequestCodec: LocalPrimaryMessageCodec<RegisterQueryRequest>("RegisterQueryRequest") {
@@ -117,14 +118,18 @@ class RegisterQueryRequestCodec: LocalPrimaryMessageCodec<RegisterQueryRequest>(
     override fun encodeToWireNonNullBuffer(buffer: Buffer, s: RegisterQueryRequest) {
         appendStringAsUnicode(s.channel, buffer)
         appendStringAsUnicode(s.clientID, buffer)
+        appendStringAsUnicode(s.queryID, buffer)
         appendStringAsUnicode(s.returnAddress, buffer)
         appendStringAsUnicode(s.queryString, buffer)
         buffer.appendInt(s.queryParams.size)
-        for ((queryParamKey, queryParamValues) in s.queryParams) {
-            appendStringAsUnicode(queryParamKey, buffer)
-            buffer.appendInt(queryParamValues.size)
-            for (queryParamValue in queryParamValues) {
-                appendStringAsUnicode(queryParamValue, buffer)
+        for (paramMap in s.queryParams) {
+            buffer.appendInt(paramMap.size)
+            for ((queryParamKey, queryParamValues) in paramMap) {
+                appendStringAsUnicode(queryParamKey, buffer)
+                buffer.appendInt(queryParamValues.size)
+                for (queryParamValue in queryParamValues) {
+                    appendStringAsUnicode(queryParamValue, buffer)
+                }
             }
         }
     }
@@ -137,8 +142,13 @@ class RegisterQueryRequestCodec: LocalPrimaryMessageCodec<RegisterQueryRequest>(
 
         val clientIDPos = clientIDLengthPos + 4
         val clientIDLength = buffer.getInt(clientIDLengthPos)
-        val returnAddressLengthPos = clientIDPos + clientIDLength
-        val clientID = buffer.getString(clientIDPos, returnAddressLengthPos, "utf-8")
+        val queryIDLengthPos = clientIDPos + clientIDLength
+        val clientID = buffer.getString(clientIDPos, queryIDLengthPos, "utf-8")
+
+        val queryIDPos = queryIDLengthPos + 4
+        val queryIDLength = buffer.getInt(queryIDLengthPos)
+        val returnAddressLengthPos = queryIDPos + queryIDLength
+        val queryID = buffer.getString(queryIDPos, returnAddressLengthPos, "utf-8")
 
         val returnAddressPos = returnAddressLengthPos + 4
         val returnAddressLength = buffer.getInt(returnAddressLengthPos)
@@ -150,31 +160,39 @@ class RegisterQueryRequestCodec: LocalPrimaryMessageCodec<RegisterQueryRequest>(
         val queryParamsSizePos = queryStringPos + queryStringLength
         val queryString = buffer.getString(queryStringPos, queryParamsSizePos, "utf-8")
 
-        val queryParamsSize = buffer.getInt(queryParamsSizePos)
-        val queryParams = mutableMapOf<String, List<String>>()
+        val queryParamsListSize = buffer.getInt(queryParamsSizePos)
+        val queryParams = mutableListOf<Map<String, List<String>>>()
         var lastPos = queryParamsSizePos + 4
-        for (i in 0 until queryParamsSize) {
-            val keyLength = buffer.getInt(lastPos)
-            val keyPos = lastPos + 4
-            val listSizePos = keyPos + keyLength
-            val key = buffer.getString(keyPos, listSizePos, "utf-8")
+        for (i in 0 until queryParamsListSize) {
+            val mapSize = buffer.getInt(lastPos)
+            lastPos += 4
 
-            val listSize = buffer.getInt(listSizePos)
-            lastPos = listSizePos + 4
-            val valuesList = mutableListOf<String>()
-            for (j in 0 until listSize) {
-                val stringLength = buffer.getInt(lastPos)
-                val stringPos = lastPos + 4
-                lastPos = stringPos + stringLength
-                val listEntry = buffer.getString(stringPos, lastPos, "utf-8")
-                valuesList.add(listEntry)
+            val curMap = mutableMapOf<String, List<String>>()
+            for (j in 0 until mapSize) {
+                val keyLength = buffer.getInt(lastPos)
+                val keyPos = lastPos + 4
+                val listSizePos = keyPos + keyLength
+                val key = buffer.getString(keyPos, listSizePos, "utf-8")
+
+                val listSize = buffer.getInt(listSizePos)
+                lastPos = listSizePos + 4
+                val valuesList = mutableListOf<String>()
+                for (k in 0 until listSize) {
+                    val stringLength = buffer.getInt(lastPos)
+                    val stringPos = lastPos + 4
+                    lastPos = stringPos + stringLength
+                    val listEntry = buffer.getString(stringPos, lastPos, "utf-8")
+                    valuesList.add(listEntry)
+                }
+                curMap[key] = valuesList
             }
-            queryParams[key] = valuesList
+            queryParams.add(curMap)
         }
 
         return RegisterQueryRequest(
             channel,
             clientID,
+            queryID,
             queryString,
             queryParams,
             returnAddress
@@ -185,8 +203,9 @@ class RegisterQueryRequestCodec: LocalPrimaryMessageCodec<RegisterQueryRequest>(
 data class UnregisterQueryRequest(
     val channel: String,
     val clientID: String,
+    val queryID: String,
 ) {
-    constructor() : this("", "")
+    constructor() : this("", "", "")
 }
 
 class UnregisterQueryRequestCodec: LocalPrimaryMessageCodec<UnregisterQueryRequest>("UnregisterQueryRequest") {
@@ -197,6 +216,7 @@ class UnregisterQueryRequestCodec: LocalPrimaryMessageCodec<UnregisterQueryReque
     override fun encodeToWireNonNullBuffer(buffer: Buffer, s: UnregisterQueryRequest) {
         appendStringAsUnicode(s.channel, buffer)
         appendStringAsUnicode(s.clientID, buffer)
+        appendStringAsUnicode(s.queryID, buffer)
     }
 
     override fun decodeFromWireNonNullBuffer(pos: Int, buffer: Buffer): UnregisterQueryRequest {
@@ -207,10 +227,15 @@ class UnregisterQueryRequestCodec: LocalPrimaryMessageCodec<UnregisterQueryReque
 
         val clientIDLength = buffer.getInt(clientIDLengthPos)
         val clientIDPos = clientIDLengthPos + 4
-        val endPos = clientIDPos + clientIDLength
-        val clientID = buffer.getString(clientIDPos, endPos, "utf-8")
+        val queryIDLengthPos = clientIDPos + clientIDLength
+        val clientID = buffer.getString(clientIDPos, queryIDLengthPos, "utf-8")
 
-        return UnregisterQueryRequest(channel, clientID)
+        val queryIDLength = buffer.getInt(queryIDLengthPos)
+        val queryIDPos = queryIDLengthPos + 4
+        val endPos = queryIDPos + queryIDLength
+        val queryID = buffer.getString(queryIDPos, endPos, "utf-8")
+
+        return UnregisterQueryRequest(channel, clientID, queryID)
     }
 }
 
@@ -435,6 +460,66 @@ class ReportDataListWithIndexesCodec: LocalListCodec<ReportDataWithIndex, Report
     }
 }
 
+data class ReportDataWithClientAndQueryIDs(
+    val reportData: ReportData,
+    val clientID: String,
+    val queryIDs: MutableList<String>
+) {
+    constructor(): this(ReportData(), "", mutableListOf())
+    constructor(reportData: ReportData, clientID: String): this(reportData, clientID, mutableListOf())
+}
+
+class ReportDataWithClientAndQueryIDsCodec: LocalPrimaryMessageCodec<ReportDataWithClientAndQueryIDs>(
+    "ReportDataWithClientAndQueryIDs"
+) {
+    override fun emptyInstance(): ReportDataWithClientAndQueryIDs {
+        return ReportDataWithClientAndQueryIDs()
+    }
+
+    private val reportDataCodec = ReportDataCodec()
+
+    override fun encodeToWireNonNullBuffer(buffer: Buffer, s: ReportDataWithClientAndQueryIDs) {
+        val dataCodecOffset = buffer.length()
+        buffer.appendInt(0) // We actually don't know how long the resulting reportDataCodec is going to be!
+        // But it's important to figure out how far into the buffer this data is going to be, because
+        // we need to read the list of queryIDs after reading the reportData.
+        this.reportDataCodec.encodeToWire(buffer, s.reportData)
+        // We're including the size of the size itself, so that later we can simply get the next position with
+        // pos + buffer.getInt(pos)
+        buffer.setInt(dataCodecOffset, buffer.length() - dataCodecOffset)
+        appendStringAsUnicode(s.clientID, buffer)
+        buffer.appendInt(s.queryIDs.size)
+        for (queryID in s.queryIDs) {
+            appendStringAsUnicode(queryID, buffer)
+        }
+    }
+
+    override fun decodeFromWireNonNullBuffer(pos: Int, buffer: Buffer): ReportDataWithClientAndQueryIDs {
+        val reportData = this.reportDataCodec.decodeFromWire(pos + 4, buffer)
+
+        // Note that, above, the size field itself is included in this size field.
+        val clientIDSizePos = pos + buffer.getInt(pos)
+        val clientIDStartPos = clientIDSizePos + 4
+        val clientIDSize = buffer.getInt(clientIDSizePos)
+        val queryIDCountPos = clientIDStartPos + clientIDSize
+        val clientID = buffer.getString(clientIDStartPos, queryIDCountPos, "utf-8")
+
+        val queryIDCount = buffer.getInt(queryIDCountPos)
+        var currentPos = queryIDCountPos + 4
+        val queryIDs = mutableListOf<String>()
+
+        for (i in 0 until queryIDCount) {
+            val stringLength = buffer.getInt(currentPos)
+            val stringStart = currentPos + 4
+            currentPos = stringStart + stringLength
+            val queryID = buffer.getString(stringStart, currentPos, "utf-8")
+            queryIDs.add(queryID)
+        }
+
+        return ReportDataWithClientAndQueryIDs(reportData, clientID, queryIDs)
+    }
+}
+
 data class ResetByteBudget(val byteBudget: Int) {
     constructor(): this(0)
 }
@@ -602,6 +687,7 @@ fun registerMessageCodecs(vertx: Vertx) {
         .registerDefaultCodec(ReportDataList::class.java, ReportDataListCodec())
         .registerDefaultCodec(ReportDataWithIndex::class.java, ReportDataWithIndexCodec())
         .registerDefaultCodec(ReportDataListWithIndexes::class.java, ReportDataListWithIndexesCodec())
+        .registerDefaultCodec(ReportDataWithClientAndQueryIDs::class.java, ReportDataWithClientAndQueryIDsCodec())
         .registerDefaultCodec(ResetByteBudget::class.java, ResetByteBudgetCodec())
         .registerDefaultCodec(HttpProtocolErrorOrJson::class.java, HttpProtocolErrorOrJsonCodec())
         .registerDefaultCodec(HttpProtocolErrorOrReportDataWithIndex::class.java, HttpProtocolErrorOrReportDataWithIndexCodec())

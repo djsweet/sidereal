@@ -512,11 +512,12 @@ class QueryStringConversionTest {
                 }
                 // First, we're ensuring a true positive for all substrings
                 val responder = QueryResponderSpec(
-                    query = fullQuery,
+                    queries = listOf(fullQuery),
                     respondTo = "someone",
                     clientID = "me",
+                    queryID = "the query",
                     addedAt = monotonicNowMS(),
-                    arrayContainsCounter = 0
+                    arrayContainsCounts = listOf(0)
                 )
                 val (_, queryTree) = QuerySetTree<QueryResponderSpec>()
                     .addElementByQuery(fullQuery.treeSpec, responder)
