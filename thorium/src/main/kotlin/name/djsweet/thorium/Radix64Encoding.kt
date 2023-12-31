@@ -481,6 +481,8 @@ internal class Radix64JsonEncoder : Radix64Encoder() {
     fun addNull(): Radix64JsonEncoder {
         this.contents = Radix64EncoderComponent(ofNull(), this.contents)
         this.contentLength += NULL_VALUE.size
+        // Null bytes should still count as bytes, after all...
+        this.ogContentLength += 1
         return this
     }
 
