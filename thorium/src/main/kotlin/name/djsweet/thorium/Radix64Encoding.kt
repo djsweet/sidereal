@@ -170,6 +170,7 @@ internal class Radix64LowLevelEncoder : Radix64Encoder() {
         val replacement = Radix64LowLevelEncoder()
         replacement.contents = this.contents
         replacement.contentLength = this.contentLength
+        replacement.ogContentLength = this.ogContentLength
         return replacement
     }
 }
