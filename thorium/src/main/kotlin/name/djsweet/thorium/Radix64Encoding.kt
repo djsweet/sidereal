@@ -170,6 +170,7 @@ internal class Radix64LowLevelEncoder : Radix64Encoder() {
         val replacement = Radix64LowLevelEncoder()
         replacement.contents = this.contents
         replacement.contentLength = this.contentLength
+        replacement.ogContentLength = this.ogContentLength
         return replacement
     }
 }
@@ -480,6 +481,8 @@ internal class Radix64JsonEncoder : Radix64Encoder() {
     fun addNull(): Radix64JsonEncoder {
         this.contents = Radix64EncoderComponent(ofNull(), this.contents)
         this.contentLength += NULL_VALUE.size
+        // Null bytes should still count as bytes, after all...
+        this.ogContentLength += 1
         return this
     }
 
