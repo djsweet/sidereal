@@ -6,10 +6,13 @@ package name.djsweet.thorium
 
 import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
+import io.vertx.kotlin.core.json.jsonArrayOf
+import io.vertx.kotlin.core.json.jsonObjectOf
 import net.jqwik.api.*
 import net.jqwik.api.lifecycle.BeforeContainer
 import org.junit.jupiter.api.*
 import org.junit.jupiter.api.Assertions.*
+import java.lang.ClassCastException
 
 class JsonToQueryableDataEncoderTest {
     companion object {
@@ -80,12 +83,14 @@ class JsonToQueryableDataEncoderTest {
         var lastKey: String? = null
         var encodedKeyDepth = 0
         var jsonKeyDepth = 0
-        var foundArray = false
+        var arrayDepth = 0
         while (keyDecoder.withByteArray {
             val curKey = convertByteArrayToString(it)
-            if (foundArray) {
-                // We still have to update the lastKey if we've found the array.
-                lastKey = curKey
+            if (arrayDepth > 0) {
+                if (arrayDepth == 1) {
+                    // We still have to update the lastKey if we've found the array.
+                    lastKey = curKey
+                }
                 return@withByteArray
             }
             lastKey = curKey
@@ -98,7 +103,7 @@ class JsonToQueryableDataEncoderTest {
                 jsonKeyDepth++
                 curObj = resultingValue
             } else if (resultingValue is JsonArray) {
-                foundArray = true
+                arrayDepth = 1
                 curObj = resultingValue
             }
         }) {
@@ -109,7 +114,7 @@ class JsonToQueryableDataEncoderTest {
 
         val testValue = when (val getObj = curObj) {
             is JsonObject -> getObj.getValue(lastKey)
-            is JsonArray -> getObj.getInteger(Integer.parseInt(lastKey))
+            is JsonArray -> getObj.getValue(Integer.parseInt(lastKey))
             else -> throw Error("Could not get test value from $getObj")
         }
         val valueDecoder = Radix64JsonDecoder(value)
@@ -211,6 +216,13 @@ class JsonToQueryableDataEncoderTest {
         arrays.trie.visitAscendingUnsafeSharedKey { (key, value) ->
             ensureKeyValueEncodesJsonArrayKeyValue(key, value, obj)
         }
+    }
+
+    @Test
+    fun recursiveOnlyJsonEncodingNullByteToEmptyArray() {
+        val obj = jsonObjectOf("\u0000" to jsonArrayOf(""))
+        val tries = encodeJsonToQueryableData(obj, AcceptAllKeyValueFilterContext(), byteBudget, 6)
+        this.ensureTriesEncodeJsonObject(tries, obj)
     }
 
     @Property
