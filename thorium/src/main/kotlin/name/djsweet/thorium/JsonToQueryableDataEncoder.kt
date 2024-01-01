@@ -272,6 +272,65 @@ internal fun encodeJsonToQueryableDataIterative(
     return encodeJsonToQueryableDataWithQueue(baseResult, queue, byteBudget)
 }
 
+internal fun updateResultForKeyValueRecursive(
+    result: NonShareableScalarListQueryableData,
+    keyPath: Radix64LowLevelEncoder,
+    recurseDepth: Int,
+    value: Any,
+    byteBudget: Int,
+    keyContentLength: Int,
+    filterContext: KeyValueFilterContext
+): NonShareableScalarListQueryableData {
+    return updateResultForKeyValue(
+        result,
+        keyPath,
+        value,
+        byteBudget - keyContentLength,
+        {
+            if (recurseDepth <= 0) {
+                encodeJsonToQueryableDataIterative(
+                    it,
+                    result,
+                    keyPath,
+                    filterContext,
+                    // Passing in byteBudget directly is correct here: we want this to be the upper bound of
+                    // the byte budget, from which the keyPath.originalContentLength is subtracted.
+                    byteBudget
+                )
+            } else {
+                encodeJsonToQueryableDataRecursive(
+                    it,
+                    result,
+                    keyPath,
+                    filterContext,
+                    byteBudget,
+                    recurseDepth - 1
+                )
+            }
+        },
+        {
+            if (recurseDepth <= 0) {
+                encodeJsonToQueryableDataIterative(
+                    it,
+                    result,
+                    keyPath,
+                    filterContext,
+                    byteBudget
+                )
+            } else {
+                encodeJsonToQueryableDataRecursive(
+                    it,
+                    result,
+                    keyPath,
+                    filterContext,
+                    byteBudget,
+                    recurseDepth - 1
+                )
+            }
+        }
+    )
+}
+
 internal fun encodeJsonToQueryableDataRecursive(
     obj: JsonObject,
     baseResult: NonShareableScalarListQueryableData,
@@ -296,51 +355,14 @@ internal fun encodeJsonToQueryableDataRecursive(
         }
         val value = obj.getValue(key)
         val filterContextForObject = filterContext.contextForObject(key)
-        result = updateResultForKeyValue(
+        result = updateResultForKeyValueRecursive(
             result,
             keyPath,
+            recurseDepth,
             value,
-            byteBudget - keyContentLength,
-            {
-                if (recurseDepth <= 0) {
-                    encodeJsonToQueryableDataIterative(
-                        it,
-                        result,
-                        keyPath,
-                        filterContextForObject,
-                        byteBudget
-                    )
-                } else {
-                    encodeJsonToQueryableDataRecursive(
-                        it,
-                        result,
-                        keyPath,
-                        filterContextForObject,
-                        byteBudget,
-                        recurseDepth - 1
-                    )
-                }
-            },
-            {
-                if (recurseDepth <= 0) {
-                    encodeJsonToQueryableDataIterative(
-                        it,
-                        result,
-                        keyPath,
-                        filterContextForObject,
-                        byteBudget
-                    )
-                } else {
-                    encodeJsonToQueryableDataRecursive(
-                        it,
-                        result,
-                        keyPath,
-                        filterContextForObject,
-                        byteBudget,
-                        recurseDepth - 1
-                    )
-                }
-            }
+            byteBudget,
+            keyContentLength,
+            filterContextForObject
         )
     }
     return result
@@ -366,51 +388,14 @@ internal fun encodeJsonToQueryableDataRecursive(
         }
         val value = arr.getValue(i)
         val filterContextForElement = filterContext.contextForArray(i)
-        result = updateResultForKeyValue(
+        result = updateResultForKeyValueRecursive(
             result,
             keyPath,
+            recurseDepth,
             value,
-            byteBudget - keyContentLength,
-            {
-                if (recurseDepth <= 0) {
-                    encodeJsonToQueryableDataIterative(
-                        it,
-                        result,
-                        keyPath,
-                        filterContextForElement,
-                        byteBudget
-                    )
-                } else {
-                    encodeJsonToQueryableDataRecursive(
-                        it,
-                        result,
-                        keyPath,
-                        filterContextForElement,
-                        byteBudget,
-                        recurseDepth - 1
-                    )
-                }
-            },
-            {
-                if (recurseDepth <= 0) {
-                    encodeJsonToQueryableDataIterative(
-                        it,
-                        result,
-                        keyPath,
-                        filterContextForElement,
-                        byteBudget
-                    )
-                } else {
-                    encodeJsonToQueryableDataRecursive(
-                        it,
-                        result,
-                        keyPath,
-                        filterContextForElement,
-                        byteBudget,
-                        recurseDepth - 1
-                    )
-                }
-            }
+            byteBudget,
+            keyContentLength,
+            filterContextForElement
         )
     }
     return result
