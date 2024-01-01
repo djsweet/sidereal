@@ -14,12 +14,12 @@ import io.vertx.core.eventbus.Message
 import io.vertx.core.Vertx
 import io.vertx.core.eventbus.EventBus
 import io.vertx.core.eventbus.MessageConsumer
+import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
 import io.vertx.kotlin.core.json.jsonObjectOf
 import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.awaitEvent
 import io.vertx.kotlin.coroutines.vertxFuture
-import kotlinx.collections.immutable.PersistentMap
 import kotlinx.coroutines.delay
 import name.djsweet.query.tree.QueryPath
 import name.djsweet.query.tree.QuerySetTree
@@ -810,25 +810,40 @@ class QueryRouterVerticle(
 }
 
 class OnlyPathsWithReferencesFilterContext(
-    private val referenceCounts: PersistentMap<String, KeyPathReferenceCount>
+    private val referenceCounts: KeyPathReferenceCount
 ): KeyValueFilterContext {
     override fun keysForObject(obj: JsonObject): Iterable<String> {
-        val referenceCounts = this.referenceCounts
-        return if (referenceCounts.size < obj.size()) {
-            referenceCounts.keys
+        val subKeys = this.referenceCounts.subKeys
+        return if (subKeys.size < obj.size()) {
+            subKeys.keys
         } else {
             obj.fieldNames()
         }
     }
 
     override fun contextForObject(key: String): KeyValueFilterContext {
-        val refCountForKey = this.referenceCounts[key] ?: return AcceptNoneKeyValueFilterContext()
-        val (_, subKeys) = refCountForKey
+        val subKeys = this.referenceCounts.subKeys
+        val refCountForKey = subKeys[key] ?: return AcceptNoneKeyValueFilterContext()
         return if (subKeys.size > 0) {
-            OnlyPathsWithReferencesFilterContext(subKeys)
+            OnlyPathsWithReferencesFilterContext(refCountForKey)
         } else {
             AcceptNoneKeyValueFilterContext()
         }
+    }
+
+    override fun offsetsForArray(arr: JsonArray): Iterable<Int> {
+        val intSubKeys = this.referenceCounts.intSubKeys
+        val arrSize = arr.size()
+        return if (arrSize < intSubKeys.size) {
+            (0 until arrSize).filter { intSubKeys.containsKey(it) }
+        } else {
+            intSubKeys.keys
+        }
+    }
+
+    override fun contextForArray(offset: Int): KeyValueFilterContext {
+        val stringForOffset = this.referenceCounts.intSubKeys[offset] ?: return AcceptNoneKeyValueFilterContext()
+        return this.contextForObject(stringForOffset)
     }
 }
 
@@ -877,7 +892,7 @@ class JsonToQueryableTranslatorVerticle(
         val maxJsonParsingRecursion = this.maxJsonParsingRecursion
         val filterContext = when (val referenceCounts = this.counters.getKeyPathReferenceCountsForChannel(channel)) {
             null -> AcceptNoneKeyValueFilterContext()
-            else -> OnlyPathsWithReferencesFilterContext(referenceCounts.subKeys)
+            else -> OnlyPathsWithReferencesFilterContext(referenceCounts)
         }
 
         val getDataString = thunkForReportDataString {

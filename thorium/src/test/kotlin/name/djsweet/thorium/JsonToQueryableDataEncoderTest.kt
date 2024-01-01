@@ -76,19 +76,30 @@ class JsonToQueryableDataEncoderTest {
 
     private fun ensureKeyValueEncodesJsonScalarKeyValue(key: ByteArray, value: ByteArray, obj: JsonObject) {
         val keyDecoder = Radix64LowLevelDecoder(key)
-        var curObj = obj
+        var curObj: Any = obj
         var lastKey: String? = null
         var encodedKeyDepth = 0
         var jsonKeyDepth = 0
+        var foundArray = false
         while (keyDecoder.withByteArray {
             val curKey = convertByteArrayToString(it)
+            if (foundArray) {
+                // We still have to update the lastKey if we've found the array.
+                lastKey = curKey
+                return@withByteArray
+            }
             lastKey = curKey
             encodedKeyDepth++
-            when (val resultingValue = curObj.getValue(curKey)) {
-                is JsonObject -> {
-                    jsonKeyDepth++
-                    curObj = resultingValue
-                }
+            val resultingValue = when (val parentObj = curObj) {
+                is JsonObject -> parentObj.getValue(curKey)
+                else -> parentObj
+            }
+            if (resultingValue is JsonObject) {
+                jsonKeyDepth++
+                curObj = resultingValue
+            } else if (resultingValue is JsonArray) {
+                foundArray = true
+                curObj = resultingValue
             }
         }) {
             // Do nothing, the receiver above does all the work
@@ -96,7 +107,11 @@ class JsonToQueryableDataEncoderTest {
         assertNotNull(lastKey)
         assertEquals(encodedKeyDepth - 1, jsonKeyDepth)
 
-        val testValue = curObj.getValue(lastKey)
+        val testValue = when (val getObj = curObj) {
+            is JsonObject -> getObj.getValue(lastKey)
+            is JsonArray -> getObj.getInteger(Integer.parseInt(lastKey))
+            else -> throw Error("Could not get test value from $getObj")
+        }
         val valueDecoder = Radix64JsonDecoder(value)
         do {
             if (valueDecoder.withNull {
