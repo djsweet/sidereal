@@ -6,10 +6,7 @@ package name.djsweet.thorium.benchmarks
 
 import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
-import name.djsweet.thorium.AcceptAllKeyValueFilterContext
-import name.djsweet.thorium.ShareableScalarListQueryableData
-import name.djsweet.thorium.encodeJsonToQueryableData
-import name.djsweet.thorium.maxSafeKeyValueSizeSync
+import name.djsweet.thorium.*
 import org.openjdk.jmh.annotations.*
 import net.jqwik.api.*
 import java.util.concurrent.TimeUnit
@@ -18,6 +15,8 @@ import java.util.concurrent.TimeUnit
 class JsonSpec {
     var jsonObject = JsonObject()
     var jsonString: String = ""
+    var integerString: String = ""
+    var nonIntegerString: String = ""
     var byteBudget = 0
 
     private val scalarsArbitraries = listOf(
@@ -58,6 +57,15 @@ class JsonSpec {
     }
 
     val jsonObjectArbitrary = this.jsonObjectWithRemainingRecursion(2)
+    val integerArbitrary: Arbitrary<Int> = Arbitraries.integers().filter { it >= 0 }
+    val nonIntegerArbitrary: Arbitrary<String> = Arbitraries.strings().ofMaxLength(16).filter {
+        try {
+            Integer.parseInt(it)
+            false
+        } catch (e: NumberFormatException) {
+            true
+        }
+    }
 
     @Setup(Level.Iteration)
     fun setup() {
@@ -65,6 +73,8 @@ class JsonSpec {
 
         this.jsonObject = this.jsonObjectArbitrary.sample()
         this.jsonString = this.jsonObject.encode()
+        this.integerString = this.integerArbitrary.sample().toString()
+        this.nonIntegerString = this.nonIntegerArbitrary.sample()
     }
 }
 
@@ -73,6 +83,16 @@ class JsonSpec {
 @Warmup(iterations=5)
 @Measurement(iterations=30)
 class JsonToQueryableDataEncoderBenchmark {
+    @Benchmark
+    fun validateIntegerString(spec: JsonSpec): Int? {
+        return stringAsInt(spec.integerString)
+    }
+
+    @Benchmark
+    fun validateNonIntegerString(spec: JsonSpec): Int? {
+        return stringAsInt(spec.nonIntegerString)
+    }
+
     @Benchmark
     fun convertJsonToQueryableData(spec: JsonSpec): ShareableScalarListQueryableData {
         return encodeJsonToQueryableData(

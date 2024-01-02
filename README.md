@@ -405,12 +405,12 @@ some.key="value"
 ```
 
 is interpreted to match
-```
+```json
 {
     "source": "...",
     "id": "...",
-    "type": "..."
-    "specversion: "1.0",
+    "type": "...",
+    "specversion": "1.0",
     "data": {
         "some.key": "value"
     }
@@ -421,12 +421,12 @@ Access to keys within JSON documents is made possible by using
 [JSON Pointers](https://datatracker.ietf.org/doc/html/rfc6901).
 As an example, to match "some", then "key" in
 
-```
+```json
 {
     "source": "...",
     "id": "...",
-    "type": "com.example.thorium"
-    "specversion: "1.0",
+    "type": "com.example.thorium",
+    "specversion": "1.0",
     "data": {
         "some": {
             "key": "value"
@@ -456,17 +456,76 @@ the JSON Pointer encoding would be
 ?/with~1slash/with~0tilde
 ```
 
+Arrays can be accessed with positive integers as the "key" in the reference.
+For example, the following data
+
+```json
+{
+    "source": "...",
+    "id": "...",
+    "type": "com.example.thorium",
+    "specversion": "1.0",
+    "data": {
+        "some": {
+            "key": [
+              "first",
+              "second",
+              "third",
+              "fourth"
+            ]
+        }
+    }
+}
+```
+
+would match the following query:
+
+```
+?/some/key/2="third"
+```
+
+You can mix in deeper JSON access even using array access. The following data
+
+```json
+{
+  "source": "...",
+  "id": "...",
+  "type": "com.example.thorium",
+  "specversion": "1.0",
+  "data": {
+    "some": {
+      "key": [
+        {
+          "name": "first",
+          "value": 1
+        },
+        {
+          "name": "second",
+          "value": 2
+        }
+      ]
+    }
+  }
+}
+```
+
+would match the following query:
+
+```
+?/some/key/0/name="first"
+```
+
 Keys are matched starting from the "data" key in the resulting CloudEvent by
 default. As an extension to JSON Pointers, if the query string starts with
 `..` and the remainder is a JSON Pointer, the key is matched starting from
 the object root. As an example, to match the CloudEvent type in
 
-```
+```json
 {
     "source": "...",
     "id": "...",
-    "type": "com.example.thorium"
-    "specversion: "1.0",
+    "type": "com.example.thorium",
+    "specversion": "1.0",
     "data": {
         "some": {
             "key": "value"

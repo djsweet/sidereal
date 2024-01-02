@@ -13,7 +13,7 @@ internal data class NonShareableScalarListQueryableData(
     val arrays: QPTrie<List<ByteArray>>
 )
 
-private fun updateResultForJsonArray(
+private fun updateResultForFullJsonArray(
     result: QPTrie<List<ByteArray>>,
     keyPath: Radix64LowLevelEncoder,
     values: JsonArray,
@@ -47,7 +47,8 @@ private inline fun updateResultForKeyValue(
     keyPath: Radix64LowLevelEncoder,
     value: Any?,
     stringByteBudget: Int,
-    onJsonObject: (obj: JsonObject) -> NonShareableScalarListQueryableData
+    onJsonObject: (obj: JsonObject) -> NonShareableScalarListQueryableData,
+    onJsonArray: (arr: JsonArray) -> NonShareableScalarListQueryableData,
 ): NonShareableScalarListQueryableData {
     return when (value) {
         is String -> {
@@ -78,7 +79,7 @@ private inline fun updateResultForKeyValue(
             onJsonObject(value)
         }
         is JsonArray -> {
-            result.copy(arrays=updateResultForJsonArray(
+            onJsonArray(value).copy(arrays=updateResultForFullJsonArray(
                 result.arrays,
                 keyPath,
                 value,
@@ -98,6 +99,149 @@ interface KeyValueFilterContext {
 
     fun keysForObject(obj: JsonObject): Iterable<String>
     fun contextForObject(key: String): KeyValueFilterContext
+
+    fun offsetsForArray(obj: JsonArray): Iterable<Int>
+    fun contextForArray(offset: Int): KeyValueFilterContext
+}
+
+internal class JsonToQueryableDataIterableQueue {
+    data class ObjectQueueEntry(
+        val serial: Int,
+        val keyEncoder: Radix64LowLevelEncoder,
+        val data: JsonObject,
+        val filterContext: KeyValueFilterContext
+    )
+
+    data class ArrayQueueEntry(
+        val serial: Int,
+        val keyEncoder: Radix64LowLevelEncoder,
+        val data: JsonArray,
+        val filterContext: KeyValueFilterContext
+    )
+
+    private var currentSerial = 0
+    private val objectQueue = ArrayDeque<ObjectQueueEntry>()
+    private val arrayQueue = ArrayDeque<ArrayQueueEntry>()
+
+    fun enqueueObject(
+        keyEncoder: Radix64LowLevelEncoder,
+        data: JsonObject,
+        filterContext: KeyValueFilterContext
+    ): JsonToQueryableDataIterableQueue {
+        this.objectQueue.addLast(ObjectQueueEntry(
+            this.currentSerial,
+            keyEncoder,
+            data,
+            filterContext
+        ))
+        this.currentSerial++
+        return this
+    }
+
+    fun enqueueArray(
+        keyEncoder: Radix64LowLevelEncoder,
+        data: JsonArray,
+        filterContext: KeyValueFilterContext
+    ): JsonToQueryableDataIterableQueue {
+        this.arrayQueue.addLast(ArrayQueueEntry(
+            this.currentSerial,
+            keyEncoder,
+            data,
+            filterContext
+        ))
+        this.currentSerial++
+        return this
+    }
+
+    inline fun processQueues(
+        onJsonObject: (Radix64LowLevelEncoder, JsonObject, KeyValueFilterContext) -> Unit,
+        onJsonArray: (Radix64LowLevelEncoder, JsonArray, KeyValueFilterContext) -> Unit
+    ) {
+        val arrayQueue = this.arrayQueue
+        val objectQueue = this.objectQueue
+        while (arrayQueue.isNotEmpty() || objectQueue.isNotEmpty()) {
+            if (arrayQueue.isNotEmpty() && objectQueue.isNotEmpty()) {
+                val fromArrayQueue = arrayQueue.first()
+                val fromObjectQueue = objectQueue.first()
+                if (fromArrayQueue.serial < fromObjectQueue.serial) {
+                    val (_, keyEncoder, data, filterContext) = fromArrayQueue
+                    arrayQueue.removeFirst()
+                    onJsonArray(keyEncoder, data, filterContext)
+                } else {
+                    val (_, keyEncoder, data, filterContext) = fromObjectQueue
+                    objectQueue.removeFirst()
+                    onJsonObject(keyEncoder, data, filterContext)
+                }
+            } else if (arrayQueue.isNotEmpty()) {
+                val (_, keyEncoder, data, filterContext) = arrayQueue.removeFirst()
+                onJsonArray(keyEncoder, data, filterContext)
+            } else { // this.objectQueue.isNotEmpty()
+                val (_, keyEncoder, data, filterContext) = objectQueue.removeFirst()
+                onJsonObject(keyEncoder, data, filterContext)
+            }
+        }
+    }
+}
+
+internal fun encodeJsonToQueryableDataWithQueue(
+    baseResult: NonShareableScalarListQueryableData,
+    queue: JsonToQueryableDataIterableQueue,
+    byteBudget: Int,
+): NonShareableScalarListQueryableData {
+    var result = baseResult
+    val updateLocalResult: (Radix64LowLevelEncoder, Any, Int, KeyValueFilterContext) -> NonShareableScalarListQueryableData =
+        { keyPath, value, stringByteBudget, filterContextForItem ->
+            updateResultForKeyValue(
+                result,
+                keyPath,
+                value,
+                stringByteBudget,
+                {
+                    queue.enqueueObject(keyPath, it, filterContextForItem)
+                    result
+                },
+                {
+                    queue.enqueueArray(keyPath, it, filterContextForItem)
+                    result
+                }
+            )
+        }
+
+    queue.processQueues(
+        { parentKeyPath, curObj, curFilterContext ->
+            val fieldNames = curObj.fieldNames()
+            for (key in curFilterContext.keysForObject(curObj)) {
+                if (!fieldNames.contains(key)) {
+                    continue
+                }
+                val keyPath = parentKeyPath.clone().addString(key)
+                val keyContentLength = keyPath.getOriginalContentLength()
+                if (keyContentLength >= byteBudget) {
+                    continue
+                }
+                val value = curObj.getValue(key)
+                val filterContextForKey = curFilterContext.contextForObject(key)
+                result = updateLocalResult(keyPath, value, byteBudget - keyContentLength, filterContextForKey)
+            }
+        },
+        { parentKeyPath, curArray, curFilterContext ->
+            val arrSize = curArray.size()
+            for (offset in curFilterContext.offsetsForArray(curArray)) {
+                if (offset >= arrSize) {
+                    continue
+                }
+                val keyPath = parentKeyPath.clone().addString(offset.toString())
+                val keyContentLength = keyPath.getOriginalContentLength()
+                if (keyContentLength >= byteBudget) {
+                    continue
+                }
+                val value = curArray.getValue(offset)
+                val filterContextForArray = curFilterContext.contextForArray(offset)
+                result = updateLocalResult(keyPath, value, byteBudget - keyContentLength, filterContextForArray)
+            }
+        }
+    )
+    return result
 }
 
 internal fun encodeJsonToQueryableDataIterative(
@@ -110,34 +254,83 @@ internal fun encodeJsonToQueryableDataIterative(
     if (filterContext.willAcceptNone()) {
         return baseResult
     }
-    val queue = ArrayDeque<Triple<Radix64LowLevelEncoder, JsonObject, KeyValueFilterContext>>()
-    queue.add(Triple(topKeyPath, obj, filterContext))
-    var result = baseResult
-    while (!queue.isEmpty()) {
-        val (parentKeyPath, curObj, curFilterContext) = queue.removeFirst()
-        val fieldNames = curObj.fieldNames()
-        for (key in curFilterContext.keysForObject(curObj)) {
-            if (!fieldNames.contains(key)) {
-                continue
+    val queue = JsonToQueryableDataIterableQueue()
+    queue.enqueueObject(topKeyPath, obj, filterContext)
+    return encodeJsonToQueryableDataWithQueue(baseResult, queue, byteBudget)
+}
+
+internal fun encodeJsonToQueryableDataIterative(
+    arr: JsonArray,
+    baseResult: NonShareableScalarListQueryableData,
+    topKeyPath: Radix64LowLevelEncoder,
+    filterContext: KeyValueFilterContext,
+    byteBudget: Int,
+): NonShareableScalarListQueryableData {
+    if (filterContext.willAcceptNone()) {
+        return baseResult
+    }
+    val queue = JsonToQueryableDataIterableQueue()
+    queue.enqueueArray(topKeyPath, arr, filterContext)
+    return encodeJsonToQueryableDataWithQueue(baseResult, queue, byteBudget)
+}
+
+internal fun updateResultForKeyValueRecursive(
+    result: NonShareableScalarListQueryableData,
+    keyPath: Radix64LowLevelEncoder,
+    recurseDepth: Int,
+    value: Any,
+    byteBudget: Int,
+    keyContentLength: Int,
+    filterContext: KeyValueFilterContext
+): NonShareableScalarListQueryableData {
+    return updateResultForKeyValue(
+        result,
+        keyPath,
+        value,
+        byteBudget - keyContentLength,
+        {
+            if (recurseDepth <= 0) {
+                encodeJsonToQueryableDataIterative(
+                    it,
+                    result,
+                    keyPath,
+                    filterContext,
+                    // Passing in byteBudget directly is correct here: we want this to be the upper bound of
+                    // the byte budget, from which the keyPath.originalContentLength is subtracted.
+                    byteBudget
+                )
+            } else {
+                encodeJsonToQueryableDataRecursive(
+                    it,
+                    result,
+                    keyPath,
+                    filterContext,
+                    byteBudget,
+                    recurseDepth - 1
+                )
             }
-            val value = curObj.getValue(key)
-            val keyPath = parentKeyPath.clone().addString(key)
-            val keyContentLength = keyPath.getOriginalContentLength()
-            if (keyContentLength >= byteBudget) {
-                continue
-            }
-            result = updateResultForKeyValue(
-                result,
-                keyPath,
-                value,
-                byteBudget - keyContentLength,
-            ) {
-                queue.addLast(Triple(keyPath, it, curFilterContext.contextForObject(key)))
-                result
+        },
+        {
+            if (recurseDepth <= 0) {
+                encodeJsonToQueryableDataIterative(
+                    it,
+                    result,
+                    keyPath,
+                    filterContext,
+                    byteBudget
+                )
+            } else {
+                encodeJsonToQueryableDataRecursive(
+                    it,
+                    result,
+                    keyPath,
+                    filterContext,
+                    byteBudget,
+                    recurseDepth - 1
+                )
             }
         }
-    }
-    return result
+    )
 }
 
 internal fun encodeJsonToQueryableDataRecursive(
@@ -157,38 +350,55 @@ internal fun encodeJsonToQueryableDataRecursive(
         if (!fieldNames.contains(key)) {
             continue
         }
-        val value = obj.getValue(key)
         val keyPath = topKeyPath.clone().addString(key)
         val keyContentLength = keyPath.getOriginalContentLength()
         if (keyContentLength >= byteBudget) {
             continue
         }
-        result = updateResultForKeyValue(
+        val value = obj.getValue(key)
+        val filterContextForObject = filterContext.contextForObject(key)
+        result = updateResultForKeyValueRecursive(
             result,
             keyPath,
+            recurseDepth,
             value,
-            byteBudget - keyContentLength,
-        ) {
-            val filterContextForObject = filterContext.contextForObject(key)
-            if (recurseDepth <= 0) {
-                encodeJsonToQueryableDataIterative(
-                    it,
-                    result,
-                    keyPath,
-                    filterContextForObject,
-                    byteBudget
-                )
-            } else {
-                encodeJsonToQueryableDataRecursive(
-                    it,
-                    result,
-                    keyPath,
-                    filterContextForObject,
-                    byteBudget,
-                    recurseDepth - 1
-                )
-            }
+            byteBudget,
+            keyContentLength,
+            filterContextForObject
+        )
+    }
+    return result
+}
+
+internal fun encodeJsonToQueryableDataRecursive(
+    arr: JsonArray,
+    baseResult: NonShareableScalarListQueryableData,
+    topKeyPath: Radix64LowLevelEncoder,
+    filterContext: KeyValueFilterContext,
+    byteBudget: Int,
+    recurseDepth: Int
+): NonShareableScalarListQueryableData {
+    if (filterContext.willAcceptNone()) {
+        return baseResult
+    }
+    var result = baseResult
+    for (i in filterContext.offsetsForArray(arr)) {
+        val keyPath = topKeyPath.clone().addString(i.toString())
+        val keyContentLength = keyPath.getOriginalContentLength()
+        if (keyContentLength >= byteBudget) {
+            continue
         }
+        val value = arr.getValue(i)
+        val filterContextForElement = filterContext.contextForArray(i)
+        result = updateResultForKeyValueRecursive(
+            result,
+            keyPath,
+            recurseDepth,
+            value,
+            byteBudget,
+            keyContentLength,
+            filterContextForElement
+        )
     }
     return result
 }
@@ -206,9 +416,18 @@ class AcceptAllKeyValueFilterContext: KeyValueFilterContext {
     override fun contextForObject(key: String): KeyValueFilterContext {
         return this
     }
+
+    override fun offsetsForArray(obj: JsonArray): Iterable<Int> {
+        return 0 until obj.size()
+    }
+
+    override fun contextForArray(offset: Int): KeyValueFilterContext {
+        return this
+    }
 }
 
 private val emptyKeySet = setOf<String>()
+private val emptyIntSet = setOf<Int>()
 
 class AcceptNoneKeyValueFilterContext: KeyValueFilterContext {
     override fun willAcceptNone(): Boolean {
@@ -220,6 +439,14 @@ class AcceptNoneKeyValueFilterContext: KeyValueFilterContext {
     }
 
     override fun contextForObject(key: String): KeyValueFilterContext {
+        return this
+    }
+
+    override fun offsetsForArray(obj: JsonArray): Iterable<Int> {
+        return emptyIntSet
+    }
+
+    override fun contextForArray(offset: Int): KeyValueFilterContext {
         return this
     }
 }

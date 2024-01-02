@@ -8,28 +8,55 @@ import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentMapOf
 import java.util.concurrent.atomic.AtomicLong
 
+private val digitRange = '0'..'9'
+private val charIsDigit: (Char) -> Boolean = { it in digitRange }
+
+fun stringAsInt(s: String): Int? {
+    // We only support positive integers here. We'll be using these to index into an array, which won't support
+    // negative indices.
+    if (!s.all(charIsDigit)) {
+        return null
+    }
+    return try {
+        Integer.parseInt(s)
+    } catch (e: NumberFormatException) {
+        null
+    }
+}
 data class KeyPathReferenceCount(
     val references: Int,
-    val subKeys: PersistentMap<String, KeyPathReferenceCount>
+    val subKeys: PersistentMap<String, KeyPathReferenceCount>,
+    val intSubKeys: PersistentMap<Int, String>,
 ) {
-    constructor(): this(0, persistentMapOf())
+    constructor(): this(0, persistentMapOf(), persistentMapOf())
 
     private fun update(keyPath: List<String>, offset: Int, updater: (KeyPathReferenceCount) -> KeyPathReferenceCount?): KeyPathReferenceCount? {
         return if (offset >= keyPath.size) {
             updater(this)
         } else {
             val subKey = keyPath[offset]
+            val subKeyAsInt = stringAsInt(subKey)
             val subKeyEntry = this.subKeys[subKey] ?: KeyPathReferenceCount()
             val nextSubKeyEntry = subKeyEntry.update(keyPath, offset + 1, updater)
             if (nextSubKeyEntry == null) {
                 val nextSubKeys = this.subKeys.remove(subKey)
+                val nextIntSubKeys = if (subKeyAsInt == null) {
+                    this.intSubKeys
+                } else {
+                    this.intSubKeys.remove(subKeyAsInt)
+                }
                 if (nextSubKeys.size == 0 && this.references <= 0) {
                     null
                 } else {
-                    this.copy(subKeys = nextSubKeys)
+                    this.copy(subKeys = nextSubKeys, intSubKeys = nextIntSubKeys)
                 }
             } else {
-                this.copy(subKeys = this.subKeys.put(subKey, nextSubKeyEntry))
+                val nextIntSubKeys = if (subKeyAsInt == null) {
+                    this.intSubKeys
+                } else {
+                    this.intSubKeys.put(subKeyAsInt, subKey)
+                }
+                this.copy(subKeys = this.subKeys.put(subKey, nextSubKeyEntry), intSubKeys = nextIntSubKeys)
             }
         }
     }
