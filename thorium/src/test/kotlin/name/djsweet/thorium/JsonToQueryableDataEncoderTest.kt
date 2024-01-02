@@ -103,7 +103,7 @@ class JsonToQueryableDataEncoderTest {
                 jsonKeyDepth++
                 curObj = resultingValue
             } else if (resultingValue is JsonArray) {
-                arrayDepth = 1
+                arrayDepth++
                 curObj = resultingValue
             }
         }) {
