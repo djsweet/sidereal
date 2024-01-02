@@ -8,9 +8,13 @@ import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentMapOf
 import java.util.concurrent.atomic.AtomicLong
 
+private val digitRange = '0'..'9'
+private val charIsDigit: (Char) -> Boolean = { it in digitRange }
+
 fun stringAsInt(s: String): Int? {
-    // We only support positive integers here.
-    if (!s.all { it in '0'..'9' }) {
+    // We only support positive integers here. We'll be using these to index into an array, which won't support
+    // negative indices.
+    if (!s.all(charIsDigit)) {
         return null
     }
     return try {
