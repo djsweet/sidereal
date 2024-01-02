@@ -157,24 +157,26 @@ internal class JsonToQueryableDataIterableQueue {
         onJsonObject: (Radix64LowLevelEncoder, JsonObject, KeyValueFilterContext) -> Unit,
         onJsonArray: (Radix64LowLevelEncoder, JsonArray, KeyValueFilterContext) -> Unit
     ) {
-        while (this.arrayQueue.isNotEmpty() || this.objectQueue.isNotEmpty()) {
-            if (this.arrayQueue.isNotEmpty() && this.objectQueue.isNotEmpty()) {
-                val fromArrayQueue = this.arrayQueue.first()
-                val fromObjectQueue = this.objectQueue.first()
+        val arrayQueue = this.arrayQueue
+        val objectQueue = this.objectQueue
+        while (arrayQueue.isNotEmpty() || objectQueue.isNotEmpty()) {
+            if (arrayQueue.isNotEmpty() && objectQueue.isNotEmpty()) {
+                val fromArrayQueue = arrayQueue.first()
+                val fromObjectQueue = objectQueue.first()
                 if (fromArrayQueue.serial < fromObjectQueue.serial) {
                     val (_, keyEncoder, data, filterContext) = fromArrayQueue
-                    this.arrayQueue.removeFirst()
+                    arrayQueue.removeFirst()
                     onJsonArray(keyEncoder, data, filterContext)
                 } else {
                     val (_, keyEncoder, data, filterContext) = fromObjectQueue
-                    this.objectQueue.removeFirst()
+                    objectQueue.removeFirst()
                     onJsonObject(keyEncoder, data, filterContext)
                 }
-            } else if (this.arrayQueue.isNotEmpty()) {
-                val (_, keyEncoder, data, filterContext) = this.arrayQueue.removeFirst()
+            } else if (arrayQueue.isNotEmpty()) {
+                val (_, keyEncoder, data, filterContext) = arrayQueue.removeFirst()
                 onJsonArray(keyEncoder, data, filterContext)
             } else { // this.objectQueue.isNotEmpty()
-                val (_, keyEncoder, data, filterContext) = this.objectQueue.removeFirst()
+                val (_, keyEncoder, data, filterContext) = objectQueue.removeFirst()
                 onJsonObject(keyEncoder, data, filterContext)
             }
         }
