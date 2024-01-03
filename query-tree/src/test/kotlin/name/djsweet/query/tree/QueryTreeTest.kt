@@ -1724,4 +1724,36 @@ class QueryTreeTest {
         assertEquals(1L, nextQuery.equalityTerms.size)
         assertNull(nextQuery.inequalityTerm)
     }
+
+    @Test fun querySpecRelativeComparisonValues() {
+        val queryNoComparison = QuerySpec.withEqualityTerm(byteArrayOf(1), byteArrayOf(1))
+        val queryLessThan = QuerySpec.withLessThanOrEqualToTerm(byteArrayOf(2), byteArrayOf(7))
+        val queryGreaterThan = QuerySpec.withGreaterThanOrEqualToTerm(byteArrayOf(3), byteArrayOf(8))
+        val queryBetween = QuerySpec.withBetweenOrEqualToTerm(
+            byteArrayOf(4),
+            byteArrayOf(5),
+            byteArrayOf(9)
+        )
+
+        val boundsNoComparison = queryNoComparison.relativeComparisonValuesUnsafeShared()
+        assertNull(boundsNoComparison)
+
+        val boundsLessThan = queryLessThan.relativeComparisonValuesUnsafeShared()
+        assertNotNull(boundsLessThan)
+        assertEquals(byteArrayOf(2).toList(), boundsLessThan!!.key.toList())
+        assertNull(boundsLessThan.lowerBound)
+        assertEquals(byteArrayOf(7).toList(), boundsLessThan.upperBound!!.toList())
+
+        val boundsGreaterThan = queryGreaterThan.relativeComparisonValuesUnsafeShared()
+        assertNotNull(boundsGreaterThan)
+        assertEquals(byteArrayOf(3).toList(), boundsGreaterThan!!.key.toList())
+        assertEquals(byteArrayOf(8).toList(), boundsGreaterThan.lowerBound!!.toList())
+        assertNull(boundsGreaterThan.upperBound)
+
+        val boundsQueryBetween = queryBetween.relativeComparisonValuesUnsafeShared()
+        assertNotNull(boundsQueryBetween)
+        assertEquals(byteArrayOf(4).toList(), boundsQueryBetween!!.key.toList())
+        assertEquals(byteArrayOf(5).toList(), boundsQueryBetween.lowerBound!!.toList())
+        assertEquals(byteArrayOf(9).toList(), boundsQueryBetween.upperBound!!.toList())
+    }
 }

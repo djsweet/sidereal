@@ -54,6 +54,11 @@ internal enum class IntermediateQueryTermKind {
     STARTS_WITH
 }
 
+/**
+ * Encodes a lower and upper bound used in relative comparisons in [QuerySpec].
+ */
+class RelativeComparisonBounds(val key: ByteArray, val lowerBound: ByteArray?, val upperBound: ByteArray?)
+
 // This is a data class to ease debugging in the test suite.
 internal data class IntermediateQueryTerm(
     val kind: IntermediateQueryTermKind,
@@ -349,6 +354,24 @@ class QuerySpec private constructor(
                 Arrays.compareUnsigned(dataAtInequality, inequalityTerm.lowerBound!!) >= 0
             }
         }
+    }
+
+    /**
+     * Returns the lower and upper bounds of the relative comparison encoded in this query.
+     *
+     * Note that both bounds are nullable. If both bounds are `null`, this means that there was no
+     * relative comparison encoded within this query.
+     *
+     * Any non-null ByteArray is shared with the query internally. Consumers should take care not to modify
+     * these byte arrays.
+     */
+    fun relativeComparisonValuesUnsafeShared(): RelativeComparisonBounds? {
+        val inequalityTerm = this.inequalityTerm ?: return null
+        return RelativeComparisonBounds(
+            inequalityTerm.key,
+            inequalityTerm.lowerBound,
+            inequalityTerm.upperBound
+        )
     }
 
     private fun equalityTermsForComparison(): Array<Pair<ByteArrayButComparable, ByteArrayButComparable>> {

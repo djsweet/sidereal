@@ -380,6 +380,8 @@ internal class Radix64JsonEncoder : Radix64Encoder() {
         private val NUMBER_PREFIX = ARRAY_START + encodeSingleByteArray(byteArrayOf(NUMBER_TAG))
         private val STRING_PREFIX = ARRAY_START + encodeSingleByteArray(byteArrayOf(STRING_TAG))
 
+        private val PREFIX_TAG_LENGTH = STRING_PREFIX.size
+
         private val FALSE_VALUE = BOOLEAN_PREFIX + encodeSingleByteArray(byteArrayOf(0x00)) + ARRAY_END
         private val TRUE_VALUE = BOOLEAN_PREFIX + encodeSingleByteArray(byteArrayOf(0x01)) + ARRAY_END
 
@@ -475,6 +477,12 @@ internal class Radix64JsonEncoder : Radix64Encoder() {
             // ARRAY_START element, but we're assuming (as part of the definition)
             // that there is no ARRAY_END element.
             return (ba.size - STRING_PREFIX.size - 1).coerceAtLeast(0)
+        }
+
+        fun encodedValuesHaveSameType(lhs: ByteArray, rhs: ByteArray): Boolean {
+            val lhsSize = PREFIX_TAG_LENGTH.coerceAtMost(lhs.size)
+            val rhsSize = PREFIX_TAG_LENGTH.coerceAtMost(rhs.size)
+            return Arrays.equals(lhs, 0, lhsSize, rhs, 0, rhsSize)
         }
     }
 
