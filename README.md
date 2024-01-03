@@ -242,7 +242,7 @@ Content-Type: application/cloudevents-batch+json
 [
 {
     "source": "somewhere",
-    "id": 1,
+    "id": "1",
     "type": "com.example.thorium",
     "specversion": "1.0",
     "data": {
@@ -253,7 +253,7 @@ Content-Type: application/cloudevents-batch+json
     }
 }, {
     "source": "somewhere",
-    "id": 2,
+    "id": "2",
     "type": "com.example.thorium",
     "specversion": "1.0",
     "data": {
@@ -264,7 +264,7 @@ Content-Type: application/cloudevents-batch+json
     }
 }, {
     "source": "somewhere",
-    "id": 3,
+    "id": "3",
     "type": "com.example.thorium",
     "specversion": "1.0",
     "data": {
@@ -274,7 +274,7 @@ Content-Type: application/cloudevents-batch+json
     }
 }, {
     "source": "somewhere",
-    "id": 4,
+    "id": "4",
     "type": "com.example.thorium",
     "specversion": "1.0",
     "data": {
@@ -284,7 +284,7 @@ Content-Type: application/cloudevents-batch+json
     }
 }, {
     "source": "somewhere",
-    "id": 5,
+    "id": "5",
     "type": "com.example.thorium",
     "specversion": "1.0",
     "data": {
@@ -294,7 +294,7 @@ Content-Type: application/cloudevents-batch+json
     }
 }, {
     "source": "somewhere",
-    "id": 6,
+    "id": "6",
     "type": "com.example.thorium",
     "specversion": "1.0",
     "data": {
@@ -304,7 +304,7 @@ Content-Type: application/cloudevents-batch+json
     }
 }, {
     "source": "somewhere",
-    "id": 7,
+    "id": "7",
     "type": "com.example.thorium",
     "specversion": "1.0",
     "data": {
@@ -314,7 +314,7 @@ Content-Type: application/cloudevents-batch+json
     }
 }, {
     "source": "somewhere",
-    "id": 8,
+    "id": "8",
     "type": "com.example.thorium",
     "specversion": "1.0",
     "data": {
