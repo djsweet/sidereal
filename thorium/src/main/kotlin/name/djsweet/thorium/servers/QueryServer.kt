@@ -625,6 +625,27 @@ class QueryRouterVerticle(
                     if (!query.notEqualsMatchesData(queryableScalarData)) {
                         continue@queryLoop
                     }
+
+                    // If we have a relative comparison (one of <, <=, >=, >), we need to ensure that the
+                    // type of the data is compatible with the type of the bounds.
+                    val relativeComparisonBounds = query.treeSpec.relativeComparisonValuesUnsafeShared()
+                    val relativeComparisonKey = relativeComparisonBounds?.key
+                    val lowerBound = relativeComparisonBounds?.lowerBound
+                    val upperBound = relativeComparisonBounds?.upperBound
+
+                    if (relativeComparisonKey != null && (lowerBound != null || upperBound != null)) {
+                        val fromData = queryableScalarData.get(relativeComparisonKey) ?: continue@queryLoop
+                        var typeMatched = false
+                        if (lowerBound != null) {
+                            typeMatched = Radix64JsonEncoder.encodedValuesHaveSameType(lowerBound, fromData)
+                        }
+                        if (!typeMatched && upperBound != null) {
+                            typeMatched = Radix64JsonEncoder.encodedValuesHaveSameType(upperBound, fromData)
+                        }
+                        if (!typeMatched) {
+                            continue@queryLoop
+                        }
+                    }
                     // If we don't have any arrayContains to inspect for _this_ query, we can short-circuit out
                     // and call it good.
                     var arrayReferenceCount = arrayContainsCounts[index]

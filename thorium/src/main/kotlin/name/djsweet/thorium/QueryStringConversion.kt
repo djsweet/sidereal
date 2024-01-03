@@ -147,6 +147,10 @@ private val jsonObjectForNonStringStartsWith = jsonObjectOf(
     "code" to "non-string-for-starts-with",
     "message" to "Starts-with queries must match a string value"
 )
+private val jsonObjectForIncompatibleTypesInBetween = jsonObjectOf(
+    "code" to "incompatible-types-in-between",
+    "message" to "Types must match for combined <, <= and >, >="
+)
 
 data class FullQueryAndAffectedKeyIncrements(
     val fullQuery: FullQuery,
@@ -207,12 +211,23 @@ fun convertQueryStringToFullQuery(
                                 if (lastInequalityOperator.startsWith(">") && Arrays.equals(inequalityKey, encodedKey)) {
                                     // We can promote this condition to a between condition without it being an error,
                                     // because of the shared keys.
-                                    inequalityOperator = "between"
-                                    treeSpec =
-                                        treeSpec.withBetweenOrEqualToTerm(encodedKey, inequalityValue!!, encodedValue)
-                                    if (!value.startsWith("<=")) {
-                                        notEquals =
-                                            notEquals.update(encodedKey) { (it ?: QPTrie()).put(encodedValue, false) }
+                                    if (Radix64JsonEncoder.encodedValuesHaveSameType(encodedValue, inequalityValue!!)) {
+                                        inequalityOperator = "between"
+                                        treeSpec = treeSpec.withBetweenOrEqualToTerm(
+                                            encodedKey,
+                                            inequalityValue!!,
+                                            encodedValue
+                                        )
+                                        if (!value.startsWith("<=")) {
+                                            notEquals = notEquals.update(encodedKey) {
+                                                (it ?: QPTrie()).put(encodedValue, false)
+                                            }
+                                        }
+                                    } else {
+                                        error = HttpProtocolError(
+                                            400,
+                                            jsonObjectForIncompatibleTypesInBetween.copy().put("key", key)
+                                        )
                                     }
                                 } else {
                                     error = HttpProtocolError(
@@ -235,12 +250,24 @@ fun convertQueryStringToFullQuery(
                             val lastInequalityOperator = inequalityOperator
                             if (lastInequalityOperator != null) {
                                 if (lastInequalityOperator.startsWith("<") && Arrays.equals(inequalityKey, encodedKey)) {
-                                    inequalityOperator = "between"
-                                    treeSpec =
-                                        treeSpec.withBetweenOrEqualToTerm(encodedKey, encodedValue, inequalityValue!!)
-                                    if (!value.startsWith(">=")) {
-                                        notEquals =
-                                            notEquals.update(encodedKey) { (it ?: QPTrie()).put(encodedValue, false) }
+                                    if (Radix64JsonEncoder.encodedValuesHaveSameType(encodedValue, inequalityValue!!)) {
+
+                                        inequalityOperator = "between"
+                                        treeSpec = treeSpec.withBetweenOrEqualToTerm(
+                                            encodedKey,
+                                            encodedValue,
+                                            inequalityValue!!
+                                        )
+                                        if (!value.startsWith(">=")) {
+                                            notEquals = notEquals.update(encodedKey) {
+                                                (it ?: QPTrie()).put(encodedValue, false)
+                                            }
+                                        }
+                                    } else {
+                                        error = HttpProtocolError(
+                                            400,
+                                            jsonObjectForIncompatibleTypesInBetween.copy().put("key", key)
+                                        )
                                     }
                                 } else {
                                     error = HttpProtocolError(

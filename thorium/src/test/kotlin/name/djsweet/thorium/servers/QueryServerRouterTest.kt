@@ -154,11 +154,12 @@ class QueryServerRouterTest {
         }
     }
 
-    private fun reportAllJsonData(
+    private fun reportAllJsonDataWithoutMessageCount(
         vertx: Vertx,
         counters: GlobalCounterContext,
         receiver: DataReceiverVerticle,
-        channel: String, vararg data: JsonObject
+        channel: String,
+        vararg data: JsonObject
     ) {
         val reportList = mutableListOf<ReportData>()
         val encodeEverythingContext = AcceptAllKeyValueFilterContext()
@@ -175,10 +176,26 @@ class QueryServerRouterTest {
         }
 
         counters.incrementOutstandingEventCountByAndGet(data.size.toLong())
-        receiver.outstandingMessageCount.addAndGet(data.size)
         vertx.eventBus().send(addressForQueryServerData, ReportDataList(reportList), localRequestOptions)
 
         receiver.waitForNoOutstandingMessages()
+    }
+
+    private fun reportAllJsonData(
+        vertx: Vertx,
+        counters: GlobalCounterContext,
+        receiver: DataReceiverVerticle,
+        channel: String,
+        vararg data: JsonObject
+    ) {
+        receiver.outstandingMessageCount.addAndGet(data.size)
+        this.reportAllJsonDataWithoutMessageCount(
+            vertx,
+            counters,
+            receiver,
+            channel,
+            *data
+        )
     }
 
     private fun cloudEventObjectOf(id: String, vararg fields: Pair<String, Any?>): JsonObject {
@@ -344,6 +361,48 @@ class QueryServerRouterTest {
             assertEquals(testData.encode(), dataList[0].reportData.actualData.value)
 
             this.waitForZeroEventCount(counters)
+        }
+    }
+
+    @Test
+    fun relativeComparisonOperatorsOnlyFunctionWithinTypes() {
+        val testSchedule = listOf(
+            "<" to (7 to "\"6\""),
+            "<=" to (7 to "\"7\""),
+            ">" to ("7" to "8"),
+            ">=" to ("7" to "7")
+        )
+        val channel = "relative-comparison"
+        val clientID = "relative-comparison-client"
+
+        for ((op, dataValueToStringValue) in testSchedule) {
+            val (dataValue, stringValue) = dataValueToStringValue
+
+            this.withRunningRouterServer { vertx, config, counters, receiver, dataList ->
+                val routerServerAddress = addressForRouterServer(config, 0)
+                this.registerQueries(
+                    vertx,
+                    channel,
+                    clientID,
+                    routerServerAddress,
+                    receiver.receiverAddress,
+                    "query" to "test=$op$stringValue"
+                )
+
+                assertEquals(1, counters.getQueryCountForThread(0))
+
+                this.reportAllJsonDataWithoutMessageCount(
+                    vertx,
+                    counters,
+                    receiver,
+                    channel,
+                    this.cloudEventObjectOf("test-data", "test" to dataValue)
+                )
+
+                this.waitForZeroEventCount(counters)
+
+                assertEquals(0, dataList.size)
+            }
         }
     }
 }

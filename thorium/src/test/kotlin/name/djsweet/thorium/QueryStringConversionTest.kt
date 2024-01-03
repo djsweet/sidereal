@@ -304,7 +304,7 @@ class QueryStringConversionTest {
 
         return this.jsonPath.flatMap { selector ->
             this.jsonValueWithinBudget().list().ofMinSize(2).ofMaxSize(2).filter {
-                it[0].javaClass === it[1].javaClass
+                Radix64JsonEncoder.encodedValuesHaveSameType(it[0].second, it[1].second)
             }.flatMap { entries ->
                 betweenChoices.map { opString ->
                     val left = entries[0]

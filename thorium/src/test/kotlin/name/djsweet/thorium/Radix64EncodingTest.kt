@@ -739,4 +739,51 @@ class Radix64EncodingTest {
         assertEquals(s1, decoded2[0].stringValue)
         assertEquals(s2, decoded2[1].stringValue)
     }
+
+    @Property
+    fun jsonTypeTagEquality(
+        @ForAll s1: String,
+        @ForAll s2: String,
+        @ForAll n1: Double,
+        @ForAll n2: Double
+    ) {
+        val encodedNull = Radix64JsonEncoder.ofNull()
+        val encodedTrue = Radix64JsonEncoder.ofBoolean(true)
+        val encodedFalse = Radix64JsonEncoder.ofBoolean(false)
+
+        val encodedS1 = Radix64JsonEncoder.ofString(s1, s1.length * 4)
+        val encodedS2 = Radix64JsonEncoder.ofString(s2, s2.length * 4)
+        val encodedN1 = Radix64JsonEncoder.ofNumber(n1)
+        val encodedN2 = Radix64JsonEncoder.ofNumber(n2)
+
+        val valuesGroupedByTag = listOf(
+            listOf(encodedNull),
+            listOf(encodedTrue, encodedFalse),
+            listOf(encodedS1, encodedS2),
+            listOf(encodedN1, encodedN2)
+        )
+
+        for ((i, tagGroup) in valuesGroupedByTag.withIndex()) {
+            for ((j, elem) in tagGroup.withIndex()) {
+                for (k in tagGroup.indices) {
+                    if (j == k) {
+                        continue
+                    }
+                    val otherElem = tagGroup[k]
+                    assertTrue(Radix64JsonEncoder.encodedValuesHaveSameType(elem, otherElem))
+                    assertTrue(Radix64JsonEncoder.encodedValuesHaveSameType(otherElem, elem))
+                }
+                for (k in tagGroup.indices) {
+                    if (i == k) {
+                        continue
+                    }
+                    val otherGroup = valuesGroupedByTag[k]
+                    for (otherElem in otherGroup) {
+                        assertFalse(Radix64JsonEncoder.encodedValuesHaveSameType(elem, otherElem))
+                        assertFalse(Radix64JsonEncoder.encodedValuesHaveSameType(otherElem, elem))
+                    }
+                }
+            }
+        }
+    }
 }
