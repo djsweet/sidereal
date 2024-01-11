@@ -1,5 +1,5 @@
 <!--
-SPDX-FileCopyrightText: 2023 Dani Sweet <thorium@djsweet.name>
+SPDX-FileCopyrightText: 2023 Dani Sweet <sidereal@djsweet.name>
 
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
@@ -17,7 +17,7 @@ licensing. For example, Kotlin files begin with a comment block looking
 like
 
 ```kotlin
-// SPDX-FileCopyrightText: 2023 Dani Sweet <thorium@djsweet.name>
+// SPDX-FileCopyrightText: 2023 Dani Sweet <sidereal@djsweet.name>
 //
 // SPDX-License-Identifier: MIT
 ```
