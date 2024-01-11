@@ -12,12 +12,12 @@ internal fun availableProcessors(): Int = Runtime.getRuntime().availableProcesso
 internal const val metaChannelName = "meta"
 
 class GlobalConfig(private val sharedData: SharedData) {
-    private val timingLocalMap: LocalMap<String, Int> get() = this.sharedData.getLocalMap("thorium.timings")
+    private val timingLocalMap: LocalMap<String, Int> get() = this.sharedData.getLocalMap("sidereal.timings")
 
-    private val limitLocalMap: LocalMap<String, Int> get() = this.sharedData.getLocalMap("thorium.limits")
+    private val limitLocalMap: LocalMap<String, Int> get() = this.sharedData.getLocalMap("sidereal.limits")
 
-    private val intParamsLocalMap: LocalMap<String, Int> get() = this.sharedData.getLocalMap("thorium.intParams")
-    private val stringParamsLocalMap: LocalMap<String, String> get() = this.sharedData.getLocalMap("thorium.stringParams")
+    private val intParamsLocalMap: LocalMap<String, Int> get() = this.sharedData.getLocalMap("sidereal.intParams")
+    private val stringParamsLocalMap: LocalMap<String, String> get() = this.sharedData.getLocalMap("sidereal.stringParams")
 
     companion object {
         const val defaultServerPort = 8232
@@ -29,14 +29,14 @@ class GlobalConfig(private val sharedData: SharedData) {
         const val defaultMaxJsonParsingRecursion = 64
         const val defaultMaxOutstandingEventsPerRouterThread = 128 * 1024
         const val defaultMaxBodySize = 10 * 1024 * 1024
-        const val defaultCloudEventSource = "//name.djsweet.thorium"
+        const val defaultCloudEventSource = "//name.djsweet.sidereal"
         val defaultRouterThreads = availableProcessors()
         val defaultTranslatorThreads = availableProcessors()
         val defaultWebServerThreads = availableProcessors()
     }
 
     /**
-     * Used to disambiguate between Thorium instances with the same source name
+     * Used to disambiguate between Sidereal Events instances with the same source name
      */
     val instanceID = generateInstanceID()
 

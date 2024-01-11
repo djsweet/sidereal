@@ -39,7 +39,7 @@ fun jsonStatusCodeResponse(config: GlobalConfig, req: HttpServerRequest, code: I
         .putHeader("ce-specversion", "1.0")
         .putHeader("ce-datacontenttype", jsonMimeType)
         .putHeader("ce-time", wallNowAsString())
-        .putHeader("ce-type", "name.djsweet.thorium.channel.send.response")
+        .putHeader("ce-type", "name.djsweet.sidereal.channel.send.response")
         .putHeader("ce-source", config.sourceName)
         // We don't need a cryptographically random source for event IDs, we just need to make sure
         // we effectively never have an ID collision, while at the same time avoiding blocking as much
@@ -202,9 +202,9 @@ val invalidDataFieldJson = jsonObjectOf("code" to "invalid-data-field")
 val conflictingDataTypeHeadersJson = jsonObjectOf("code" to "conflicting-data-type-headers")
 val acceptedJson = jsonObjectOf("code" to "accepted")
 // The X- prefix was deprecated in IETF RFC 6648, dated June 2012, so it's something of a free-for-all now.
-const val bodyReadTimeHeader = "Thorium-Body-Read-Time"
-const val jsonParseTimeHeader = "Thorium-JSON-Parse-Time"
-const val eventEncodeTimeHeader = "Thorium-Encode-Time"
+const val bodyReadTimeHeader = "Sidereal-Body-Read-Time"
+const val jsonParseTimeHeader = "Sidereal-JSON-Parse-Time"
+const val eventEncodeTimeHeader = "Sidereal-Encode-Time"
 
 fun handleDataWithUnpackRequest(
     vertx: Vertx,

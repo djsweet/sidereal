@@ -27,7 +27,7 @@ class QueryServerRouterTest {
     private val recurseDepth = 64
 
     class DataReceiverVerticle(private val results: MutableList<ReportDataWithClientAndQueryIDs>): AbstractVerticle() {
-        val receiverAddress = "name.djsweet.thorium.servers.test.DataReceiverVerticle"
+        val receiverAddress = "name.djsweet.sidereal.servers.test.DataReceiverVerticle"
 
         // This seems like an awful lot of pomp and circumstance around just getting data into a List...
         // but we need to be super mindful of how the receiving code in this Verticle is running in a
@@ -200,7 +200,7 @@ class QueryServerRouterTest {
 
     private fun cloudEventObjectOf(id: String, vararg fields: Pair<String, Any?>): JsonObject {
         return jsonObjectOf(
-            "source" to "//name.djsweet.thorium.tests",
+            "source" to "//name.djsweet.sidereal.tests",
             "id" to id,
             "datacontenttype" to "application/json",
             "data" to jsonObjectOf(*fields)

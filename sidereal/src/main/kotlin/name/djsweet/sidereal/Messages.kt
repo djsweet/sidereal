@@ -695,17 +695,17 @@ fun registerMessageCodecs(vertx: Vertx) {
 }
 
 private fun addressForQueryServerQueryAtOffset(verticleOffset: Int): String {
-    return "thorium.query.server.$verticleOffset.query"
+    return "sidereal.query.server.$verticleOffset.query"
 }
 
-const val addressForQueryServerData = "thorium.query.server.all.data"
+const val addressForQueryServerData = "sidereal.query.server.all.data"
 
 private fun addressForTranslatorServerAtOffset(verticleOffset: Int): String {
-    return "thorium.data.translator.$verticleOffset"
+    return "sidereal.data.translator.$verticleOffset"
 }
 
 fun addressForQueryClientAtOffset(clientID: String): String {
-    return "thorium.query.clients.${clientID}"
+    return "sidereal.query.clients.${clientID}"
 }
 
 private var routerServerAddresses: Array<String>? = null
@@ -728,4 +728,4 @@ fun addressForTranslatorServer(config: GlobalConfig, verticleOffset: Int): Strin
     return currentTranslatorServerAddresses[verticleOffset]
 }
 
-const val addressForByteBudgetReset = "thorium.byteBudgetReset"
+const val addressForByteBudgetReset = "sidereal.byteBudgetReset"

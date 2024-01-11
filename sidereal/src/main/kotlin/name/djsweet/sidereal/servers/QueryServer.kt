@@ -35,8 +35,8 @@ import kotlin.coroutines.suspendCoroutine
 import kotlin.math.ceil
 import kotlin.time.toKotlinDuration
 
-internal const val thoriumMetaQueryRegistrationType = "name.djsweet.thorium.meta.query.registration"
-internal const val thoriumMetaQueryRemovalType = "name.djsweet.thorium.meta.query.removal"
+internal const val siderealMetaQueryRegistrationType = "name.djsweet.sidereal.meta.query.registration"
+internal const val siderealMetaQueryRemovalType = "name.djsweet.sidereal.meta.query.removal"
 private const val backoffBaseWaitTimeMS = 0.5
 
 data class QueryResponderSpec(
@@ -381,7 +381,7 @@ class QueryRouterVerticle(
                         this.unpackDataRequestForMetaChannel(
                             clientID = clientID,
                             queryID = queryID,
-                            eventType = thoriumMetaQueryRegistrationType,
+                            eventType = siderealMetaQueryRegistrationType,
                             idPrefix = "+",
                             data = jsonObjectOf(
                                 "instanceID" to config.instanceID,
@@ -469,7 +469,7 @@ class QueryRouterVerticle(
             val unpackRequest = listOf(this.unpackDataRequestForMetaChannel(
                 clientID = clientID,
                 queryID = queryID,
-                eventType = thoriumMetaQueryRemovalType,
+                eventType = siderealMetaQueryRemovalType,
                 idPrefix = "-",
                 data = jsonObjectOf(
                     "instanceID" to config.instanceID,

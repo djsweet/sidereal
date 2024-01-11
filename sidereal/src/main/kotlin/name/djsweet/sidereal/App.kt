@@ -32,7 +32,7 @@ import kotlin.system.exitProcess
 
 // FIXME: Set this elsewhere
 private const val versionString = "0.8.0"
-private const val envVarPrefix = "THORIUM_"
+private const val envVarPrefix = "SIDEREAL_"
 
 internal class KvpByteBudgetCommand: CliktCommand(
     help="Determines the maximum key/value pair byte budget to prevent tree operations from throwing StackOverflowError"
@@ -50,7 +50,7 @@ internal class KvpByteBudgetCommand: CliktCommand(
 }
 
 internal class ServeCommand: CliktCommand(
-    help =" Runs the Thorium Reactive Query Server"
+    help =" Runs the Sidereal Events Query Server"
 ) {
     companion object {
         private fun logLevelFromString(levelString: String): Level = when (levelString) {
@@ -261,7 +261,7 @@ internal class ServeCommand: CliktCommand(
     }
 }
 
-internal class ThoriumCommand: CliktCommand(
+internal class SiderealCommand: CliktCommand(
     help = "Reactive queries over CloudEvents"
 ) {
     private val version by option(help="Show the version and exit").flag()
@@ -281,5 +281,6 @@ internal class ThoriumCommand: CliktCommand(
     }
 }
 
-fun main(args: Array<String>) = name.djsweet.sidereal.ThoriumCommand()
-    .subcommands(name.djsweet.sidereal.KvpByteBudgetCommand(), name.djsweet.sidereal.ServeCommand()).main(args)
+fun main(args: Array<String>) = SiderealCommand()
+    .subcommands(KvpByteBudgetCommand(), ServeCommand())
+    .main(args)

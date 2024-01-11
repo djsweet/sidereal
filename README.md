@@ -73,11 +73,11 @@ by running
 ./gradlew jar
 ```
 
-The resulting JAR will be saved to `./thorium/build/libs/thorium.jar`,
+The resulting JAR will be saved to `./sidereal/build/libs/sidereal.jar`,
 and run directly using
 
 ```shell
-java -jar ./thorium/build/libs/thorium.jar serve
+java -jar ./sidereal/build/libs/sidereal.jar serve
 ```
 
 ## Building a native executable
@@ -108,7 +108,7 @@ with
 ```
 
 and the resulting artifact would be saved to
-`./thorium/build/native/nativeCompile/thorium`.
+`./sidereal/build/native/nativeCompile/sidereal`.
 
 Automated tests can be run against a native executable by running
 
@@ -600,7 +600,7 @@ variables.
 
 - **Flag:** `--server-port`
   <br/>
-  **Environment Variable:** `THORIUM_SERVER_PORT`
+  **Environment Variable:** `SIDEREAL_SERVER_PORT`
   <br/>
   **Type:** Integer
   <br/>
@@ -610,18 +610,18 @@ variables.
 
 - **Flag:** `--source-name`
   <br/>
-  **Environment Variable:** `THORIUM_SOURCE_NAME`
+  **Environment Variable:** `SIDEREAL_SOURCE_NAME`
   <br/>
   **Type:** String
   <br/>
-  **Default Value:** //name.djsweet.thorium
+  **Default Value:** `//name.djsweet.sidereal`
 
   CloudEvents emitted by Thorium will use this string as the "source"
   metadata.
 
 - **Flag:** `--log-level`
   <br/>
-  **Environment Variable:** `THORIUM_LOG_LEVEL`
+  **Environment Variable:** `SIDEREAL_LOG_LEVEL`
   <br/>
   **Type:** One of `trace`, `debug`, `info`, `warn`, or `error`
   <br/>
@@ -634,7 +634,7 @@ variables.
 
 - **Flag:** `--router-threads`
   <br/>
-  **Environment Variable:** `THORIUM_ROUTER_THREADS`
+  **Environment Variable:** `SIDEREAL_ROUTER_THREADS`
   <br/>
   **Type:** Integer
   <br/>
@@ -646,7 +646,7 @@ variables.
 
 - **Flag:** `--translator-threads`
   <br/>
-  **Environment Variable:** `THORIUM_TRANSLATOR_THREADS`
+  **Environment Variable:** `SIDEREAL_TRANSLATOR_THREADS`
   <br/>
   **Type:** Integer
   <br/>
@@ -658,7 +658,7 @@ variables.
 
 - **Flag:** `--web-server-threads`
   <br/>
-  **Environment Variable:** `THORIUM_WEB_SERVER_THREADS`
+  **Environment Variable:** `SIDEREAL_WEB_SERVER_THREADS`
   <br/>
   **Type:** Integer
   <br/>
@@ -670,7 +670,7 @@ variables.
 
 - **Flag:** `--max-body-size-bytes`
   <br/>
-  **Environment Variable:** `THORIUM_MAX_BODY_SIZE_BYTES`
+  **Environment Variable:** `SIDEREAL_MAX_BODY_SIZE_BYTES`
   <br/>
   **Type:** Integer
   <br/>
@@ -682,7 +682,7 @@ variables.
 
 - **Flag:** `--max-idempotency-keys`
   <br/>
-  **Environment Variable:** `THORIUM_MAX_IDEMPOTENCY_KEYS`
+  **Environment Variable:** `SIDEREAL_MAX_IDEMPOTENCY_KEYS`
   <br/>
   **Type:** Integer
   <br/>
@@ -695,7 +695,7 @@ variables.
 
 - **Flag:** `--max-json-parsing-recursion`
   <br/>
-  **Environment Variable:** `THORIUM_MAX_JSON_PARSING_RECURSION`
+  **Environment Variable:** `SIDEREAL_MAX_JSON_PARSING_RECURSION`
   <br/>
   **Type:** Integer
   <br/>
@@ -712,7 +712,7 @@ variables.
 
 - **Flag:** `--max-outstanding-events-per-router-thread`
   <br/>
-  **Environment Variable:** `THORIUM_MAX_OUTSTANDING_EVENTS_PER_ROUTER_THREAD`
+  **Environment Variable:** `SIDEREAL_MAX_OUTSTANDING_EVENTS_PER_ROUTER_THREAD`
   <br/>
   **Type:** Integer
   <br/>
@@ -729,7 +729,7 @@ variables.
 
 - **Flag:** `--max-query-terms`
   <br/>
-  **Environment Variable:** `THORIUM_MAX_QUERY_TERMS`
+  **Environment Variable:** `SIDEREAL_MAX_QUERY_TERMS`
   <br/>
   **Type:** Integer
   <br/>
@@ -741,7 +741,7 @@ variables.
 
 - **Flag:** `--body-timeout-ms`
   <br/>
-  **Environment Variable:** `THORIUM_BODY_TIMEOUT_MS`
+  **Environment Variable:** `SIDEREAL_BODY_TIMEOUT_MS`
   <br/>
   **Type:** Integer
   <br/>
@@ -753,7 +753,7 @@ variables.
 
 - **Flag:** `--idempotency-expiration-ms`
   <br/>
-  **Environment Variable:** `THORIUM_IDEMPOTENCY_EXPIRATION_MS`
+  **Environment Variable:** `SIDEREAL_IDEMPOTENCY_EXPIRATION_MS`
   <br/>
   **Type:** Integer
   <br/>
@@ -766,7 +766,7 @@ variables.
 
 - **Flag:** `--tcp-idle-timeout-ms`
   <br/>
-  **Environment Variable:** `THORIUM_TCP_IDLE_TIMEOUT_MS`
+  **Environment Variable:** `SIDEREAL_TCP_IDLE_TIMEOUT_MS`
   <br/>
   **Type:** Integer
   <br/>
@@ -784,33 +784,33 @@ The response body follows
 
 The currently exposed metrics are
 
-- ***thorium_data_byte_budget***
+- ***sidereal_data_byte_budget***
   <br/>
   A [gauge](https://prometheus.io/docs/concepts/metric_types/#gauge)
   indicating the maximum size of any key/value pair in a query term.
   This is unlikely to change during normal execution, but may be lowered
   automatically if Thorium encounters a StackOverflowError when routing
   an event to consuming queries.
-- ***thorium_outstanding_events***
+- ***sidereal_outstanding_events***
   <br/>
   A [gauge](https://prometheus.io/docs/concepts/metric_types/#gauge)
   indicating the number of events accepted by Thorium, but not yet
   confirmed delivered to consumers.
-- ***thorium_active_queries***
+- ***sidereal_active_queries***
   <br/>
   A [gauge](https://prometheus.io/docs/concepts/metric_types/#gauge)
   indicating the number of queries being serviced, labeled per `router`.
-- ***thorium_event_routing_seconds***
+- ***sidereal_event_routing_seconds***
   <br/>
   A [summary](https://prometheus.io/docs/concepts/metric_types/#summary),
   without quantiles, of the time (in seconds) spent routing events to
   consuming queries, labeled per `router`.
-- ***thorium_idempotency_key_cache_size***
+- ***sidereal_idempotency_key_cache_size***
   <br/>
   A [gauge](https://prometheus.io/docs/concepts/metric_types/#gauge)
   indicating the number of "source", "id" combinations saved in the
   tracking set, labeled per `router`.
-- ***thorium_json_translation_seconds***
+- ***sidereal_json_translation_seconds***
   <br/>
   A [summary](https://prometheus.io/docs/concepts/metric_types/#summary),
   without quantiles, of the time (in seconds) spent translating events into

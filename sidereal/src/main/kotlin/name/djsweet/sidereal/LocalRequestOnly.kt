@@ -21,7 +21,7 @@ abstract class LocalPrimaryMessageCodec<T>(
 ): MessageCodec<T, T> {
     private val fullName: String
     init {
-        this.fullName = "thorium.message.codecs.${nameSuffix}"
+        this.fullName = "sidereal.message.codecs.${nameSuffix}"
     }
 
     protected abstract fun emptyInstance(): T

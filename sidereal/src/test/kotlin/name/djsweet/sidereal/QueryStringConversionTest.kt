@@ -467,7 +467,7 @@ class QueryStringConversionTest {
         // original string, to ensure that the full data does start with the entire
         //    some.value
 
-        val fullStartsWith = "thorium.query.meta.remove"
+        val fullStartsWith = "sidereal.query.meta.remove"
         val dataKey = "key"
         val matchedData = jsonObjectOf(dataKey to fullStartsWith)
         val byteBudget = (dataKey.length + fullStartsWith.length) * 2
