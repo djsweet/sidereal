@@ -1,23 +1,23 @@
 <!--
-SPDX-FileCopyrightText: 2023 Dani Sweet <thorium@djsweet.name>
+SPDX-FileCopyrightText: 2023 Dani Sweet <sidereal@djsweet.name>
 
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Licensing in Thorium
+# Licensing in Sidereal Events
 
-Thorium itself is released under the terms of the
+Sidereal Events itself is released under the terms of the
 [MIT License](https://spdx.org/licenses/MIT.html),
 as documented in [the LICENSE file](../../LICENSE) of this project.
 
-Thorium uses [SPDX License IDs](https://spdx.dev/learn/handling-license-info/)
+Sidereal Events uses [SPDX License IDs](https://spdx.dev/learn/handling-license-info/)
 internally to identify  license and copyright information, and complies with
 FSF Europe's [REUSE Specification](https://reuse.software/spec/) for software
 licensing. For example, Kotlin files begin with a comment block looking
 like
 
 ```kotlin
-// SPDX-FileCopyrightText: 2023 Dani Sweet <thorium@djsweet.name>
+// SPDX-FileCopyrightText: 2023 Dani Sweet <sidereal@djsweet.name>
 //
 // SPDX-License-Identifier: MIT
 ```
@@ -37,7 +37,7 @@ SPDX-License-Identifier: Apache-2.0
 
 ## License Tooling
 
-Thorium development uses FSF Europe's
+Sidereal Events' development uses FSF Europe's
 [reuse tool](https://git.fsfe.org/reuse/tool) to automate compliance
 and compliance verification. As a quickstart for using `reuse`:
 

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Dani Sweet <thorium@djsweet.name>
+// SPDX-FileCopyrightText: 2023 Dani Sweet <sidereal@djsweet.name>
 //
 // SPDX-License-Identifier: MIT
 
@@ -11,5 +11,5 @@
  * in the user manual at https://docs.gradle.org/7.5/userguide/multi_project_builds.html
  */
 
-rootProject.name = "name.djsweet.thorium"
-include("thorium", "query-tree")
+rootProject.name = "name.djsweet.sidereal"
+include("sidereal", "query-tree")

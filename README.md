@@ -1,43 +1,43 @@
 <!--
-SPDX-FileCopyrightText: 2023 Dani Sweet <thorium@djsweet.name>
+SPDX-FileCopyrightText: 2023 Dani Sweet <sidereal@djsweet.name>
 
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Thorium - Reactive queries over streaming CloudEvents
+# Sidereal Events - Scalable real-time queries over streaming CloudEvents
 
-Thorium is a standalone HTTP server providing reactive queries over
+Sidereal Events is a standalone HTTP server providing reactive queries over
 streaming [CloudEvents](https://cloudevents.io). When used in conjunction with
 Change Data Capture, it can turn any database into a real-time database.
 
-A query in Thorium is a disjunction of conjunctions, encoded in
+A query in Sidereal Events is a disjunction of conjunctions, encoded in
 [disjunctive normal form](https://mathworld.wolfram.com/DisjunctiveNormalForm.html),
 e.g. `(a AND b) OR (c AND d AND e) OR ...`, of key/value terms, e.g.
 `(key1=value1 AND key2=value2) OR (key3=value3 AND key4=value4) OR ...`.
 Queries are internally indexed by every conjunction, by their terms
 (e.g. `key2=value2` is an index entry), as an inversion to the usual practice
-of data being indexed by their fields. This query indexing allows Thorium to
-scale efficiently to thousands of concurrent queries while still ingesting
-tens of thousands of events per second.
+of data being indexed by their fields. This query indexing allows Sidereal
+Events to  scale efficiently to thousands of concurrent queries while still
+ingesting tens of thousands of events per second.
 
-## Thorium is still experimental!
+## Sidereal Events is still experimental!
 
-Thorium is still very much a work in progress, and isn't yet at a state where
-it can be considered "production ready". Some aspects of it might change
-in a breaking manner in the near future. If you'd like to try Thorium out,
-please proceed with caution.
+Sidereal Events is still very much a work in progress, and isn't yet at a
+state where it can be considered "production ready". Some aspects of it
+might change in a breaking manner in the near future. If you'd like to try
+Sidereal Events out, please proceed with caution.
 
 ## Running from source
 
 You'll need a Java Development Kit (JDK) supporting Java 17 or greater.
-Thorium builds and runs correctly using any of
+Sidereal Events builds and runs correctly using any of
 
 - [Amazon Corretto 17](https://aws.amazon.com/corretto/)
 - [OpenJDK 18](https://jdk.java.net/archive/)
 - [GraalVM 21](https://www.graalvm.org/downloads/)
 
-Thorium is compiled using [Gradle](https://gradle.org), and this repository
-includes the
+Sidereal Events is compiled using [Gradle](https://gradle.org), and this
+repository includes the
 [Gradle Wrapper](https://docs.gradle.org/current/userguide/gradle_wrapper.html),
 so only a suitable JDK needs to be explicitly installed to build this project.
 
@@ -47,8 +47,8 @@ Run the server with the command
 ./gradlew run --args="serve"
 ```
 
-This will start the Thorium Server listening for HTTP connections over TCP
-port 8232. Additional command-line flags can be passed in the string
+This will start the Sidereal Events Server listening for HTTP connections
+over TCP port 8232. Additional command-line flags can be passed in the string
 argument to Gradle's `--args` argument. Run
 
 ```shell
@@ -73,11 +73,11 @@ by running
 ./gradlew jar
 ```
 
-The resulting JAR will be saved to `./thorium/build/libs/thorium.jar`,
+The resulting JAR will be saved to `./sidereal/build/libs/sidereal.jar`,
 and run directly using
 
 ```shell
-java -jar ./thorium/build/libs/thorium.jar serve
+java -jar ./sidereal/build/libs/sidereal.jar serve
 ```
 
 ## Building a native executable
@@ -108,7 +108,7 @@ with
 ```
 
 and the resulting artifact would be saved to
-`./thorium/build/native/nativeCompile/thorium`.
+`./sidereal/build/native/nativeCompile/sidereal`.
 
 Automated tests can be run against a native executable by running
 
@@ -118,7 +118,7 @@ Automated tests can be run against a native executable by running
 
 ## Licensing
 
-Thorium is available under the terms of the
+Sidereal Events is available under the terms of the
 [MIT License](https://spdx.org/licenses/MIT.html) as per the
 [LICENSE](./LICENSE) file. Other licensing information is presented
 using [SPDX License IDs](https://spdx.dev/learn/handling-license-info/)
@@ -162,14 +162,14 @@ describes the CloudEvent `datacontenttype` as `application/json`.
 
 The CloudEvent specification expects each combination of "source" and "id"
 [to be globally unique](https://github.com/cloudevents/spec/blob/4af4b7/cloudevents/spec.md#source-1).
-Thorium internally keeps track of these "source" and "id" combinations it has
-received, over a configurable time horizon with a configurable number of
-remembered events. If a producer tries to send a "source", "id" combination to
-a channel that has already received this combination, Thorium will report the
-publication as having been successful, but will not deliver the event to
-consumers. Within the constraints of the time horizon and maximum remembered
-"source", "id" combinations, this makes event publishing an idempotent
-operation.
+Sidereal Events internally keeps track of these "source" and "id" combinations
+it has  received, over a configurable time horizon with a configurable number
+of remembered events. If a producer tries to send a "source", "id" combination
+to a channel that has already received this combination, Sidereal Events will
+report the publication as having been successful, but will not deliver the
+event to consumers. Within the constraints of the time horizon and maximum
+remembered "source", "id" combinations, this makes event publishing an
+idempotent operation.
 
 Note that the same "source", "id" combination can be published to multiple
 channels. Each channel will send the data for the same "source", "id"
@@ -221,9 +221,9 @@ for CloudEvents.
 
 ### Filtering received events
 
-Thorium is designed to efficiently support deep-content filtering of its JSON
-input across thousands of connected clients, with multiple query terms as part
-of a logical disjunction of conjunctions (e.g.
+Sidereal Events is designed to efficiently support deep-content filtering of
+its JSON input across thousands of connected clients, with multiple query
+terms as part of a logical disjunction of conjunctions (e.g.
 `(a AND b AND c) OR (d AND e) OR ...`). This filtering is enabled by passing
 the terms of the filter as an HTTP query string. For example, if a consumer
 were to connect to a channel using
@@ -243,7 +243,7 @@ Content-Type: application/cloudevents-batch+json
 {
     "source": "somewhere",
     "id": "1",
-    "type": "com.example.thorium",
+    "type": "com.example.sidereal",
     "specversion": "1.0",
     "data": {
         "one": "one",
@@ -254,7 +254,7 @@ Content-Type: application/cloudevents-batch+json
 }, {
     "source": "somewhere",
     "id": "2",
-    "type": "com.example.thorium",
+    "type": "com.example.sidereal",
     "specversion": "1.0",
     "data": {
         "one": "one",
@@ -265,7 +265,7 @@ Content-Type: application/cloudevents-batch+json
 }, {
     "source": "somewhere",
     "id": "3",
-    "type": "com.example.thorium",
+    "type": "com.example.sidereal",
     "specversion": "1.0",
     "data": {
         "two": "two",
@@ -275,7 +275,7 @@ Content-Type: application/cloudevents-batch+json
 }, {
     "source": "somewhere",
     "id": "4",
-    "type": "com.example.thorium",
+    "type": "com.example.sidereal",
     "specversion": "1.0",
     "data": {
         "one": "two",
@@ -285,7 +285,7 @@ Content-Type: application/cloudevents-batch+json
 }, {
     "source": "somewhere",
     "id": "5",
-    "type": "com.example.thorium",
+    "type": "com.example.sidereal",
     "specversion": "1.0",
     "data": {
         "one": "one",
@@ -295,7 +295,7 @@ Content-Type: application/cloudevents-batch+json
 }, {
     "source": "somewhere",
     "id": "6",
-    "type": "com.example.thorium",
+    "type": "com.example.sidereal",
     "specversion": "1.0",
     "data": {
         "one": "one",
@@ -305,7 +305,7 @@ Content-Type: application/cloudevents-batch+json
 }, {
     "source": "somewhere",
     "id": "7",
-    "type": "com.example.thorium",
+    "type": "com.example.sidereal",
     "specversion": "1.0",
     "data": {
         "one": "one",
@@ -315,7 +315,7 @@ Content-Type: application/cloudevents-batch+json
 }, {
     "source": "somewhere",
     "id": "8",
-    "type": "com.example.thorium",
+    "type": "com.example.sidereal",
     "specversion": "1.0",
     "data": {
         "one": "one",
@@ -342,12 +342,12 @@ data: {"timestamp":"...","clientID":"..."}
 
 event: data
 id: somewhere+1
-data: {"source":"somewhere","id":"1","type":"com.example.thorium","specversion":"1.0","data":
+data: {"source":"somewhere","id":"1","type":"com.example.sidereal","specversion":"1.0","data":
 data: {"one":"one","two":"two","three":3,"four":"four"}}
 
 event: data
 id: somewhere+2
-data: {"source":"somewhere","id":"2","type":"com.example.thorium","specversion":"1.0","data":
+data: {"source":"somewhere","id":"2","type":"com.example.sidereal","specversion":"1.0","data":
 data: {"one":"one","two":"two","three":3,"four":"five"}}
 ```
 
@@ -425,7 +425,7 @@ As an example, to match "some", then "key" in
 {
     "source": "...",
     "id": "...",
-    "type": "com.example.thorium",
+    "type": "com.example.sidereal",
     "specversion": "1.0",
     "data": {
         "some": {
@@ -463,7 +463,7 @@ For example, the following data
 {
     "source": "...",
     "id": "...",
-    "type": "com.example.thorium",
+    "type": "com.example.sidereal",
     "specversion": "1.0",
     "data": {
         "some": {
@@ -490,7 +490,7 @@ You can mix in deeper JSON access even using array access. The following data
 {
   "source": "...",
   "id": "...",
-  "type": "com.example.thorium",
+  "type": "com.example.sidereal",
   "specversion": "1.0",
   "data": {
     "some": {
@@ -524,7 +524,7 @@ the object root. As an example, to match the CloudEvent type in
 {
     "source": "...",
     "id": "...",
-    "type": "com.example.thorium",
+    "type": "com.example.sidereal",
     "specversion": "1.0",
     "data": {
         "some": {
@@ -537,7 +537,7 @@ the object root. As an example, to match the CloudEvent type in
 you would use a query string
 
 ```
-?../type="com.example.thorium"
+?../type="com.example.sidereal"
 ```
 
 #### Query Values
@@ -549,79 +549,81 @@ with a filter operator prefix, it is assumed to be a string.
 
 ### Filter Operators
 
-Thorium supports more filters than just field equality. The following
+Sidereal Events supports more filters than just field equality. The following
 additional operators are available, but many with caveats on the number of
 operators per query.
 
 - ***Logical Not***, with a value prefix of `!`. This can be used multiple
-  times in a single query. As an example, `?../type=!"com.example.thorium"`, or
-  `..%2Ftype=%21%22com.example.thorium%22` if using strict percent-encoding.
+  times in a single query. As an example, `?../type=!"com.example.sidereal"`,
+  or `..%2Ftype=%21%22com.example.sidereal%22` if using strict
+  percent-encoding.
 - ***Array Contains***, with a value prefix of `[`. This can be used multiple
-  times in a single query. As an example, `?../type=["com.example.thorium"`, or
-  `?..%2Ftype=%5B%22com.example.thorium%22` if using strict percent-encoding.
+  times in a single query. As an example, `?../type=["com.example.sidereal"`,
+  or `?..%2Ftype=%5B%22com.example.sidereal%22` if using strict
+- percent-encoding.
 - ***Less Than***, with a value prefix of `<`. This can only be used once in a
   single query, and precludes the use of ***Less Than or Equal*** and ***Starts
   With*** operators. It may be used in conjunction with ***Greater Than or
   Equal*** and ***Greater Than*** only if these operators are used with the
-  same key. As an example, `?../type=<"com.example.thorium"`, or
-  `?..%2Ftype=%3C%22com.example.thorium%22` if using strict percent-encoding.
+  same key. As an example, `?../type=<"com.example.sidereal"`, or
+  `?..%2Ftype=%3C%22com.example.sidereal%22` if using strict percent-encoding.
 - ***Less Than or Equal***, with a value prefix of `<=`. This can only be used
   once in a single query, and precludes the use of the ***Less Than*** and
   ***Starts With*** operators. It may be used in conjunction with ***Greater
   Than or Equal*** and ***Greater Than*** only if these operators are used with
-  the same key. As an example, `?../type=<="com.example.thorium"`, or
-  `?..%2Ftype=%3C%3D%22com.example.thorium%22` if using strict
+  the same key. As an example, `?../type=<="com.example.sidereal"`, or
+  `?..%2Ftype=%3C%3D%22com.example.sidereal%22` if using strict
   percent-encoding.
 - ***Greater Than or Equal***, with a value prefix of `>=`. This can only be
   used once in a single query, and precludes the use of the ***Greater Than***
   and ***Starts With*** operators. It may be used in conjunction with ***Less
   Than*** and ***Less Than or Equal*** only if these operators are used with
-  the same key. As an example, `?../type=>="com.example.thorium"`, or
-  `?..%2Ftype=%3E%3D%22com.example.thorium%22` if using strict
+  the same key. As an example, `?../type=>="com.example.sidereal"`, or
+  `?..%2Ftype=%3E%3D%22com.example.sidereal%22` if using strict
   percent-encoding.
 - ***Greater Than***, with a value prefix of `>`. This can only be used once
   in a single query, and precludes the use of the ***Greater Than or Equal***
   and ***Starts With*** operators. It may be used in conjunction with the
   ***Less Than*** and ***Less Than or Equal*** operators only if these
   operators are used with the same key. As an example,
-  `?../type=>"com.example.thorium"`, or
-  `?..%2Ftype=%3E%22com.example.thorium%22` if using strict percent-encoding.
+  `?../type=>"com.example.sidereal"`, or
+  `?..%2Ftype=%3E%22com.example.sidereal%22` if using strict percent-encoding.
 - ***Starts With***, with a value prefix of `~`. This can only be used once in
   a single query, can only be used with string values, and precludes the use
   of the ***Less Than***, ***Less Than or Equal***, ***Greater Than or
   Equal***, and ***Greater Than*** operators. As an example,
-  `?../type=~"com.example.thorium"`, or
-  `?..%2Ftype=%7E%22com.example.thorium%22` if using strict percent-encoding.
+  `?../type=~"com.example.sidereal"`, or
+  `?..%2Ftype=%7E%22com.example.sidereal%22` if using strict percent-encoding.
 
 ## Server Configuration
 
-Thorium accepts configuration through command-line flags and environment
-variables.
+Sidereal Events accepts configuration through command-line flags and
+environment variables.
 
 - **Flag:** `--server-port`
   <br/>
-  **Environment Variable:** `THORIUM_SERVER_PORT`
+  **Environment Variable:** `SIDEREAL_SERVER_PORT`
   <br/>
   **Type:** Integer
   <br/>
   **Default Value:** 8232
 
-  Thorium will listen for HTTP connections over this TCP port.
+  Sidereal Events will listen for HTTP connections over this TCP port.
 
 - **Flag:** `--source-name`
   <br/>
-  **Environment Variable:** `THORIUM_SOURCE_NAME`
+  **Environment Variable:** `SIDEREAL_SOURCE_NAME`
   <br/>
   **Type:** String
   <br/>
-  **Default Value:** //name.djsweet.thorium
+  **Default Value:** `//name.djsweet.sidereal`
 
-  CloudEvents emitted by Thorium will use this string as the "source"
+  CloudEvents emitted by Sidereal Events will use this string as the "source"
   metadata.
 
 - **Flag:** `--log-level`
   <br/>
-  **Environment Variable:** `THORIUM_LOG_LEVEL`
+  **Environment Variable:** `SIDEREAL_LOG_LEVEL`
   <br/>
   **Type:** One of `trace`, `debug`, `info`, `warn`, or `error`
   <br/>
@@ -634,184 +636,186 @@ variables.
 
 - **Flag:** `--router-threads`
   <br/>
-  **Environment Variable:** `THORIUM_ROUTER_THREADS`
+  **Environment Variable:** `SIDEREAL_ROUTER_THREADS`
   <br/>
   **Type:** Integer
   <br/>
   **Default Value:** Number of logical CPU threads reported by the operating
   system.
 
-  Thorium will spawn this many operating system threads to route events to
-  consuming queries.
+  Sidereal Events will spawn this many operating system threads to route
+  events to consuming queries.
 
 - **Flag:** `--translator-threads`
   <br/>
-  **Environment Variable:** `THORIUM_TRANSLATOR_THREADS`
+  **Environment Variable:** `SIDEREAL_TRANSLATOR_THREADS`
   <br/>
   **Type:** Integer
   <br/>
   **Default Value:** Number of logical CPU threads reported by the operating
   system.
 
-  Thorium will spawn this many operating system threads to translate CloudEvents
-  into its internal indexing representation.
+  Sidereal Events will spawn this many operating system threads to translate
+  CloudEvents into its internal indexing representation.
 
 - **Flag:** `--web-server-threads`
   <br/>
-  **Environment Variable:** `THORIUM_WEB_SERVER_THREADS`
+  **Environment Variable:** `SIDEREAL_WEB_SERVER_THREADS`
   <br/>
   **Type:** Integer
   <br/>
   **Default Value:** Twice the number of logical CPU threads reported by the
   operating system.
 
-  Thorium will spawn this many operating system threads to service HTTP
-  requests.
+  Sidereal Events will spawn this many operating system threads to service
+  HTTP requests.
 
 - **Flag:** `--max-body-size-bytes`
   <br/>
-  **Environment Variable:** `THORIUM_MAX_BODY_SIZE_BYTES`
+  **Environment Variable:** `SIDEREAL_MAX_BODY_SIZE_BYTES`
   <br/>
   **Type:** Integer
   <br/>
   **Default Value:** 10,485,760 (10MB)
 
-  Thorium will reject HTTP bodies with a content length greater than this
-  value, sending an HTTP 413 when the request body is too large according to
-  this value.
+  Sidereal Events will reject HTTP bodies with a content length greater than
+  this value, sending an HTTP 413 when the request body is too large according
+  to this value.
 
 - **Flag:** `--max-idempotency-keys`
   <br/>
-  **Environment Variable:** `THORIUM_MAX_IDEMPOTENCY_KEYS`
+  **Environment Variable:** `SIDEREAL_MAX_IDEMPOTENCY_KEYS`
   <br/>
   **Type:** Integer
   <br/>
   **Default Value:** 1,048,576
   
-  Thorium will retain this many "source", "id" combinations in a set before
-  discarding the oldest values. Setting this value too low may cause duplicate
-  publishes of events to become non-idempotent, but setting this value too
-  high will result in excess memory usage.
+  Sidereal Events will retain this many "source", "id" combinations in a set
+  before discarding the oldest values. Setting this value too low may cause
+  duplicate publishes of events to become non-idempotent, but setting this
+  value too high will result in excess memory usage.
 
 - **Flag:** `--max-json-parsing-recursion`
   <br/>
-  **Environment Variable:** `THORIUM_MAX_JSON_PARSING_RECURSION`
+  **Environment Variable:** `SIDEREAL_MAX_JSON_PARSING_RECURSION`
   <br/>
   **Type:** Integer
   <br/>
   **Default Value:** 64
 
-  Thorium will recurse this deep when translating JSON into its internal
-  indexed representation. At nested objects deeper than the configured value,
-  Thorium will use a stack-iterative algorithm that requires heap allocation.
-  This value is chosen to trade off performance with StackOverflowError
-  exceptions. While Thorium dynamically configures itself to avoid
-  StackOverflowErrors in other areas, it is not expected for JSON documents to
-  contain thousands of levels of nesting, and thus it is left as a
-  configurable value.
+  Sidereal Events will recurse this deep when translating JSON into its
+  internal indexed representation. At nested objects deeper than the
+  configured value, Sidereal Events will use a stack-iterative algorithm that
+  requires heap allocation. This value is chosen to trade off performance with
+  StackOverflowError exceptions. While Sidereal Events dynamically configures
+  itself to avoid StackOverflowErrors in other areas, it is not expected for
+  JSON documents to contain thousands of levels of nesting, and thus it is
+  left as a configurable value.
 
 - **Flag:** `--max-outstanding-events-per-router-thread`
   <br/>
-  **Environment Variable:** `THORIUM_MAX_OUTSTANDING_EVENTS_PER_ROUTER_THREAD`
+  **Environment Variable:** `SIDEREAL_MAX_OUTSTANDING_EVENTS_PER_ROUTER_THREAD`
   <br/>
   **Type:** Integer
   <br/>
   **Default Value:** 131,072
 
-  Thorium keeps track of the number of events present "within" the system. An
-  event must be delivered to all interested consumers before it is no longer
-  tracked as being outstanding. If the number of outstanding events exceeds
-  this number multiplied by the number of routing threads, Thorium will
-  respond to producers with an HTTP 429, establishing backpressure within the
-  event routing path. The producers are expected to re-attempt the publication
-  of their events after a brief period of waiting when encountering this
-  HTTP 429.
+  Sidereal Events keeps track of the number of events present "within" the
+  system. An event must be delivered to all interested consumers before it is
+  no longer tracked as being outstanding. If the number of outstanding events
+  exceeds this number multiplied by the number of routing threads, Sidereal
+  Events will respond to producers with an HTTP 429, establishing backpressure
+  within the event routing path. The producers are expected to re-attempt the
+  publication of their events after a brief period of waiting when
+  encountering this HTTP 429.
 
 - **Flag:** `--max-query-terms`
   <br/>
-  **Environment Variable:** `THORIUM_MAX_QUERY_TERMS`
+  **Environment Variable:** `SIDEREAL_MAX_QUERY_TERMS`
   <br/>
   **Type:** Integer
   <br/>
   **Default Value:** 32
 
-  Thorium limits the number of filter terms available to consumers to prevent
-  excessively large query indices. If a client attempts to use more filters
-  than this configured value, Thorium will reply with an HTTP 400.
+  Sidereal Events limits the number of filter terms available to consumers to
+  prevent excessively large query indices. If a client attempts to use more
+  filters than this configured value, Sidereal Events will reply with an HTTP
+  \400.
 
 - **Flag:** `--body-timeout-ms`
   <br/>
-  **Environment Variable:** `THORIUM_BODY_TIMEOUT_MS`
+  **Environment Variable:** `SIDEREAL_BODY_TIMEOUT_MS`
   <br/>
   **Type:** Integer
   <br/>
   **Default Value:** 60,000
 
-  After all HTTP headers are received, Thorium will wait up to this many
-  milliseconds to receive an entire response body. If the response body is not
-  fully received within this time, Thorium will respond with an HTTP 408.
+  After all HTTP headers are received, Sidereal Events will wait up to this
+  many milliseconds to receive an entire response body. If the response body
+  is not fully received within this time, Sidereal Events will respond with
+  an HTTP 408.
 
 - **Flag:** `--idempotency-expiration-ms`
   <br/>
-  **Environment Variable:** `THORIUM_IDEMPOTENCY_EXPIRATION_MS`
+  **Environment Variable:** `SIDEREAL_IDEMPOTENCY_EXPIRATION_MS`
   <br/>
   **Type:** Integer
   <br/>
   **Default Value:** 180,000
 
-  Thorium will remove its record of a "source", "id" combination from its
-  internal tracking set after this many milliseconds. Any transmission of the
-  same "source", "id" combination after the combination is removed from the
-  tracking set will result in the data being sent to consumers.
+  Sidereal Events will remove its record of a "source", "id" combination from
+  its internal tracking set after this many milliseconds. Any transmission of
+  the same "source", "id" combination after the combination is removed from
+  the tracking set will result in the data being sent to consumers.
 
 - **Flag:** `--tcp-idle-timeout-ms`
   <br/>
-  **Environment Variable:** `THORIUM_TCP_IDLE_TIMEOUT_MS`
+  **Environment Variable:** `SIDEREAL_TCP_IDLE_TIMEOUT_MS`
   <br/>
   **Type:** Integer
   <br/>
   **Default Value:** 180,000
 
-  Thorium will close a TCP connection after this many milliseconds of no
-  activity. This prevents connections dropped without a TCP FIN or TCP RST
+  Sidereal Events will close a TCP connection after this many milliseconds of
+  no activity. This prevents connections dropped without a TCP FIN or TCP RST
   from consuming resources.
 
 ## Metrics
 
-Metric observability for Thorium is available by requesting `GET /metrics`.
-The response body follows
+Metric observability for Sidereal Events is available by requesting
+`GET /metrics`. The response body follows
 [Prometheus' Text-based format](https://prometheus.io/docs/instrumenting/exposition_formats/#text-based-format).
 
 The currently exposed metrics are
 
-- ***thorium_data_byte_budget***
+- ***sidereal_data_byte_budget***
   <br/>
   A [gauge](https://prometheus.io/docs/concepts/metric_types/#gauge)
   indicating the maximum size of any key/value pair in a query term.
   This is unlikely to change during normal execution, but may be lowered
-  automatically if Thorium encounters a StackOverflowError when routing
-  an event to consuming queries.
-- ***thorium_outstanding_events***
+  automatically if Sidereal Events encounters a StackOverflowError when
+  routing an event to consuming queries.
+- ***sidereal_outstanding_events***
   <br/>
   A [gauge](https://prometheus.io/docs/concepts/metric_types/#gauge)
-  indicating the number of events accepted by Thorium, but not yet
+  indicating the number of events accepted by Sidereal Events, but not yet
   confirmed delivered to consumers.
-- ***thorium_active_queries***
+- ***sidereal_active_queries***
   <br/>
   A [gauge](https://prometheus.io/docs/concepts/metric_types/#gauge)
   indicating the number of queries being serviced, labeled per `router`.
-- ***thorium_event_routing_seconds***
+- ***sidereal_event_routing_seconds***
   <br/>
   A [summary](https://prometheus.io/docs/concepts/metric_types/#summary),
   without quantiles, of the time (in seconds) spent routing events to
   consuming queries, labeled per `router`.
-- ***thorium_idempotency_key_cache_size***
+- ***sidereal_idempotency_key_cache_size***
   <br/>
   A [gauge](https://prometheus.io/docs/concepts/metric_types/#gauge)
   indicating the number of "source", "id" combinations saved in the
   tracking set, labeled per `router`.
-- ***thorium_json_translation_seconds***
+- ***sidereal_json_translation_seconds***
   <br/>
   A [summary](https://prometheus.io/docs/concepts/metric_types/#summary),
   without quantiles, of the time (in seconds) spent translating events into
-  Thorium's internal index representation, labeled per `translator`.
+  Sidereal Events' internal index representation, labeled per `translator`.

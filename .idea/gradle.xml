@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <!--
-SPDX-FileCopyrightText: 2023 Dani Sweet <thorium@djsweet.name>
+SPDX-FileCopyrightText: 2024 Dani Sweet <sidereal@djsweet.name>
 
 SPDX-License-Identifier: CC0-1.0
 -->
@@ -29,7 +29,7 @@ SPDX-License-Identifier: CC0-1.0
             <option value="$PROJECT_DIR$" />
             <option value="$PROJECT_DIR$/buildSrc" />
             <option value="$PROJECT_DIR$/query-tree" />
-            <option value="$PROJECT_DIR$/thorium" />
+            <option value="$PROJECT_DIR$/sidereal" />
           </set>
         </option>
       </GradleProjectSettings>

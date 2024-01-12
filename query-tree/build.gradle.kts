@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 Dani Sweet <thorium@djsweet.name>
+// SPDX-FileCopyrightText: 2023 Dani Sweet <sidereal@djsweet.name>
 //
 // SPDX-License-Identifier: MIT
 
@@ -7,7 +7,7 @@
 import kotlinx.benchmark.gradle.*
 
 plugins {
-    id("name.djsweet.thorium.kotlin-library-conventions")
+    id("name.djsweet.sidereal.kotlin-library-conventions")
     id("org.jetbrains.kotlinx.benchmark") version "0.4.7"
     // allopen is required to properly build the benchmark implementations; JMH assumes that its target classes
     // are open for inheritance, but Kotlin's default is that classes are final.
