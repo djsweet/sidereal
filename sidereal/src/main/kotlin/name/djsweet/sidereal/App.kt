@@ -40,7 +40,7 @@ internal class KvpByteBudgetCommand: CliktCommand(
     override fun run() {
         val vertx = Vertx.vertx()
         try {
-            println(name.djsweet.sidereal.maxSafeKeyValueSizeSync(vertx))
+            println(maxSafeKeyValueSizeSync(vertx))
         } finally {
             runBlocking { vertx.close().await() }
         }
@@ -63,80 +63,80 @@ internal class ServeCommand: CliktCommand(
         }
     }
 
-    private val logger = LoggerFactory.getLogger(name.djsweet.sidereal.ServeCommand::class.java)
+    private val logger = LoggerFactory.getLogger(ServeCommand::class.java)
 
     private val serverPort by option(
         help = "Listen to this TCP port",
-        envvar = "${name.djsweet.sidereal.envVarPrefix}SERVER_PORT"
-    ).int().default(name.djsweet.sidereal.GlobalConfig.Companion.defaultServerPort)
+        envvar = "${envVarPrefix}SERVER_PORT"
+    ).int().default(GlobalConfig.defaultServerPort)
 
     private val sourceName by option(
         help = "Reports this string as the 'source' for all internally generated CloudEvents",
-        envvar = "${name.djsweet.sidereal.envVarPrefix}SOURCE_NAME"
-    ).default(name.djsweet.sidereal.GlobalConfig.Companion.defaultCloudEventSource)
+        envvar = "${envVarPrefix}SOURCE_NAME"
+    ).default(GlobalConfig.defaultCloudEventSource)
 
     private val logLevel by option(
         help = "Sets the minimum logging severity",
-        envvar = "${name.djsweet.sidereal.envVarPrefix}LOG_LEVEL"
+        envvar = "${envVarPrefix}LOG_LEVEL"
     ).choice("trace", "debug", "info", "warn", "error").default("info")
 
     private val routerThreads by option(
         help = "Number of threads to use for routing events to queries. Expected to be between 1 and the number of logical processors available",
-        envvar = "${name.djsweet.sidereal.envVarPrefix}ROUTER_THREADS"
-    ).int().default(name.djsweet.sidereal.GlobalConfig.Companion.defaultRouterThreads)
+        envvar = "${envVarPrefix}ROUTER_THREADS"
+    ).int().default(GlobalConfig.defaultRouterThreads)
 
     private val translatorThreads by option(
         help = "Number of threads to use for translating ingested data into its index representation. Expected to be between 1 and the number of logical processors available",
-        envvar = "${name.djsweet.sidereal.envVarPrefix}TRANSLATOR_THREADS"
-    ).int().default(name.djsweet.sidereal.GlobalConfig.Companion.defaultTranslatorThreads)
+        envvar = "${envVarPrefix}TRANSLATOR_THREADS"
+    ).int().default(GlobalConfig.defaultTranslatorThreads)
 
     private val webServerThreads by option(
         help = "Number of threads to use for the web server. Expected to be between 1 and twice the number of logical processors available",
-        envvar = "${name.djsweet.sidereal.envVarPrefix}WEB_SERVER_THREADS"
-    ).int().default(name.djsweet.sidereal.GlobalConfig.Companion.defaultWebServerThreads)
+        envvar = "${envVarPrefix}WEB_SERVER_THREADS"
+    ).int().default(GlobalConfig.defaultWebServerThreads)
 
     private val maxBodySizeBytes by option(
         help = "Maximum size of all HTTP bodies. Any HTTP request with a body size greater than this value will result in an HTTP 413 result",
-        envvar = "${name.djsweet.sidereal.envVarPrefix}MAX_BODY_SIZE_BYTES"
-    ).int().default(name.djsweet.sidereal.GlobalConfig.Companion.defaultMaxBodySize)
+        envvar = "${envVarPrefix}MAX_BODY_SIZE_BYTES"
+    ).int().default(GlobalConfig.defaultMaxBodySize)
 
     private val maxIdempotencyKeys by option(
         help = "Maximum number of idempotency keys to store before forgetting the oldest key",
-        envvar = "${name.djsweet.sidereal.envVarPrefix}MAX_IDEMPOTENCY_KEYS"
-    ).int().default(name.djsweet.sidereal.GlobalConfig.Companion.defaultMaxIdempotencyKeys)
+        envvar = "${envVarPrefix}MAX_IDEMPOTENCY_KEYS"
+    ).int().default(GlobalConfig.defaultMaxIdempotencyKeys)
 
     private val maxJsonParsingRecursion by option(
         help = "Maximum stack recursion used by JSON parsing. This is only a performance optimization, and does not prevent deeper JSON nesting than the configured value",
-        envvar = "${name.djsweet.sidereal.envVarPrefix}MAX_JSON_PARSING_RECURSION"
-    ).int().default(name.djsweet.sidereal.GlobalConfig.Companion.defaultMaxJsonParsingRecursion)
+        envvar = "${envVarPrefix}MAX_JSON_PARSING_RECURSION"
+    ).int().default(GlobalConfig.defaultMaxJsonParsingRecursion)
 
     private val maxOutstandingEventsPerRouterThread by option(
         help = "Number of outstanding events per query thread. The global maximum is calculated by multiplying this by the number of query threads",
-        envvar = "${name.djsweet.sidereal.envVarPrefix}MAX_OUTSTANDING_EVENTS_PER_ROUTER_THREAD"
-    ).int().default(name.djsweet.sidereal.GlobalConfig.Companion.defaultMaxOutstandingEventsPerRouterThread)
+        envvar = "${envVarPrefix}MAX_OUTSTANDING_EVENTS_PER_ROUTER_THREAD"
+    ).int().default(GlobalConfig.defaultMaxOutstandingEventsPerRouterThread)
 
     private val maxQueryTerms by option(
         help = "Maximum number of terms in a query",
-        envvar = "${name.djsweet.sidereal.envVarPrefix}MAX_QUERY_TERMS"
-    ).int().default(name.djsweet.sidereal.GlobalConfig.Companion.defaultMaxQueryTerms)
+        envvar = "${envVarPrefix}MAX_QUERY_TERMS"
+    ).int().default(GlobalConfig.defaultMaxQueryTerms)
 
     private val bodyTimeoutMS by option(
         help = "Maximum time (in milliseconds) to allow for HTTP body receipt",
-        envvar = "${name.djsweet.sidereal.envVarPrefix}BODY_TIMEOUT_MS"
-    ).int().default(name.djsweet.sidereal.GlobalConfig.Companion.defaultBodyTimeoutMS)
+        envvar = "${envVarPrefix}BODY_TIMEOUT_MS"
+    ).int().default(GlobalConfig.defaultBodyTimeoutMS)
 
     private val idempotencyExpirationMS by option(
         help = "Lifetime (in milliseconds) of an idempotency key",
-        envvar = "${name.djsweet.sidereal.envVarPrefix}IDEMPOTENCY_EXPIRATION_MS"
-    ).int().default(name.djsweet.sidereal.GlobalConfig.Companion.defaultIdempotencyExpirationMS)
+        envvar = "${envVarPrefix}IDEMPOTENCY_EXPIRATION_MS"
+    ).int().default(GlobalConfig.defaultIdempotencyExpirationMS)
 
     private val tcpIdleTimeoutMS by option(
         help = "Maximum time (in milliseconds) to wait for TCP activity on an open connection",
-        envvar = "${name.djsweet.sidereal.envVarPrefix}TCP_IDLE_TIMEOUT_MS"
-    ).int().default(name.djsweet.sidereal.GlobalConfig.Companion.defaultTcpIdleTimeoutMS)
+        envvar = "${envVarPrefix}TCP_IDLE_TIMEOUT_MS"
+    ).int().default(GlobalConfig.defaultTcpIdleTimeoutMS)
 
     private fun runWithVertx(vertx: Vertx) {
-        val initialSafeKeyValueSize = name.djsweet.sidereal.maxSafeKeyValueSizeSync(vertx)
+        val initialSafeKeyValueSize = maxSafeKeyValueSizeSync(vertx)
 
         val logger = this.logger
         logger.atInfo()
@@ -147,7 +147,7 @@ internal class ServeCommand: CliktCommand(
             .log()
 
         val sharedData = vertx.sharedData()
-        val config = name.djsweet.sidereal.GlobalConfig(sharedData)
+        val config = GlobalConfig(sharedData)
         config.establishByteBudget(initialSafeKeyValueSize)
 
         config.serverPort = this.serverPort
@@ -166,18 +166,18 @@ internal class ServeCommand: CliktCommand(
         config.translatorThreads = this.translatorThreads
         config.webServerThreads = this.webServerThreads
 
-        name.djsweet.sidereal.registerMessageCodecs(vertx)
+        registerMessageCodecs(vertx)
 
         val queryThreads = config.routerThreads
-        val counters = name.djsweet.sidereal.GlobalCounterContext(queryThreads)
+        val counters = GlobalCounterContext(queryThreads)
         val meterRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
 
-        Gauge.builder(name.djsweet.sidereal.outstandingEventsCountName) { counters.getOutstandingEventCount() }
-            .description(name.djsweet.sidereal.outstandingEventsCountDescription)
+        Gauge.builder(outstandingEventsCountName) { counters.getOutstandingEventCount() }
+            .description(outstandingEventsCountDescription)
             .register(meterRegistry)
 
-        Gauge.builder(name.djsweet.sidereal.byteBudgetGaugeName) { config.byteBudget }
-            .description(name.djsweet.sidereal.byteBudgetGaugeDescription)
+        Gauge.builder(byteBudgetGaugeName) { config.byteBudget }
+            .description(byteBudgetGaugeDescription)
             .register(meterRegistry)
 
         return runBlocking {
@@ -217,11 +217,11 @@ internal class ServeCommand: CliktCommand(
 
     override fun run() {
         val rootLogger = LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME) as ch.qos.logback.classic.Logger
-        rootLogger.level = name.djsweet.sidereal.ServeCommand.Companion.logLevelFromString(this.logLevel)
+        rootLogger.level = logLevelFromString(this.logLevel)
 
         val workerPoolSize = (this.routerThreads + this.webServerThreads)
-            .coerceAtMost(name.djsweet.sidereal.availableProcessors())
-        val nonblockingPoolSize = webServerThreads.coerceAtMost(2 * name.djsweet.sidereal.availableProcessors())
+            .coerceAtMost(availableProcessors())
+        val nonblockingPoolSize = webServerThreads.coerceAtMost(2 * availableProcessors())
         val opts = VertxOptions().setWorkerPoolSize(workerPoolSize).setEventLoopPoolSize(nonblockingPoolSize)
 
         val vertx = Vertx.vertx(opts)
@@ -274,7 +274,7 @@ internal class SiderealCommand: CliktCommand(
 
     override fun run() {
         if (this.version) {
-            println(name.djsweet.sidereal.versionString)
+            println(versionString)
             System.out.flush()
             exitProcess(0)
         }
