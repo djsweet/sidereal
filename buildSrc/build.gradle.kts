@@ -8,9 +8,7 @@
 
 plugins {
     // Support convention plugins written in Kotlin. Convention plugins are build scripts in 'src/main' that automatically become available as plugins in the main build.
-    // Gradle 8.4 really wants to use version 4.1.2, but this version is not compatible with Java 21.
-    // So we'll have to ignore the warnings and use 4.2.1 instead, which is known to work correctly on Java 21.
-    id("org.gradle.kotlin.kotlin-dsl") version "4.2.1"
+    id("org.gradle.kotlin.kotlin-dsl") version "4.5.0"
 }
 
 repositories {
@@ -19,7 +17,7 @@ repositories {
     mavenCentral()
 }
 
-val kotlinVersion = "1.9.21"
+val kotlinVersion = "1.9.25"
 
 dependencies {
     implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
